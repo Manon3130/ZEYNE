@@ -1,1 +1,1 @@
-# ZEYNE
+z-app
