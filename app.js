@@ -52,6 +52,17 @@ function formatDate(dateStr) {
   return `${days[date.getDay()]} ${date.getDate()}/${date.getMonth() + 1}`;
 }
 
+function formatTaskMeta(task) {
+  const parts = [];
+  if (task.moment) {
+    parts.push(task.moment);
+  }
+  if (task.audio) {
+    parts.push(task.audio);
+  }
+  return parts.join(' • ') || '';
+}
+
 function initNavigation() {
   const navLinks = document.querySelectorAll('.nav-menu a');
   navLinks.forEach(link => {
@@ -166,18 +177,18 @@ function renderPlanifier() {
     const content = document.createElement('div');
     content.className = 'day-accordion-content';
 
+    const dateStr = getDateString(idx);
+    const tasksForDay = state.tasks[dateStr] || [];
+
     for (let i = 1; i <= 3; i++) {
+      const taskData = tasksForDay[i - 1] || { title: '', moment: '', audio: 'Aucun', status: 'planned' };
       const taskForm = document.createElement('div');
       taskForm.className = 'task-form';
       taskForm.innerHTML = `
         <strong>Tâche ${i}</strong>
         <div class="task-form-row">
           <input type="text" placeholder="Titre de la tâche" data-day="${idx}" data-task="${i - 1}" data-field="title">
-          <select data-day="${idx}" data-task="${i - 1}" data-field="moment">
-            <option value="Matin">Matin</option>
-            <option value="Après-midi">Après-midi</option>
-            <option value="Soir">Soir</option>
-          </select>
+          <input type="time" data-day="${idx}" data-task="${i - 1}" data-field="moment">
           <select data-day="${idx}" data-task="${i - 1}" data-field="audio">
             <option value="Aucun">Aucun</option>
             <option value="respiration">Respiration</option>
@@ -185,6 +196,17 @@ function renderPlanifier() {
           </select>
         </div>
       `;
+
+      const titleInput = taskForm.querySelector('input[data-field="title"]');
+      const timeInput = taskForm.querySelector('input[data-field="moment"]');
+      const audioSelect = taskForm.querySelector('select[data-field="audio"]');
+
+      titleInput.value = taskData.title || '';
+      if (typeof taskData.moment === 'string' && /^\d{2}:\d{2}$/.test(taskData.moment)) {
+        timeInput.value = taskData.moment;
+      }
+      audioSelect.value = taskData.audio || 'Aucun';
+
       content.appendChild(taskForm);
     }
 
@@ -205,9 +227,9 @@ function renderPlanifier() {
       const dateStr = getDateString(dayOffset);
       if (!state.tasks[dateStr]) {
         state.tasks[dateStr] = [
-          { title: '', moment: 'Matin', audio: 'Aucun', status: 'planned' },
-          { title: '', moment: 'Après-midi', audio: 'Aucun', status: 'planned' },
-          { title: '', moment: 'Soir', audio: 'Aucun', status: 'planned' }
+          { title: '', moment: '', audio: 'Aucun', status: 'planned' },
+          { title: '', moment: '', audio: 'Aucun', status: 'planned' },
+          { title: '', moment: '', audio: 'Aucun', status: 'planned' }
         ];
       }
     }
@@ -257,9 +279,9 @@ function renderDailyTasks() {
   const today = getToday();
   if (!state.tasks[today]) {
     state.tasks[today] = [
-      { title: 'Tâche 1', moment: 'Matin', audio: 'Aucun', status: 'planned' },
-      { title: 'Tâche 2', moment: 'Après-midi', audio: 'Aucun', status: 'planned' },
-      { title: 'Tâche 3', moment: 'Soir', audio: 'Aucun', status: 'planned' }
+      { title: '', moment: '', audio: 'Aucun', status: 'planned' },
+      { title: '', moment: '', audio: 'Aucun', status: 'planned' },
+      { title: '', moment: '', audio: 'Aucun', status: 'planned' }
     ];
   }
 
@@ -275,7 +297,7 @@ function renderDailyTasks() {
         <div class="task-number">${idx + 1}</div>
         <div class="task-info">
           <div class="task-title">${task.title || `Tâche ${idx + 1}`}</div>
-          <div class="task-meta">${task.moment} • ${task.audio}</div>
+          <div class="task-meta">${formatTaskMeta(task)}</div>
         </div>
       </div>
       <div class="task-actions">
@@ -302,9 +324,9 @@ function renderOtherDays() {
 
     if (!state.tasks[dateStr]) {
       state.tasks[dateStr] = [
-        { title: 'Tâche 1', moment: 'Matin', audio: 'Aucun', status: 'planned' },
-        { title: 'Tâche 2', moment: 'Après-midi', audio: 'Aucun', status: 'planned' },
-        { title: 'Tâche 3', moment: 'Soir', audio: 'Aucun', status: 'planned' }
+        { title: '', moment: '', audio: 'Aucun', status: 'planned' },
+        { title: '', moment: '', audio: 'Aucun', status: 'planned' },
+        { title: '', moment: '', audio: 'Aucun', status: 'planned' }
       ];
     }
 
@@ -326,7 +348,7 @@ function renderOtherDays() {
           <div class="task-number">${idx + 1}</div>
           <div class="task-info">
             <div class="task-title">${task.title || `Tâche ${idx + 1}`}</div>
-            <div class="task-meta">${task.moment} • ${task.audio}</div>
+            <div class="task-meta">${formatTaskMeta(task)}</div>
           </div>
         </div>
         <div class="task-actions">
@@ -624,9 +646,9 @@ function showReportModal(dateStr, taskIdx) {
 
     if (!state.tasks[newDate]) {
       state.tasks[newDate] = [
-        { title: 'Tâche 1', moment: 'Matin', audio: 'Aucun', status: 'planned' },
-        { title: 'Tâche 2', moment: 'Après-midi', audio: 'Aucun', status: 'planned' },
-        { title: 'Tâche 3', moment: 'Soir', audio: 'Aucun', status: 'planned' }
+        { title: '', moment: '', audio: 'Aucun', status: 'planned' },
+        { title: '', moment: '', audio: 'Aucun', status: 'planned' },
+        { title: '', moment: '', audio: 'Aucun', status: 'planned' }
       ];
     }
 
@@ -641,7 +663,7 @@ function showReportModal(dateStr, taskIdx) {
     if (dateStr === getToday()) {
       state.tasks[dateStr][taskIdx] = {
         title: '',
-        moment: 'Matin',
+        moment: '',
         audio: 'Aucun',
         status: 'planned'
       };
