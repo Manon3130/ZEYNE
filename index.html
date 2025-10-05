@@ -18,6 +18,7 @@
         <a href="#" data-view="programme">Programme</a>
         <a href="#" data-view="planifier">Planifier</a>
         <a href="#" data-view="aujourdhui" class="active">Aujourd'hui</a>
+        <a href="#" data-view="hebdo">Voir ma semaine</a>
         <a href="#" data-view="notifications">Notifications</a>
         <a href="#" data-view="vignettes">Vignettes</a>
       </nav>
@@ -99,6 +100,45 @@
           <h2>Planifier</h2>
           <div id="planifier-days"></div>
           <button class="btn btn-primary" id="save-planifier-btn">Enregistrer</button>
+        </div>
+      </section>
+
+      <section id="view-hebdo" class="view">
+        <div class="card card-weekly">
+          <div class="weekly-header">
+            <h2>Revue hebdo</h2>
+            <p class="weekly-subtitle">Synthèse des 7 derniers jours (J-6 → J)</p>
+          </div>
+          <div class="weekly-kpis">
+            <div class="weekly-kpi-card">
+              <span class="kpi-label">Jours 3/3</span>
+              <span class="kpi-value" id="weekly-full-days">0 / 7</span>
+              <span class="kpi-caption">planifiés</span>
+            </div>
+            <div class="weekly-kpi-card">
+              <span class="kpi-label">Taux de réussite</span>
+              <span class="kpi-value" id="weekly-success-rate">0%</span>
+              <span class="kpi-caption">(jours 3/3 ÷ 7)</span>
+            </div>
+            <div class="weekly-kpi-card">
+              <span class="kpi-label">Reports</span>
+              <span class="kpi-value" id="weekly-reports">0 report · Motif dominant : —</span>
+            </div>
+            <div class="weekly-kpi-card">
+              <span class="kpi-label">Streak actuel</span>
+              <span class="kpi-value" id="weekly-streak">0 jour</span>
+            </div>
+          </div>
+
+          <div class="weekly-graph-card">
+            <h3>Progression quotidienne</h3>
+            <div class="weekly-graph" id="weekly-graph"></div>
+          </div>
+
+          <div class="weekly-reco-card">
+            <h3>Recommandation</h3>
+            <p id="weekly-recommendation">Rien à signaler — continue comme ça.</p>
+          </div>
         </div>
       </section>
 
