@@ -31,10 +31,12 @@
             <div class="days-remaining">
               <span id="days-count">—</span> jours restants
             </div>
-            <div class="progress-bar-container">
+            <div class="progress-bar-container" id="global-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Progression globale des mini-tâches">
               <div class="progress-bar" id="progress-bar"></div>
             </div>
-            <div class="momentum-badge" id="momentum-badge">0/100</div>
+            <div class="momentum-ring" id="momentum-ring" aria-label="Progression des mini-tâches du jour">
+              <span class="momentum-percentage" id="momentum-percentage">0%</span>
+            </div>
             <div class="kpi-image-container">
               <img id="kpi-image-display" src="" alt="KPI" style="display:none;">
             </div>

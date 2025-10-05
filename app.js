@@ -11,7 +11,7 @@ const ENCOURAGEMENT_MESSAGES = [
 const DAYS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
 
 let state = {
-  settings: { email: '', goalTitle: '', deadlineISO: '' },
+  settings: { email: '', goalTitle: '', deadlineISO: '', startISO: '' },
   tasks: {},
   vignettes: ['', '', ''],
   kpiImage: '',
@@ -26,6 +26,7 @@ function loadState() {
       if (!state.vignettes) state.vignettes = ['', '', ''];
       if (!state.mood) state.mood = { motivation: 50, emoji: null };
       if (!state.tasks) state.tasks = {};
+      if (!state.settings.startISO) state.settings.startISO = '';
     } catch (e) {
       console.error('Error loading state:', e);
     }
@@ -44,6 +45,14 @@ function getDateString(offset = 0) {
   const date = new Date();
   date.setDate(date.getDate() + offset);
   return date.toISOString().split('T')[0];
+}
+
+function getEarliestTaskDate() {
+  if (!state.tasks) return null;
+  const taskDates = Object.keys(state.tasks).filter(Boolean);
+  if (!taskDates.length) return null;
+  taskDates.sort();
+  return taskDates[0];
 }
 
 function formatDate(dateStr) {
@@ -153,9 +162,20 @@ function renderProgramme() {
 
   const saveBtn = document.getElementById('save-programme-btn');
   saveBtn.onclick = () => {
-    state.settings.email = document.getElementById('email-input').value;
-    state.settings.goalTitle = document.getElementById('goal-input').value;
-    state.settings.deadlineISO = document.getElementById('deadline-input').value;
+    const emailValue = document.getElementById('email-input').value;
+    const goalValue = document.getElementById('goal-input').value;
+    const deadlineValue = document.getElementById('deadline-input').value;
+    const previousGoal = state.settings.goalTitle;
+    const previousDeadline = state.settings.deadlineISO;
+
+    state.settings.email = emailValue;
+    state.settings.goalTitle = goalValue;
+    state.settings.deadlineISO = deadlineValue;
+
+    if (!state.settings.startISO || previousGoal !== goalValue || previousDeadline !== deadlineValue) {
+      state.settings.startISO = getToday();
+    }
+
     saveState();
     alert('Programme enregistré !');
     showView('aujourdhui');
@@ -396,17 +416,95 @@ function renderMood() {
 }
 
 function updateMomentum() {
+  updateDailyMomentumRing();
+  updateGlobalProgressBar();
+}
+
+function updateDailyMomentumRing() {
   const today = getToday();
   if (!state.tasks[today]) return;
 
   const doneTasks = state.tasks[today].filter(t => t.status === 'done').length;
-  const momentum = Math.round((doneTasks / 3) * 100);
+  const dailyProgress = doneTasks >= 3 ? 100 : doneTasks * 30;
 
-  const badge = document.getElementById('momentum-badge');
-  badge.textContent = `${momentum}/100`;
+  const ring = document.getElementById('momentum-ring');
+  const percentage = document.getElementById('momentum-percentage');
 
+  if (ring) {
+    const angle = (dailyProgress / 100) * 360;
+    ring.style.setProperty('--progress-angle', `${angle}deg`);
+  }
+
+  if (percentage) {
+    percentage.textContent = `${dailyProgress}%`;
+  }
+}
+
+function updateGlobalProgressBar() {
   const progressBar = document.getElementById('progress-bar');
-  progressBar.style.width = `${momentum}%`;
+  const progressContainer = document.getElementById('global-progress');
+  if (!progressBar || !progressContainer) return;
+
+  const globalProgress = calculateGlobalProgressPercentage();
+  const widthValue = Math.max(0, Math.min(100, globalProgress));
+  progressBar.style.width = `${widthValue.toFixed(2)}%`;
+
+  const progressValue = Math.round(widthValue);
+  progressContainer.setAttribute('aria-valuenow', progressValue);
+  progressContainer.setAttribute('aria-valuetext', `${progressValue}% des mini-tâches complétées`);
+}
+
+function calculateGlobalProgressPercentage() {
+  const deadlineISO = state.settings.deadlineISO;
+  const storedStartISO = state.settings.startISO;
+  const fallbackStartISO = getEarliestTaskDate() || getToday();
+  const startISO = storedStartISO || fallbackStartISO;
+
+  if (!state.settings.startISO && startISO) {
+    state.settings.startISO = startISO;
+    saveState();
+  }
+
+  const startDate = new Date(startISO);
+  let deadlineDate = deadlineISO ? new Date(deadlineISO) : null;
+
+  if (deadlineDate && deadlineDate < startDate) {
+    deadlineDate = null;
+  }
+
+  let expectedTasks = 0;
+  if (deadlineDate) {
+    const diffTime = deadlineDate - startDate;
+    if (diffTime >= 0) {
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1;
+      expectedTasks = Math.max(diffDays, 1) * 3;
+    }
+  }
+
+  let completedTasks = 0;
+
+  Object.entries(state.tasks).forEach(([dateStr, tasks]) => {
+    if (!tasks) return;
+    const taskDate = new Date(dateStr);
+    if (isNaN(taskDate)) return;
+
+    if (deadlineDate) {
+      if (taskDate < startDate || taskDate > deadlineDate) return;
+    }
+
+    completedTasks += tasks.filter(task => task.status === 'done').length;
+
+    if (!deadlineDate) {
+      expectedTasks += tasks.length;
+    }
+  });
+
+  if (expectedTasks === 0) {
+    return completedTasks > 0 ? 100 : 0;
+  }
+
+  const progress = (completedTasks / expectedTasks) * 100;
+  return Math.max(0, Math.min(100, progress));
 }
 
 function checkAllTasksDone() {
