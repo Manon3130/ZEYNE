@@ -432,6 +432,26 @@ body {
   margin-top: 8px;
 }
 
+#planifier-days input,
+#planifier-days select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(234, 196, 175, 0.8);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.95rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+#planifier-days input:focus,
+#planifier-days select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(234, 196, 175, 0.25);
+}
+
 .upload-group {
   margin-bottom: 20px;
 }
