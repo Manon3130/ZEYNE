@@ -309,8 +309,9 @@ function renderDailyTasks() {
   tasksList.innerHTML = '';
 
   state.tasks[today].forEach((task, idx) => {
+    const isDone = task.status === 'done';
     const taskItem = document.createElement('div');
-    taskItem.className = `task-item${task.status === 'done' ? ' done' : ''}`;
+    taskItem.className = `task-item${isDone ? ' done' : ''}`;
 
     taskItem.innerHTML = `
       <div class="task-header">
@@ -321,11 +322,14 @@ function renderDailyTasks() {
         </div>
       </div>
       <div class="task-actions">
-        ${task.status !== 'done' ? `
-          <button class="btn btn-primary" onclick="startTask(${idx})">Commencer</button>
-          <button class="btn btn-secondary" onclick="validateTask(${idx})">✓</button>
-          <button class="btn btn-ghost" onclick="reportTask('${today}', ${idx})">Reporter</button>
-        ` : ''}
+        ${!isDone ? `<button class="btn btn-primary" onclick="startTask(${idx})">Commencer</button>` : ''}
+        <button
+          class="btn btn-validate${isDone ? ' checked' : ''}"
+          type="button"
+          aria-pressed="${isDone}"
+          onclick="toggleTaskCompletion(${idx})"
+        >Valider</button>
+        ${!isDone ? `<button class="btn btn-ghost" onclick="reportTask('${today}', ${idx})">Reporter</button>` : ''}
       </div>
     `;
 
@@ -538,9 +542,12 @@ window.startTask = function(taskIdx) {
   }
 };
 
-window.validateTask = function(taskIdx) {
+window.toggleTaskCompletion = function(taskIdx) {
   const today = getToday();
-  state.tasks[today][taskIdx].status = 'done';
+  const task = state.tasks[today][taskIdx];
+  if (!task) return;
+
+  task.status = task.status === 'done' ? 'planned' : 'done';
   saveState();
   renderDailyTasks();
   updateMomentum();
