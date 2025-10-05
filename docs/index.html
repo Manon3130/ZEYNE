@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZEYNE - Micro-tâches quotidiennes</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <div class="app-container">
+    <header class="header">
+      <div class="vignettes-container">
+        <div class="vignette" id="vignette-1"></div>
+        <div class="vignette" id="vignette-2"></div>
+        <div class="vignette" id="vignette-3"></div>
+      </div>
+      <nav class="nav-menu">
+        <a href="#" data-view="programme">Programme</a>
+        <a href="#" data-view="planifier">Planifier</a>
+        <a href="#" data-view="aujourdhui" class="active">Aujourd'hui</a>
+        <a href="#" data-view="notifications">Notifications</a>
+        <a href="#" data-view="vignettes">Vignettes</a>
+      </nav>
+    </header>
+
+    <main id="main-content">
+      <section id="view-aujourdhui" class="view active">
+        <div class="dashboard-grid">
+          <div class="card card-aujourdhui">
+            <h2>Aujourd'hui</h2>
+            <div class="days-remaining">
+              <span id="days-count">—</span> jours restants
+            </div>
+            <div class="progress-bar-container">
+              <div class="progress-bar" id="progress-bar"></div>
+            </div>
+            <div class="momentum-badge" id="momentum-badge">0/100</div>
+            <div class="kpi-image-container">
+              <img id="kpi-image-display" src="" alt="KPI" style="display:none;">
+            </div>
+          </div>
+
+          <div class="card card-daily3">
+            <h2>Daily 3 d'aujourd'hui</h2>
+            <div class="tasks-list" id="daily-tasks-list"></div>
+            <div class="encouragement-message" id="encouragement-message"></div>
+          </div>
+
+          <div class="card card-other-days">
+            <h2>Autres jours (4 prochains)</h2>
+            <div id="other-days-list"></div>
+          </div>
+
+          <div class="card card-mood">
+            <h2>Motivation & Humeur</h2>
+            <div class="motivation-slider-container">
+              <input type="range" id="motivation-slider" min="0" max="100" value="50" step="25">
+              <div class="slider-labels">
+                <span>Très bas</span>
+                <span>Bas</span>
+                <span>Moyen</span>
+                <span>Élevé</span>
+                <span>Très élevé</span>
+              </div>
+            </div>
+            <div class="emoji-selector">
+              <button class="emoji-btn" data-emoji="sad">😞</button>
+              <button class="emoji-btn" data-emoji="tired">😴</button>
+              <button class="emoji-btn" data-emoji="sick">🤒</button>
+              <button class="emoji-btn" data-emoji="happy">🙂</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-programme" class="view">
+        <div class="card card-form">
+          <h2>Programme</h2>
+          <div class="form-group">
+            <label for="email-input">Email (optionnel)</label>
+            <input type="email" id="email-input" placeholder="votre@email.com">
+          </div>
+          <div class="form-group">
+            <label for="goal-input">Objectif principal</label>
+            <input type="text" id="goal-input" placeholder="Mon objectif">
+          </div>
+          <div class="form-group">
+            <label for="deadline-input">Date butoir</label>
+            <input type="date" id="deadline-input">
+          </div>
+          <button class="btn btn-primary" id="save-programme-btn">Enregistrer</button>
+        </div>
+      </section>
+
+      <section id="view-planifier" class="view">
+        <div class="card card-form">
+          <h2>Planifier</h2>
+          <div id="planifier-days"></div>
+          <button class="btn btn-primary" id="save-planifier-btn">Enregistrer</button>
+        </div>
+      </section>
+
+      <section id="view-notifications" class="view">
+        <div class="card card-form">
+          <h2>Notifications</h2>
+          <p>Autoriser les rappels pour vos micro-tâches.</p>
+          <button class="btn btn-primary" id="enable-notifications-btn">Activer notifications</button>
+          <div id="notification-status"></div>
+        </div>
+      </section>
+
+      <section id="view-vignettes" class="view">
+        <div class="card card-form">
+          <h2>Vignettes</h2>
+          <div class="vignette-uploads">
+            <div class="upload-group">
+              <label>Vignette 1</label>
+              <input type="file" id="upload-vignette-1" accept="image/*">
+            </div>
+            <div class="upload-group">
+              <label>Vignette 2</label>
+              <input type="file" id="upload-vignette-2" accept="image/*">
+            </div>
+            <div class="upload-group">
+              <label>Vignette 3</label>
+              <input type="file" id="upload-vignette-3" accept="image/*">
+            </div>
+            <div class="upload-group">
+              <label>Image KPI</label>
+              <input type="file" id="upload-kpi" accept="image/*">
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="modal-overlay" class="modal-overlay">
+    <div class="modal-content" id="modal-content"></div>
+  </div>
+
+  <canvas id="confetti-canvas"></canvas>
+
+  <script src="app.js"></script>
+</body>
+</html>
