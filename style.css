@@ -5,6 +5,16 @@
   --muted: #EFC3C2;
   --card-bg: rgba(255, 255, 255, 0.6);
   --white: #ffffff;
+  --accent-rose: #F9D8D6;
+  --accent-peach: #F7E6D6;
+  --accent-blush: #EAC4AF;
+  --accent-lilac: #D8C8F2;
+  --accent-sky: #CDE7F5;
+  --accent-mint: #D9F2E3;
+  --accent-sun: #F5F1C3;
+  --success: #CFE8C2;
+  --success-text: #4F6F52;
+  --border-soft: rgba(234, 196, 175, 0.65);
 }
 
 * {
@@ -138,7 +148,16 @@ body {
 .progress-bar {
   height: 100%;
   width: 0;
-  background: linear-gradient(90deg, var(--primary) 0%, #f9dcc4 35%, #f7e6d6 60%, #dcd9f8 80%, #cde7f5 100%);
+  background: linear-gradient(
+    90deg,
+    var(--accent-rose) 0%,
+    var(--accent-peach) 16%,
+    var(--accent-blush) 32%,
+    var(--accent-lilac) 48%,
+    var(--accent-sky) 64%,
+    var(--accent-mint) 82%,
+    var(--accent-sun) 100%
+  );
   background-size: 200% 100%;
   animation: gradientFlow 6s ease infinite;
   transition: width 0.8s ease;
@@ -164,9 +183,13 @@ body {
   border-radius: 50%;
   background: conic-gradient(
     from -90deg,
-    var(--primary) 0deg,
-    #f9dcc4 calc(var(--progress-angle) * 0.5),
-    #dcd9f8 var(--progress-angle),
+    var(--accent-rose) 0deg,
+    var(--accent-peach) calc(var(--progress-angle) * 0.25),
+    var(--accent-blush) calc(var(--progress-angle) * 0.5),
+    var(--accent-lilac) calc(var(--progress-angle) * 0.65),
+    var(--accent-sky) calc(var(--progress-angle) * 0.8),
+    var(--accent-mint) calc(var(--progress-angle) * 0.95),
+    var(--accent-sun) var(--progress-angle),
     rgba(166, 128, 118, 0.12) var(--progress-angle),
     rgba(166, 128, 118, 0.12) 360deg
   );
@@ -300,6 +323,62 @@ body {
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.btn-validate {
+  background: linear-gradient(135deg, #ffffff 0%, rgba(247, 230, 214, 0.75) 100%);
+  color: var(--text);
+  border: 1.5px solid var(--border-soft);
+  box-shadow: 0 4px 12px rgba(234, 196, 175, 0.25);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  padding: 8px 18px;
+  transition: all 0.25s ease;
+}
+
+.btn-validate::before {
+  content: '✓';
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-soft);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  color: transparent;
+  background: transparent;
+  box-shadow: none;
+  transition: all 0.25s ease;
+}
+
+.btn-validate:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(234, 196, 175, 0.32);
+}
+
+.btn-validate.checked,
+.btn-validate[aria-pressed="true"] {
+  background: linear-gradient(135deg, rgba(207, 232, 194, 0.95) 0%, rgba(214, 242, 223, 0.9) 100%);
+  border-color: transparent;
+  color: var(--success-text);
+  box-shadow: 0 8px 18px rgba(111, 168, 133, 0.28);
+}
+
+.btn-validate.checked::before,
+.btn-validate[aria-pressed="true"]::before {
+  background: var(--white);
+  border-color: rgba(255, 255, 255, 0.6);
+  color: var(--success-text);
+  box-shadow: 0 2px 6px rgba(111, 168, 133, 0.28);
+}
+
+.btn-validate.checked:hover,
+.btn-validate[aria-pressed="true"]:hover {
+  box-shadow: 0 10px 20px rgba(111, 168, 133, 0.3);
 }
 
 .task-item.done {
