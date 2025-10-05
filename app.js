@@ -8,6 +8,31 @@ const ENCOURAGEMENT_MESSAGES = [
   'Constance +1. Demain, on recommence.'
 ];
 
+const REPORT_REASON_DETAILS = {
+  'trop-gros': {
+    label: 'Trop gros',
+    recommendation: 'Découpe en micro-blocs de 10 min + première micro-action obligatoire.'
+  },
+  'pas-clair': {
+    label: 'Pas clair',
+    recommendation: 'Reformule avec un verbe d’action + critère “fini quand…”.'
+  },
+  'pas-temps': {
+    label: 'Pas le temps',
+    recommendation: 'Protège un créneau du matin (20 min) sur 48 h.'
+  },
+  distraction: {
+    label: 'Distraction',
+    recommendation: 'Mode avion + casque 15 min avant d’ouvrir la tâche.'
+  },
+  peur: {
+    label: 'Peur / perfectionnisme',
+    recommendation: 'Autorise un brouillon “moche” de 10 min, puis itère.'
+  }
+};
+
+const DAY_LABELS_SHORT = ['di', 'lu', 'ma', 'me', 'je', 've', 'sa'];
+
 const DAYS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
 
 let state = {
@@ -15,7 +40,9 @@ let state = {
   tasks: {},
   vignettes: ['', '', ''],
   kpiImage: '',
-  mood: { motivation: 50, emoji: null }
+  mood: { motivation: 50, emoji: null },
+  reports: {},
+  microReviews: {}
 };
 
 function loadState() {
@@ -27,6 +54,8 @@ function loadState() {
       if (!state.mood) state.mood = { motivation: 50, emoji: null };
       if (!state.tasks) state.tasks = {};
       if (!state.settings.startISO) state.settings.startISO = '';
+      if (!state.reports) state.reports = {};
+      if (!state.microReviews) state.microReviews = {};
     } catch (e) {
       console.error('Error loading state:', e);
     }
@@ -72,6 +101,82 @@ function formatTaskMeta(task) {
   return parts.join(' • ') || '';
 }
 
+function getLastSevenDates() {
+  const dates = [];
+  const today = new Date();
+  for (let offset = 6; offset >= 0; offset--) {
+    const date = new Date(today);
+    date.setDate(today.getDate() - offset);
+    dates.push(date.toISOString().split('T')[0]);
+  }
+  return dates;
+}
+
+function ensureReportEntry(dateStr) {
+  if (!state.reports[dateStr]) {
+    state.reports[dateStr] = {
+      total: 0,
+      reasons: {
+        'trop-gros': 0,
+        'pas-clair': 0,
+        'pas-temps': 0,
+        distraction: 0,
+        peur: 0
+      }
+    };
+  } else if (!state.reports[dateStr].reasons) {
+    state.reports[dateStr].reasons = {
+      'trop-gros': 0,
+      'pas-clair': 0,
+      'pas-temps': 0,
+      distraction: 0,
+      peur: 0
+    };
+  }
+  if (typeof state.reports[dateStr].total !== 'number') {
+    state.reports[dateStr].total = state.reports[dateStr].total ? Number(state.reports[dateStr].total) : 0;
+  }
+}
+
+function recordReportForDate(dateStr, reasonKey) {
+  if (!reasonKey) return;
+  ensureReportEntry(dateStr);
+  state.reports[dateStr].total = (state.reports[dateStr].total || 0) + 1;
+  if (state.reports[dateStr].reasons[reasonKey] === undefined) {
+    state.reports[dateStr].reasons[reasonKey] = 0;
+  }
+  state.reports[dateStr].reasons[reasonKey] += 1;
+}
+
+function getTasksDoneCount(dateStr) {
+  const tasks = Array.isArray(state.tasks[dateStr]) ? state.tasks[dateStr] : [];
+  return tasks.filter(task => task && task.status === 'done').length;
+}
+
+function computeCurrentStreak() {
+  let streak = 0;
+  const cursor = new Date();
+
+  while (true) {
+    const cursorStr = cursor.toISOString().split('T')[0];
+    const doneCount = getTasksDoneCount(cursorStr);
+    if (doneCount < 3) {
+      break;
+    }
+    streak += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  return streak;
+}
+
+function refreshWeeklyReviewIfVisible() {
+  const weeklyView = document.getElementById('view-hebdo');
+  if (weeklyView && weeklyView.classList.contains('active')) {
+    renderWeeklyReview();
+  }
+}
+
 function initNavigation() {
   const navLinks = document.querySelectorAll('.nav-menu a');
   navLinks.forEach(link => {
@@ -99,6 +204,8 @@ function showView(viewName) {
       renderProgramme();
     } else if (viewName === 'vignettes') {
       renderVignettes();
+    } else if (viewName === 'hebdo') {
+      renderWeeklyReview();
     }
   }
 }
@@ -280,6 +387,118 @@ function renderDashboard() {
   renderMood();
   renderKPIImage();
   updateMomentum();
+}
+
+function renderWeeklyReview() {
+  const weeklyFullDaysEl = document.getElementById('weekly-full-days');
+  const weeklySuccessRateEl = document.getElementById('weekly-success-rate');
+  const weeklyReportsEl = document.getElementById('weekly-reports');
+  const weeklyStreakEl = document.getElementById('weekly-streak');
+  const weeklyGraphEl = document.getElementById('weekly-graph');
+  const weeklyRecommendationEl = document.getElementById('weekly-recommendation');
+
+  if (!weeklyFullDaysEl || !weeklySuccessRateEl || !weeklyReportsEl || !weeklyStreakEl || !weeklyGraphEl || !weeklyRecommendationEl) {
+    return;
+  }
+
+  const lastSevenDates = getLastSevenDates();
+  const weeklyData = lastSevenDates.map(dateStr => ({
+    dateStr,
+    doneCount: getTasksDoneCount(dateStr)
+  }));
+
+  const fullDays = weeklyData.filter(day => day.doneCount >= 3).length;
+  const successRate = Math.round((fullDays / 7) * 100) || 0;
+
+  weeklyFullDaysEl.textContent = `${fullDays} / 7`;
+  weeklySuccessRateEl.textContent = `${successRate}%`;
+
+  let totalReports = 0;
+  const reasonTotals = {};
+  const reasonOrder = {};
+  let orderIndex = 0;
+
+  lastSevenDates.forEach(dateStr => {
+    const reportInfo = state.reports?.[dateStr];
+    if (!reportInfo) return;
+
+    totalReports += reportInfo.total || 0;
+
+    if (!reportInfo.reasons) return;
+
+    Object.entries(reportInfo.reasons).forEach(([reasonKey, count]) => {
+      if (!count) return;
+      if (reasonTotals[reasonKey] === undefined) {
+        reasonTotals[reasonKey] = 0;
+        reasonOrder[reasonKey] = orderIndex++;
+      }
+      reasonTotals[reasonKey] += count;
+    });
+  });
+
+  let dominantReason = null;
+  let dominantCount = 0;
+
+  Object.entries(reasonTotals).forEach(([reasonKey, count]) => {
+    if (count > dominantCount) {
+      dominantCount = count;
+      dominantReason = reasonKey;
+    } else if (count === dominantCount && dominantReason !== null) {
+      if (reasonOrder[reasonKey] < reasonOrder[dominantReason]) {
+        dominantReason = reasonKey;
+      }
+    } else if (dominantReason === null) {
+      dominantReason = reasonKey;
+      dominantCount = count;
+    }
+  });
+
+  if (totalReports > 0) {
+    if (dominantReason) {
+      const reasonLabel = REPORT_REASON_DETAILS[dominantReason]?.label || dominantReason;
+      weeklyReportsEl.textContent = `${totalReports} report${totalReports > 1 ? 's' : ''} · Motif dominant : ${reasonLabel}`;
+    } else {
+      weeklyReportsEl.textContent = `${totalReports} report${totalReports > 1 ? 's' : ''} · Motif dominant : —`;
+    }
+  } else {
+    weeklyReportsEl.textContent = '0 report · Motif dominant : —';
+  }
+
+  const streak = computeCurrentStreak();
+  weeklyStreakEl.textContent = `${streak} jour${streak > 1 ? 's' : ''}`;
+
+  weeklyGraphEl.innerHTML = '';
+  weeklyData.forEach(({ dateStr, doneCount }) => {
+    const column = document.createElement('div');
+    column.className = 'weekly-graph-column';
+
+    const countLabel = document.createElement('span');
+    countLabel.className = 'weekly-graph-count';
+    countLabel.textContent = doneCount;
+
+    const bar = document.createElement('div');
+    bar.className = 'weekly-graph-bar';
+    const percent = Math.min(100, Math.max(0, Math.round((doneCount / 3) * 100)));
+    bar.style.height = `${percent}%`;
+    bar.title = `${doneCount}/3 tâches accomplies`; // tooltip
+
+    const dayLabel = document.createElement('span');
+    dayLabel.className = 'weekly-graph-day';
+    const date = new Date(dateStr);
+    dayLabel.textContent = DAY_LABELS_SHORT[date.getDay()] || '';
+
+    column.appendChild(countLabel);
+    column.appendChild(bar);
+    column.appendChild(dayLabel);
+    weeklyGraphEl.appendChild(column);
+  });
+
+  let recommendationText = 'Rien à signaler — continue comme ça.';
+  if (totalReports > 0 && dominantReason && REPORT_REASON_DETAILS[dominantReason]) {
+    recommendationText = REPORT_REASON_DETAILS[dominantReason].recommendation;
+  }
+
+  weeklyRecommendationEl.textContent = recommendationText;
 }
 
 function renderDaysRemaining() {
@@ -551,6 +770,7 @@ window.toggleTaskCompletion = function(taskIdx) {
   saveState();
   renderDailyTasks();
   updateMomentum();
+  refreshWeeklyReviewIfVisible();
 };
 
 window.reportTask = function(dateStr, taskIdx) {
@@ -685,6 +905,19 @@ function showTimerModal(taskIdx) {
 
   finishBtn.onclick = () => {
     if (timerInterval) clearInterval(timerInterval);
+    const reviewValue = document.getElementById('micro-review-input')?.value?.trim();
+    if (reviewValue) {
+      const today = getToday();
+      if (!Array.isArray(state.microReviews[today])) {
+        state.microReviews[today] = [];
+      }
+      state.microReviews[today].push({
+        text: reviewValue,
+        recordedAt: new Date().toISOString()
+      });
+      saveState();
+      refreshWeeklyReviewIfVisible();
+    }
     closeModal();
   };
 }
@@ -740,6 +973,11 @@ function showReportModal(dateStr, taskIdx) {
   const reasonInputs = document.querySelectorAll('input[name="reason"]');
   const micropasInput = document.getElementById('micropas-input');
 
+  const defaultReasonInput = document.getElementById(`reason-${reasons[0].value}`);
+  if (defaultReasonInput) {
+    defaultReasonInput.checked = true;
+  }
+
   reasonInputs.forEach(input => {
     input.onchange = () => {
       micropasInput.value = input.getAttribute('data-micropas');
@@ -748,6 +986,8 @@ function showReportModal(dateStr, taskIdx) {
 
   document.getElementById('save-report-btn').onclick = () => {
     const newDate = document.getElementById('report-date-input').value;
+    const selectedReason = document.querySelector('input[name="reason"]:checked');
+    const reasonValue = selectedReason ? selectedReason.value : reasons[0].value;
 
     if (!state.tasks[newDate]) {
       state.tasks[newDate] = [
@@ -774,9 +1014,11 @@ function showReportModal(dateStr, taskIdx) {
       };
     }
 
+    recordReportForDate(newDate, reasonValue);
     saveState();
     closeModal();
     renderDashboard();
+    refreshWeeklyReviewIfVisible();
     alert('Tâche reportée !');
   };
 }
