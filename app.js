@@ -35,6 +35,69 @@ const DAY_LABELS_SHORT = ['di', 'lu', 'ma', 'me', 'je', 've', 'sa'];
 
 const DAYS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
 
+const TEMPLATE_LIBRARY = [
+  {
+    id: 'revision-examen',
+    name: 'Révision examen',
+    description: 'Routine de révision quotidienne pour consolider le cours.',
+    duration: '2h/j',
+    ritual: 'Respiration',
+    tasks: [
+      { title: 'Relire chapitre X', moment: 'Matin', audio: 'respiration' },
+      { title: 'Fiches / questions clés', moment: 'Après-midi', audio: 'respiration' },
+      { title: 'Quiz 20’', moment: 'Soir', audio: 'respiration' }
+    ]
+  },
+  {
+    id: 'creation-contenu',
+    name: 'Création contenu IG',
+    description: 'Préparez, tournez et publiez en 3 micro-tâches.',
+    duration: '60–90 min/j',
+    ritual: 'Étirements',
+    tasks: [
+      { title: 'Idées + accroches', moment: 'Après-midi', audio: 'étirements' },
+      { title: 'Tourner 1 séquence', moment: 'Fin de journée', audio: 'étirements' },
+      { title: 'Montage / légende 20’', moment: 'Soir', audio: 'étirements' }
+    ]
+  },
+  {
+    id: 'sport-doux',
+    name: 'Sport doux',
+    description: 'Un rituel mouvement léger et progressif.',
+    duration: '30–40 min/j',
+    ritual: 'Étirements',
+    tasks: [
+      { title: 'Échauffement 10’', moment: 'Matin', audio: 'étirements' },
+      { title: 'Session 15–20’', moment: 'Matin', audio: 'étirements' },
+      { title: 'Retour au calme 5–10’', moment: 'Soir', audio: 'étirements' }
+    ]
+  },
+  {
+    id: 'desencombrement',
+    name: 'Désencombrement',
+    description: 'Libérez de l’espace avec trois micro-actions ciblées.',
+    duration: '30 min/j',
+    ritual: 'Respiration',
+    tasks: [
+      { title: 'Zone 10’', moment: 'Matin', audio: 'respiration' },
+      { title: 'Trier / décider 10’', moment: 'Après-midi', audio: 'respiration' },
+      { title: 'Sortie (jeter/donner) 10’', moment: 'Soir', audio: 'respiration' }
+    ]
+  },
+  {
+    id: 'projet-pitch',
+    name: 'Projet pro — Pitch',
+    description: 'Structurez et peaufinez votre pitch en 7 jours.',
+    duration: '45–60 min/j',
+    ritual: 'Respiration',
+    tasks: [
+      { title: 'Brainstorm 10’', moment: 'Matin', audio: 'respiration' },
+      { title: 'Plan / squelette 15’', moment: 'Après-midi', audio: 'respiration' },
+      { title: 'Rédaction 15–30’', moment: 'Soir', audio: 'respiration' }
+    ]
+  }
+];
+
 let state = {
   settings: { email: '', goalTitle: '', deadlineISO: '', startISO: '' },
   tasks: {},
@@ -44,6 +107,8 @@ let state = {
   reports: {},
   microReviews: {}
 };
+
+let lastTemplateApplication = null;
 
 function loadState() {
   const saved = localStorage.getItem(STORAGE_KEY);
@@ -76,6 +141,81 @@ function getDateString(offset = 0) {
   return date.toISOString().split('T')[0];
 }
 
+function getNextMondayDate() {
+  const date = new Date();
+  const day = date.getDay();
+  const daysUntilNextMonday = ((8 - day) % 7) || 7;
+  date.setDate(date.getDate() + daysUntilNextMonday);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function getStartDateForPeriod(period) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (period === 'next-week') {
+    return getNextMondayDate();
+  }
+  return today;
+}
+
+function createEmptyTask() {
+  return { title: '', moment: '', audio: 'Aucun', status: 'planned' };
+}
+
+function normalizeAudioValue(audioValue) {
+  if (!audioValue) return 'Aucun';
+  const lower = audioValue.toString().toLowerCase();
+  if (lower === 'respiration') return 'respiration';
+  if (lower === 'étirements' || lower === 'etirements') return 'étirements';
+  if (lower === 'aucun') return 'Aucun';
+  return audioValue;
+}
+
+function ensureTasksForDate(dateStr) {
+  if (!state.tasks[dateStr]) {
+    state.tasks[dateStr] = [createEmptyTask(), createEmptyTask(), createEmptyTask()];
+    return;
+  }
+
+  for (let i = 0; i < 3; i++) {
+    if (!state.tasks[dateStr][i]) {
+      state.tasks[dateStr][i] = createEmptyTask();
+    } else {
+      const task = state.tasks[dateStr][i];
+      if (task.title === undefined) task.title = '';
+      if (task.moment === undefined) task.moment = '';
+      task.audio = normalizeAudioValue(task.audio);
+      if (!task.status) task.status = 'planned';
+    }
+  }
+}
+
+function cloneTask(task) {
+  return task ? { ...task } : createEmptyTask();
+}
+
+function isTaskEmpty(task) {
+  if (!task) return true;
+  const title = (task.title || '').trim();
+  const moment = (task.moment || '').trim();
+  const audio = normalizeAudioValue(task.audio);
+  return !title && !moment && (audio === 'Aucun' || !audio);
+}
+
+function formatAudioLabel(audioValue) {
+  if (!audioValue || audioValue === 'Aucun') return '';
+  const lower = audioValue.toString().toLowerCase();
+  if (lower === 'respiration') return 'Respiration';
+  if (lower === 'étirements' || lower === 'etirements') return 'Étirements';
+  return audioValue;
+}
+
+function formatCount(value, singular, plural) {
+  const normalized = Number(value) || 0;
+  return `${normalized} ${normalized > 1 ? plural : singular}`;
+}
+
 function getEarliestTaskDate() {
   if (!state.tasks) return null;
   const taskDates = Object.keys(state.tasks).filter(Boolean);
@@ -95,8 +235,9 @@ function formatTaskMeta(task) {
   if (task.moment) {
     parts.push(task.moment);
   }
-  if (task.audio) {
-    parts.push(task.audio);
+  const audioLabel = formatAudioLabel(task.audio);
+  if (audioLabel) {
+    parts.push(audioLabel);
   }
   return parts.join(' • ') || '';
 }
@@ -291,31 +432,45 @@ function renderProgramme() {
 
 function renderPlanifier() {
   const container = document.getElementById('planifier-days');
+  if (!container) return;
+
+  setPlanifierTabsMode('editor');
+
+  const templateTabBtn = document.getElementById('planifier-template-tab');
+  if (templateTabBtn) {
+    templateTabBtn.onclick = () => {
+      openTemplateLibrary();
+    };
+  }
+
   container.innerHTML = '';
 
   DAYS.forEach((day, idx) => {
     const accordion = document.createElement('div');
     accordion.className = 'day-accordion';
 
+    const dateStr = getDateString(idx);
+    ensureTasksForDate(dateStr);
+    const formattedDate = formatDate(dateStr);
+
     const header = document.createElement('div');
     header.className = 'day-accordion-header';
-    header.innerHTML = `<span>${day}</span><span>▼</span>`;
+    header.innerHTML = `<span>${day} · ${formattedDate}</span><span>▼</span>`;
 
     const content = document.createElement('div');
     content.className = 'day-accordion-content';
 
-    const dateStr = getDateString(idx);
     const tasksForDay = state.tasks[dateStr] || [];
 
     for (let i = 1; i <= 3; i++) {
-      const taskData = tasksForDay[i - 1] || { title: '', moment: '', audio: 'Aucun', status: 'planned' };
+      const taskData = tasksForDay[i - 1] ? { ...tasksForDay[i - 1] } : createEmptyTask();
       const taskForm = document.createElement('div');
       taskForm.className = 'task-form';
       taskForm.innerHTML = `
         <strong>Tâche ${i}</strong>
         <div class="task-form-row">
           <input type="text" placeholder="Titre de la tâche" data-day="${idx}" data-task="${i - 1}" data-field="title">
-          <input type="time" data-day="${idx}" data-task="${i - 1}" data-field="moment">
+          <input type="text" placeholder="Moment (Matin, 14:00…)" data-day="${idx}" data-task="${i - 1}" data-field="moment">
           <select data-day="${idx}" data-task="${i - 1}" data-field="audio">
             <option value="Aucun">Aucun</option>
             <option value="respiration">Respiration</option>
@@ -325,14 +480,12 @@ function renderPlanifier() {
       `;
 
       const titleInput = taskForm.querySelector('input[data-field="title"]');
-      const timeInput = taskForm.querySelector('input[data-field="moment"]');
+      const momentInput = taskForm.querySelector('input[data-field="moment"]');
       const audioSelect = taskForm.querySelector('select[data-field="audio"]');
 
       titleInput.value = taskData.title || '';
-      if (typeof taskData.moment === 'string' && /^\d{2}:\d{2}$/.test(taskData.moment)) {
-        timeInput.value = taskData.moment;
-      }
-      audioSelect.value = taskData.audio || 'Aucun';
+      momentInput.value = taskData.moment || '';
+      audioSelect.value = normalizeAudioValue(taskData.audio || 'Aucun');
 
       content.appendChild(taskForm);
     }
@@ -347,37 +500,465 @@ function renderPlanifier() {
   });
 
   const saveBtn = document.getElementById('save-planifier-btn');
-  saveBtn.onclick = () => {
-    const inputs = document.querySelectorAll('#planifier-days input, #planifier-days select');
+  if (saveBtn) {
+    saveBtn.onclick = () => {
+      const inputs = document.querySelectorAll('#planifier-days input[data-day], #planifier-days select[data-day]');
 
-    for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
-      const dateStr = getDateString(dayOffset);
-      if (!state.tasks[dateStr]) {
-        state.tasks[dateStr] = [
-          { title: '', moment: '', audio: 'Aucun', status: 'planned' },
-          { title: '', moment: '', audio: 'Aucun', status: 'planned' },
-          { title: '', moment: '', audio: 'Aucun', status: 'planned' }
-        ];
+      for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+        const dateStr = getDateString(dayOffset);
+        ensureTasksForDate(dateStr);
       }
-    }
 
-    inputs.forEach(input => {
-      const dayIdx = parseInt(input.getAttribute('data-day'));
-      const taskIdx = parseInt(input.getAttribute('data-task'));
-      const field = input.getAttribute('data-field');
+      inputs.forEach(input => {
+        const dayIdx = parseInt(input.getAttribute('data-day'), 10);
+        const taskIdx = parseInt(input.getAttribute('data-task'), 10);
+        const field = input.getAttribute('data-field');
 
-      if (dayIdx !== null && taskIdx !== null && field) {
+        if (Number.isNaN(dayIdx) || Number.isNaN(taskIdx) || !field) return;
+
         const dateStr = getDateString(dayIdx);
-        if (state.tasks[dateStr] && state.tasks[dateStr][taskIdx]) {
-          state.tasks[dateStr][taskIdx][field] = input.value;
+        if (!state.tasks[dateStr] || !state.tasks[dateStr][taskIdx]) return;
+
+        if (field === 'audio') {
+          state.tasks[dateStr][taskIdx][field] = normalizeAudioValue(input.value);
+        } else {
+          state.tasks[dateStr][taskIdx][field] = input.value.trim();
+        }
+      });
+
+      saveState();
+      alert('Planification enregistrée !');
+      showView('aujourdhui');
+    };
+  }
+}
+
+function setPlanifierTabsMode(mode) {
+  const editorTab = document.getElementById('planifier-editor-tab');
+  const templateTab = document.getElementById('planifier-template-tab');
+  if (!editorTab || !templateTab) return;
+
+  if (mode === 'templates') {
+    editorTab.classList.remove('planifier-tab-active');
+    editorTab.setAttribute('aria-selected', 'false');
+    templateTab.classList.add('planifier-tab-active');
+    templateTab.setAttribute('aria-selected', 'true');
+  } else {
+    editorTab.classList.add('planifier-tab-active');
+    editorTab.setAttribute('aria-selected', 'true');
+    templateTab.classList.remove('planifier-tab-active');
+    templateTab.setAttribute('aria-selected', 'false');
+  }
+}
+
+function getTemplateById(templateId) {
+  return TEMPLATE_LIBRARY.find(t => t.id === templateId);
+}
+
+function resolveTemplateApplication(template, period, conflict) {
+  const startDate = getStartDateForPeriod(period);
+  const dates = [];
+  const assignments = [];
+  let daysUpdated = 0;
+  let replaced = 0;
+  let preserved = 0;
+
+  for (let offset = 0; offset < 7; offset++) {
+    const currentDate = new Date(startDate);
+    currentDate.setDate(startDate.getDate() + offset);
+    const dateStr = currentDate.toISOString().split('T')[0];
+    dates.push(dateStr);
+
+    const existingTasks = state.tasks[dateStr]
+      ? state.tasks[dateStr].map(cloneTask)
+      : [createEmptyTask(), createEmptyTask(), createEmptyTask()];
+
+    const slots = [];
+    let dayWillChange = false;
+
+    template.tasks.slice(0, 3).forEach((templateTask, taskIdx) => {
+      const existing = existingTasks[taskIdx] || createEmptyTask();
+      let applyTask = false;
+
+      if (existing.status === 'done') {
+        preserved += 1;
+      } else if (conflict === 'fill-empty') {
+        if (isTaskEmpty(existing)) {
+          applyTask = true;
+        } else {
+          preserved += 1;
+        }
+      } else {
+        applyTask = true;
+        if (!isTaskEmpty(existing)) {
+          replaced += 1;
         }
       }
+
+      if (applyTask) {
+        dayWillChange = true;
+      }
+
+      slots.push({
+        apply: applyTask,
+        templateTask,
+        taskIdx
+      });
     });
 
-    saveState();
-    alert('Planification enregistrée !');
-    showView('aujourdhui');
+    if (dayWillChange) {
+      daysUpdated += 1;
+    }
+
+    assignments.push({ date: dateStr, slots });
+  }
+
+  return {
+    dates,
+    assignments,
+    stats: {
+      daysUpdated,
+      replaced,
+      preserved
+    }
   };
+}
+
+function openTemplateLibrary() {
+  const modal = document.getElementById('modal-overlay');
+  const content = document.getElementById('modal-content');
+  if (!modal || !content) return;
+
+  setPlanifierTabsMode('templates');
+  content.classList.remove('template-wide');
+
+  content.innerHTML = `
+    <div class="template-library">
+      <div class="template-library-header">
+        <h3>Templates</h3>
+        <p>Accélérez votre démarrage avec des routines prêtes en 3 micro-tâches par jour.</p>
+      </div>
+      <div class="template-library-grid">
+        ${TEMPLATE_LIBRARY.map(template => `
+          <div class="template-card" data-template-id="${template.id}">
+            <h4>${template.name}</h4>
+            <p>${template.description}</p>
+            <div class="template-meta">
+              <span class="template-badge">🕒 ${template.duration}</span>
+              <span class="template-badge">✨ ${template.ritual}</span>
+            </div>
+            <div class="template-actions">
+              <button class="btn btn-secondary" data-action="preview" data-template="${template.id}">Prévisualiser</button>
+              <button class="btn btn-primary" data-action="apply" data-template="${template.id}">Appliquer</button>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+
+  modal.classList.add('show');
+
+  content.querySelectorAll('[data-action="preview"]').forEach(btn => {
+    btn.onclick = () => {
+      const template = getTemplateById(btn.getAttribute('data-template'));
+      if (template) {
+        showTemplatePreview(template);
+      }
+    };
+  });
+
+  content.querySelectorAll('[data-action="apply"]').forEach(btn => {
+    btn.onclick = () => {
+      const template = getTemplateById(btn.getAttribute('data-template'));
+      if (template) {
+        showTemplateApply(template);
+      }
+    };
+  });
+}
+
+function showTemplatePreview(template) {
+  const modal = document.getElementById('modal-overlay');
+  const content = document.getElementById('modal-content');
+  if (!modal || !content) return;
+
+  setPlanifierTabsMode('templates');
+  content.classList.add('template-wide');
+
+  const baseDate = new Date();
+  baseDate.setHours(0, 0, 0, 0);
+  const previewDays = Array.from({ length: 7 }).map((_, idx) => {
+    const date = new Date(baseDate);
+    date.setDate(baseDate.getDate() + idx);
+    const dateStr = date.toISOString().split('T')[0];
+    return {
+      label: idx === 0 ? 'J' : `J+${idx}`,
+      formatted: formatDate(dateStr)
+    };
+  });
+
+  content.innerHTML = `
+    <div class="template-preview">
+      <div class="template-preview-header">
+        <h3>${template.name}</h3>
+        <p>${template.description}</p>
+        <div class="template-meta">
+          <span class="template-badge">🕒 ${template.duration}</span>
+          <span class="template-badge">✨ Rituel : ${template.ritual}</span>
+        </div>
+      </div>
+      <div class="template-preview-grid">
+        ${previewDays.map(day => `
+          <div class="preview-day">
+            <div class="preview-day-header">
+              <strong>${day.label} · ${day.formatted}</strong>
+              <span class="preview-day-ritual">Rituel : ${template.ritual}</span>
+            </div>
+            ${template.tasks.slice(0, 3).map(task => `
+              <div class="preview-task">
+                <strong>${task.moment}</strong>
+                <span>${task.title}</span>
+              </div>
+            `).join('')}
+          </div>
+        `).join('')}
+      </div>
+      <div class="template-preview-footer">
+        <button class="btn btn-secondary" id="template-preview-back">Retour</button>
+        <button class="btn btn-primary" id="template-preview-apply">Appliquer</button>
+      </div>
+    </div>
+  `;
+
+  modal.classList.add('show');
+
+  const backBtn = content.querySelector('#template-preview-back');
+  const applyBtn = content.querySelector('#template-preview-apply');
+
+  if (backBtn) {
+    backBtn.onclick = () => openTemplateLibrary();
+  }
+
+  if (applyBtn) {
+    applyBtn.onclick = () => showTemplateApply(template);
+  }
+}
+
+function showTemplateApply(template) {
+  const modal = document.getElementById('modal-overlay');
+  const content = document.getElementById('modal-content');
+  if (!modal || !content) return;
+
+  setPlanifierTabsMode('templates');
+  content.classList.remove('template-wide');
+
+  content.innerHTML = `
+    <div class="template-apply">
+      <h3>Appliquer « ${template.name} »</h3>
+      <div class="template-apply-options">
+        <div>
+          <h4>Période</h4>
+          <div class="template-radio-group">
+            <label class="template-radio-option">
+              <input type="radio" name="template-period" value="this-week" checked>
+              <span>Cette semaine (dès aujourd'hui)</span>
+            </label>
+            <label class="template-radio-option">
+              <input type="radio" name="template-period" value="next-week">
+              <span>Semaine prochaine (à partir de lundi)</span>
+            </label>
+          </div>
+        </div>
+        <div>
+          <h4>Conflits</h4>
+          <div class="template-radio-group">
+            <label class="template-radio-option">
+              <input type="radio" name="template-conflict" value="replace" checked>
+              <span>Remplacer les micro-tâches planifiées (hors tâches validées)</span>
+            </label>
+            <label class="template-radio-option">
+              <input type="radio" name="template-conflict" value="fill-empty">
+              <span>Compléter uniquement les cases vides</span>
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="template-summary" id="template-summary"></div>
+      <div class="modal-buttons">
+        <button class="btn btn-secondary" id="template-back-btn">Retour</button>
+        <button class="btn btn-primary" id="template-confirm-btn">Confirmer</button>
+      </div>
+    </div>
+  `;
+
+  modal.classList.add('show');
+
+  const summaryEl = content.querySelector('#template-summary');
+  const confirmBtn = content.querySelector('#template-confirm-btn');
+  const backBtn = content.querySelector('#template-back-btn');
+
+  let currentPlan = resolveTemplateApplication(template, 'this-week', 'replace');
+
+  function updateSummary() {
+    const periodInput = content.querySelector('input[name="template-period"]:checked');
+    const conflictInput = content.querySelector('input[name="template-conflict"]:checked');
+    const period = periodInput ? periodInput.value : 'this-week';
+    const conflict = conflictInput ? conflictInput.value : 'replace';
+
+    currentPlan = resolveTemplateApplication(template, period, conflict);
+    const { daysUpdated, replaced, preserved } = currentPlan.stats;
+
+    summaryEl.innerHTML = `
+      <strong>Récapitulatif</strong>
+      <span>${formatCount(daysUpdated, 'jour mis à jour', 'jours mis à jour')}</span>
+      <span>${formatCount(replaced, 'tâche remplacée', 'tâches remplacées')}</span>
+      <span>${formatCount(preserved, 'tâche conservée', 'tâches conservées')}</span>
+    `;
+
+    if (confirmBtn) {
+      confirmBtn.disabled = daysUpdated === 0;
+    }
+  }
+
+  content.querySelectorAll('input[name="template-period"]').forEach(input => {
+    input.onchange = updateSummary;
+  });
+
+  content.querySelectorAll('input[name="template-conflict"]').forEach(input => {
+    input.onchange = updateSummary;
+  });
+
+  if (backBtn) {
+    backBtn.onclick = () => openTemplateLibrary();
+  }
+
+  if (confirmBtn) {
+    confirmBtn.onclick = () => {
+      if (!currentPlan || currentPlan.stats.daysUpdated === 0) return;
+      applyTemplatePlan(template, currentPlan);
+    };
+  }
+
+  updateSummary();
+}
+
+function applyTemplatePlan(template, plan) {
+  const previousState = {};
+
+  plan.dates.forEach(dateStr => {
+    previousState[dateStr] = state.tasks[dateStr]
+      ? state.tasks[dateStr].map(cloneTask)
+      : null;
+  });
+
+  plan.assignments.forEach(({ date, slots }) => {
+    ensureTasksForDate(date);
+
+    slots.forEach(({ apply, templateTask, taskIdx }) => {
+      if (apply) {
+        state.tasks[date][taskIdx] = {
+          title: templateTask.title,
+          moment: templateTask.moment,
+          audio: normalizeAudioValue(templateTask.audio || 'Aucun'),
+          status: 'planned'
+        };
+      }
+    });
+  });
+
+  lastTemplateApplication = {
+    dates: plan.dates,
+    previousState
+  };
+
+  saveState();
+  renderPlanifier();
+  renderDashboard();
+  refreshWeeklyReviewIfVisible();
+  showTemplateAppliedMessage(template, plan.stats);
+}
+
+function showTemplateAppliedMessage(template, stats) {
+  const modal = document.getElementById('modal-overlay');
+  const content = document.getElementById('modal-content');
+  if (!modal || !content) return;
+
+  setPlanifierTabsMode('templates');
+  content.classList.remove('template-wide');
+
+  content.innerHTML = `
+    <div class="template-applied">
+      <h3>${template.name} appliqué</h3>
+      <p>Vos micro-tâches sont planifiées pour la période choisie.</p>
+      <div class="stats">
+        <span>${formatCount(stats.daysUpdated, 'jour mis à jour', 'jours mis à jour')}</span>
+        <span>${formatCount(stats.replaced, 'tâche remplacée', 'tâches remplacées')}</span>
+        <span>${formatCount(stats.preserved, 'tâche conservée', 'tâches conservées')}</span>
+      </div>
+      <div class="modal-buttons">
+        <button class="btn btn-secondary" id="template-close-btn">Fermer</button>
+        <button class="btn btn-primary" id="template-undo-btn">Annuler l’application</button>
+      </div>
+    </div>
+  `;
+
+  modal.classList.add('show');
+
+  const closeBtn = content.querySelector('#template-close-btn');
+  const undoBtn = content.querySelector('#template-undo-btn');
+
+  if (closeBtn) {
+    closeBtn.onclick = () => closeModal();
+  }
+
+  if (undoBtn) {
+    undoBtn.onclick = () => undoLastTemplateApplication();
+  }
+}
+
+function undoLastTemplateApplication() {
+  const modal = document.getElementById('modal-overlay');
+  const content = document.getElementById('modal-content');
+  if (!lastTemplateApplication || !modal || !content) {
+    closeModal();
+    return;
+  }
+
+  lastTemplateApplication.dates.forEach(dateStr => {
+    const previous = lastTemplateApplication.previousState[dateStr];
+    if (previous === null) {
+      delete state.tasks[dateStr];
+    } else {
+      state.tasks[dateStr] = previous.map(cloneTask);
+    }
+  });
+
+  lastTemplateApplication = null;
+
+  saveState();
+  renderPlanifier();
+  renderDashboard();
+  refreshWeeklyReviewIfVisible();
+
+  setPlanifierTabsMode('templates');
+  content.classList.remove('template-wide');
+  content.innerHTML = `
+    <div class="template-applied">
+      <h3>Application annulée</h3>
+      <p>La période a été restaurée comme avant le template.</p>
+      <div class="modal-buttons">
+        <button class="btn btn-primary" id="template-undo-close-btn">Fermer</button>
+      </div>
+    </div>
+  `;
+
+  modal.classList.add('show');
+
+  const closeBtn = content.querySelector('#template-undo-close-btn');
+  if (closeBtn) {
+    closeBtn.onclick = () => closeModal();
+  }
 }
 
 function renderDashboard() {
@@ -516,13 +1097,7 @@ function renderDaysRemaining() {
 
 function renderDailyTasks() {
   const today = getToday();
-  if (!state.tasks[today]) {
-    state.tasks[today] = [
-      { title: '', moment: '', audio: 'Aucun', status: 'planned' },
-      { title: '', moment: '', audio: 'Aucun', status: 'planned' },
-      { title: '', moment: '', audio: 'Aucun', status: 'planned' }
-    ];
-  }
+  ensureTasksForDate(today);
 
   const tasksList = document.getElementById('daily-tasks-list');
   tasksList.innerHTML = '';
@@ -564,14 +1139,7 @@ function renderOtherDays() {
 
   for (let i = 1; i <= 4; i++) {
     const dateStr = getDateString(i);
-
-    if (!state.tasks[dateStr]) {
-      state.tasks[dateStr] = [
-        { title: '', moment: '', audio: 'Aucun', status: 'planned' },
-        { title: '', moment: '', audio: 'Aucun', status: 'planned' },
-        { title: '', moment: '', audio: 'Aucun', status: 'planned' }
-      ];
-    }
+    ensureTasksForDate(dateStr);
 
     const dayToggle = document.createElement('div');
     dayToggle.className = 'day-toggle';
@@ -989,15 +1557,9 @@ function showReportModal(dateStr, taskIdx) {
     const selectedReason = document.querySelector('input[name="reason"]:checked');
     const reasonValue = selectedReason ? selectedReason.value : reasons[0].value;
 
-    if (!state.tasks[newDate]) {
-      state.tasks[newDate] = [
-        { title: '', moment: '', audio: 'Aucun', status: 'planned' },
-        { title: '', moment: '', audio: 'Aucun', status: 'planned' },
-        { title: '', moment: '', audio: 'Aucun', status: 'planned' }
-      ];
-    }
+    ensureTasksForDate(newDate);
 
-    const emptySlot = state.tasks[newDate].findIndex(t => !t.title || t.title.startsWith('Tâche'));
+    const emptySlot = state.tasks[newDate].findIndex(t => isTaskEmpty(t));
     if (emptySlot !== -1) {
       state.tasks[newDate][emptySlot] = {
         ...task,
@@ -1006,12 +1568,7 @@ function showReportModal(dateStr, taskIdx) {
     }
 
     if (dateStr === getToday()) {
-      state.tasks[dateStr][taskIdx] = {
-        title: '',
-        moment: '',
-        audio: 'Aucun',
-        status: 'planned'
-      };
+      state.tasks[dateStr][taskIdx] = createEmptyTask();
     }
 
     recordReportForDate(newDate, reasonValue);
@@ -1024,7 +1581,15 @@ function showReportModal(dateStr, taskIdx) {
 }
 
 function closeModal() {
-  document.getElementById('modal-overlay').classList.remove('show');
+  const modal = document.getElementById('modal-overlay');
+  const content = document.getElementById('modal-content');
+  if (modal) {
+    modal.classList.remove('show');
+  }
+  if (content) {
+    content.classList.remove('template-wide');
+  }
+  setPlanifierTabsMode('editor');
 }
 
 function launchConfetti() {
