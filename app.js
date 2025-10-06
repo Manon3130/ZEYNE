@@ -22,6 +22,44 @@ const MOOD_DETAILS = {
   happy: { emoji: '🙂', label: 'Positif' }
 };
 
+const AUDIO_DB_NAME = 'ZEYNE_AUDIO_DB';
+const AUDIO_DB_VERSION = 1;
+const AUDIO_STORE_NAME = 'audios';
+
+const AUDIO_CATEGORIES = [
+  { id: 'respiration', label: 'Respiration' },
+  { id: 'etirements', label: 'Étirements' },
+  { id: 'focus', label: 'Focus' },
+  { id: 'autre', label: 'Autre' }
+];
+
+const DEFAULT_AUDIO_SLOTS = [
+  { key: 'morning', label: 'Matin' },
+  { key: 'afternoon', label: 'Après-midi' },
+  { key: 'evening', label: 'Soir' }
+];
+
+const BUILTIN_AUDIOS = [
+  {
+    id: 'builtin-respiration',
+    title: 'Respiration guidée 4-7-8',
+    category: 'respiration',
+    duration: 90,
+    sourceType: 'builtin',
+    source: 'assets/audio/respiration.wav',
+    isBuiltin: true
+  },
+  {
+    id: 'builtin-etirements',
+    title: 'Étirements express',
+    category: 'etirements',
+    duration: 95,
+    sourceType: 'builtin',
+    source: 'assets/audio/etirements.wav',
+    isBuiltin: true
+  }
+];
+
 const REPORT_REASON_DETAILS = {
   'trop-gros': {
     label: 'Trop gros',
@@ -401,12 +439,648 @@ let state = {
   moodHistory: {},
   reports: {},
   microReviews: {},
+  audioLibrary: [],
+  defaultAudioAssignments: { morning: null, afternoon: null, evening: null },
   streak: createDefaultStreakState(),
   badges: createDefaultBadgesState()
 };
 
+let audioDBPromise = null;
+let pendingAudioDraft = null;
+let previewAudioState = { audio: null, entryId: null, revoke: null, button: null };
+let modalAudioState = { audio: null, revoke: null };
+
 let lastTemplateApplication = null;
 
+function getAudioDB() {
+  if (audioDBPromise) {
+    return audioDBPromise;
+  }
+
+  if (!('indexedDB' in window)) {
+    return Promise.reject(new Error('IndexedDB non supporté'));
+  }
+
+  audioDBPromise = new Promise((resolve, reject) => {
+    const request = indexedDB.open(AUDIO_DB_NAME, AUDIO_DB_VERSION);
+
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(AUDIO_STORE_NAME)) {
+        db.createObjectStore(AUDIO_STORE_NAME);
+      }
+    };
+
+    request.onsuccess = () => {
+      const db = request.result;
+      db.onversionchange = () => {
+        db.close();
+        audioDBPromise = null;
+      };
+      resolve(db);
+    };
+
+    request.onerror = () => {
+      audioDBPromise = null;
+      reject(request.error || new Error('Ouverture IndexedDB échouée'));
+    };
+  });
+
+  return audioDBPromise;
+}
+
+function storeAudioBlob(id, blob) {
+  return getAudioDB().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(AUDIO_STORE_NAME, 'readwrite');
+    const store = tx.objectStore(AUDIO_STORE_NAME);
+    store.put(blob, id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error || new Error('Échec enregistrement audio'));
+  }));
+}
+
+function getAudioBlob(id) {
+  return getAudioDB().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(AUDIO_STORE_NAME, 'readonly');
+    const store = tx.objectStore(AUDIO_STORE_NAME);
+    const request = store.get(id);
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error || new Error('Lecture audio impossible'));
+  }));
+}
+
+function ensureAudioLibraryState() {
+  if (!Array.isArray(state.audioLibrary)) {
+    state.audioLibrary = [];
+  }
+
+  const nowISO = new Date().toISOString();
+  const dedupMap = new Map();
+
+  state.audioLibrary.forEach(entry => {
+    if (!entry || !entry.id) return;
+    if (!dedupMap.has(entry.id)) {
+      dedupMap.set(entry.id, { ...entry });
+    }
+  });
+
+  BUILTIN_AUDIOS.forEach(builtin => {
+    const existing = dedupMap.get(builtin.id);
+    if (existing) {
+      dedupMap.set(builtin.id, {
+        ...existing,
+        title: existing.title || builtin.title,
+        category: builtin.category,
+        duration: builtin.duration,
+        source: builtin.source,
+        sourceType: 'builtin',
+        isBuiltin: true
+      });
+    } else {
+      dedupMap.set(builtin.id, {
+        ...builtin,
+        favorite: true,
+        createdAt: nowISO
+      });
+    }
+  });
+
+  state.audioLibrary = Array.from(dedupMap.values()).map(entry => {
+    const duration = Number(entry.duration);
+    return {
+      id: entry.id,
+      title: entry.title || 'Audio',
+      category: entry.category && AUDIO_CATEGORIES.some(cat => cat.id === entry.category)
+        ? entry.category
+        : 'autre',
+      duration: Number.isFinite(duration) && duration > 0 ? duration : null,
+      favorite: Boolean(entry.favorite),
+      createdAt: entry.createdAt || nowISO,
+      sourceType: entry.sourceType || (entry.isBuiltin ? 'builtin' : 'indexeddb'),
+      source: entry.source || null,
+      isBuiltin: Boolean(entry.isBuiltin)
+    };
+  });
+
+  if (!state.defaultAudioAssignments || typeof state.defaultAudioAssignments !== 'object') {
+    state.defaultAudioAssignments = { morning: null, afternoon: null, evening: null };
+  }
+
+  const validIds = new Set(state.audioLibrary.map(entry => entry.id));
+  DEFAULT_AUDIO_SLOTS.forEach(slot => {
+    const value = state.defaultAudioAssignments[slot.key];
+    if (!validIds.has(value)) {
+      state.defaultAudioAssignments[slot.key] = null;
+    }
+  });
+
+  Object.keys(state.tasks || {}).forEach(dateStr => {
+    const tasks = Array.isArray(state.tasks[dateStr]) ? state.tasks[dateStr] : [];
+    tasks.forEach(task => {
+      if (!task) return;
+      task.audio = normalizeAudioValue(task.audio);
+    });
+  });
+}
+
+function getAudioEntryById(id) {
+  if (!id || id === 'Aucun') return null;
+  return (state.audioLibrary || []).find(entry => entry.id === id) || null;
+}
+
+function getAudioCategoryLabel(categoryId) {
+  const category = AUDIO_CATEGORIES.find(cat => cat.id === categoryId);
+  return category ? category.label : 'Autre';
+}
+
+function formatAudioDuration(seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return '—';
+  }
+  const total = Math.round(seconds);
+  const minutes = Math.floor(total / 60);
+  const secs = total % 60;
+  if (minutes === 0) {
+    return `${secs} s`;
+  }
+  if (secs === 0) {
+    return `${minutes} min`;
+  }
+  return `${minutes} min ${secs.toString().padStart(2, '0')} s`;
+}
+
+function getAudioOptionsList(includeNone = true) {
+  const options = [];
+  if (includeNone) {
+    options.push({ value: 'Aucun', label: 'Aucun' });
+  }
+  (state.audioLibrary || []).forEach(entry => {
+    options.push({ value: entry.id, label: entry.title || 'Audio' });
+  });
+  return options;
+}
+
+function populateAudioSelectOptions(selectEl, selectedValue, includeNone = true) {
+  if (!selectEl) return;
+  const options = getAudioOptionsList(includeNone);
+  selectEl.innerHTML = options.map(opt => `<option value="${opt.value}">${opt.label}</option>`).join('');
+  const hasSelected = options.some(opt => opt.value === selectedValue);
+  selectEl.value = hasSelected ? selectedValue : (includeNone ? 'Aucun' : options[0]?.value || '');
+}
+
+function populateAudioCategorySelect(selectEl, value) {
+  if (!selectEl) return;
+  selectEl.innerHTML = AUDIO_CATEGORIES.map(cat => `<option value="${cat.id}">${cat.label}</option>`).join('');
+  const hasValue = AUDIO_CATEGORIES.some(cat => cat.id === value);
+  selectEl.value = hasValue ? value : 'autre';
+}
+
+function getDefaultAssignmentsForEntry(entryId) {
+  if (!entryId || !state.defaultAudioAssignments) return [];
+  return DEFAULT_AUDIO_SLOTS.filter(slot => state.defaultAudioAssignments[slot.key] === entryId).map(slot => slot.label);
+}
+
+function updateDefaultAssignment(slotKey, audioId) {
+  if (!state.defaultAudioAssignments) {
+    state.defaultAudioAssignments = { morning: null, afternoon: null, evening: null };
+  }
+  state.defaultAudioAssignments[slotKey] = audioId || null;
+  saveState();
+}
+
+function stopPreviewAudio() {
+  if (previewAudioState.audio) {
+    try {
+      previewAudioState.audio.pause();
+    } catch (e) {
+      console.warn(e);
+    }
+  }
+  if (previewAudioState.revoke) {
+    previewAudioState.revoke();
+  }
+  if (previewAudioState.button) {
+    previewAudioState.button.dataset.state = '';
+    previewAudioState.button.textContent = 'Lecture';
+  }
+  previewAudioState = { audio: null, entryId: null, revoke: null, button: null };
+}
+
+function stopModalAudio() {
+  if (modalAudioState.audio) {
+    try {
+      modalAudioState.audio.pause();
+    } catch (e) {
+      console.warn(e);
+    }
+  }
+  if (modalAudioState.revoke) {
+    modalAudioState.revoke();
+  }
+  modalAudioState = { audio: null, revoke: null };
+}
+
+function resolveAudioSource(entry) {
+  if (!entry) {
+    return Promise.reject(new Error('Audio introuvable'));
+  }
+
+  if (entry.sourceType === 'builtin' && entry.source) {
+    return Promise.resolve({ url: entry.source, revoke: null });
+  }
+
+  return getAudioBlob(entry.id).then(blob => {
+    if (!blob) {
+      throw new Error('Audio introuvable');
+    }
+    const objectUrl = URL.createObjectURL(blob);
+    return {
+      url: objectUrl,
+      revoke: () => URL.revokeObjectURL(objectUrl)
+    };
+  });
+}
+
+function getResolvedAudioForTask(task) {
+  if (!task) return null;
+  const directId = normalizeAudioValue(task.audio);
+  if (directId && directId !== 'Aucun') {
+    const entry = getAudioEntryById(directId);
+    if (entry) {
+      return { id: directId, entry, isDefault: false };
+    }
+  }
+
+  const slot = categorizeMomentSlot(task.moment);
+  if (!slot) return null;
+  const slotKey = slot === 'Matin' ? 'morning' : slot === 'Après-midi' ? 'afternoon' : slot === 'Soir' ? 'evening' : null;
+  if (!slotKey) return null;
+  const fallbackId = state.defaultAudioAssignments?.[slotKey];
+  if (!fallbackId) return null;
+  const entry = getAudioEntryById(fallbackId);
+  if (!entry) return null;
+  return { id: fallbackId, entry, isDefault: true, slot };
+}
+
+function resolveAudioIdForTask(task) {
+  const resolved = getResolvedAudioForTask(task);
+  return resolved ? resolved.id : null;
+}
+
+function prepareAudioDraftFromFile(file) {
+  return new Promise((resolve, reject) => {
+    if (!file) {
+      reject(new Error('Fichier manquant'));
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    const audio = document.createElement('audio');
+    audio.preload = 'metadata';
+
+    audio.onloadedmetadata = () => {
+      const duration = audio.duration;
+      URL.revokeObjectURL(objectUrl);
+      if (!Number.isFinite(duration) || duration <= 0 || duration === Infinity) {
+        reject(new Error('Durée invalide'));
+        return;
+      }
+      const baseName = (file.name || 'Audio importé').replace(/\.[^/.]+$/, '');
+      resolve({
+        id: `audio-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+        title: baseName.slice(0, 80) || 'Audio importé',
+        category: 'autre',
+        duration,
+        file,
+        isNew: true
+      });
+    };
+
+    audio.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('Lecture impossible'));
+    };
+
+    audio.src = objectUrl;
+  });
+}
+
+function startAudioEdit(entryId) {
+  const entry = getAudioEntryById(entryId);
+  if (!entry) return;
+  pendingAudioDraft = {
+    id: entry.id,
+    title: entry.title || '',
+    category: entry.category || 'autre',
+    duration: entry.duration || null,
+    isNew: false
+  };
+  renderAudioLibrary();
+}
+
+function handleAudioEditorCancel() {
+  pendingAudioDraft = null;
+  renderAudioLibrary();
+}
+
+function handleAudioEditorSave() {
+  if (!pendingAudioDraft) return;
+
+  const titleInput = document.getElementById('audio-title-input');
+  const categorySelect = document.getElementById('audio-category-input');
+  if (!titleInput || !categorySelect) return;
+
+  const title = titleInput.value.trim();
+  const category = categorySelect.value || 'autre';
+
+  if (!title) {
+    showToast('Merci d’indiquer un titre.');
+    titleInput.focus();
+    return;
+  }
+
+  if (pendingAudioDraft.isNew) {
+    const draft = pendingAudioDraft;
+    if (!draft.file) {
+      showToast('Fichier audio manquant.');
+      return;
+    }
+
+    storeAudioBlob(draft.id, draft.file)
+      .then(() => {
+        state.audioLibrary.push({
+          id: draft.id,
+          title,
+          category,
+          duration: draft.duration || null,
+          favorite: false,
+          createdAt: new Date().toISOString(),
+          sourceType: 'indexeddb',
+          source: null,
+          isBuiltin: false
+        });
+        pendingAudioDraft = null;
+        ensureAudioLibraryState();
+        saveState();
+        renderAudioLibrary();
+        showToast('Audio importé avec succès ✨');
+      })
+      .catch(() => {
+        showToast('Impossible d’enregistrer cet audio.');
+      });
+  } else {
+    const entry = getAudioEntryById(pendingAudioDraft.id);
+    if (!entry) {
+      pendingAudioDraft = null;
+      renderAudioLibrary();
+      return;
+    }
+
+    entry.title = title;
+    entry.category = category;
+    if (Number.isFinite(pendingAudioDraft.duration)) {
+      entry.duration = pendingAudioDraft.duration;
+    }
+
+    pendingAudioDraft = null;
+    saveState();
+    renderAudioLibrary();
+    showToast('Audio mis à jour.');
+  }
+}
+
+async function toggleAudioPreview(entryId, button) {
+  if (!entryId || !button) return;
+
+  if (previewAudioState.entryId === entryId) {
+    stopPreviewAudio();
+    return;
+  }
+
+  stopPreviewAudio();
+
+  const entry = getAudioEntryById(entryId);
+  if (!entry) {
+    showToast('Audio introuvable.');
+    return;
+  }
+
+  try {
+    const { url, revoke } = await resolveAudioSource(entry);
+    const audio = new Audio(url);
+    audio.onended = () => {
+      stopPreviewAudio();
+    };
+    audio.onpause = () => {
+      if (previewAudioState.audio === audio && !audio.ended) {
+        stopPreviewAudio();
+      }
+    };
+
+    await audio.play();
+
+    button.dataset.state = 'active';
+    button.textContent = 'Pause';
+    previewAudioState = { audio, entryId, revoke, button };
+  } catch (error) {
+    showToast('Lecture impossible : format non supporté.');
+    if (button) {
+      button.dataset.state = '';
+      button.textContent = 'Lecture';
+    }
+  }
+}
+
+function renderAudioLibrary() {
+  ensureAudioLibraryState();
+
+  const listEl = document.getElementById('audio-list');
+  const emptyEl = document.getElementById('audio-empty');
+  const editorEl = document.getElementById('library-editor');
+  const editorTitle = document.getElementById('library-editor-title');
+  const titleInput = document.getElementById('audio-title-input');
+  const categorySelect = document.getElementById('audio-category-input');
+  const durationDisplay = document.getElementById('audio-duration-display');
+  const saveBtn = document.getElementById('audio-save-btn');
+  const cancelBtn = document.getElementById('audio-cancel-btn');
+  const importBtn = document.getElementById('import-audio-btn');
+  const fileInput = document.getElementById('audio-file-input');
+
+  if (!listEl || !emptyEl) return;
+
+  if (importBtn && fileInput) {
+    importBtn.onclick = () => {
+      if (!('indexedDB' in window)) {
+        showToast('Import audio indisponible sur cet appareil.');
+        return;
+      }
+      fileInput.value = '';
+      fileInput.click();
+    };
+
+    fileInput.onchange = async (event) => {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      stopPreviewAudio();
+      try {
+        pendingAudioDraft = await prepareAudioDraftFromFile(file);
+        renderAudioLibrary();
+      } catch (err) {
+        pendingAudioDraft = null;
+        showToast('Format audio non supporté ou fichier corrompu.');
+      }
+      fileInput.value = '';
+    };
+  }
+
+  if (saveBtn) {
+    saveBtn.onclick = handleAudioEditorSave;
+  }
+
+  if (cancelBtn) {
+    cancelBtn.onclick = handleAudioEditorCancel;
+  }
+
+  if (pendingAudioDraft) {
+    if (editorEl) editorEl.hidden = false;
+    if (editorTitle) editorTitle.textContent = pendingAudioDraft.isNew ? 'Nouvel audio' : 'Modifier l\'audio';
+    if (titleInput) titleInput.value = pendingAudioDraft.title || '';
+    if (categorySelect) populateAudioCategorySelect(categorySelect, pendingAudioDraft.category || 'autre');
+    if (durationDisplay) durationDisplay.textContent = formatAudioDuration(pendingAudioDraft.duration);
+  } else {
+    if (editorEl) editorEl.hidden = true;
+    if (titleInput) titleInput.value = '';
+    if (categorySelect) populateAudioCategorySelect(categorySelect, 'autre');
+    if (durationDisplay) durationDisplay.textContent = '—';
+  }
+
+  document.querySelectorAll('.default-audio-select').forEach(select => {
+    const slotKey = select.getAttribute('data-slot');
+    const selectedValue = state.defaultAudioAssignments?.[slotKey] || 'Aucun';
+    populateAudioSelectOptions(select, selectedValue);
+    select.value = selectedValue;
+    select.onchange = () => {
+      const value = select.value;
+      updateDefaultAssignment(slotKey, value === 'Aucun' ? null : value);
+      renderAudioLibrary();
+    };
+  });
+
+  const audios = [...(state.audioLibrary || [])];
+  audios.sort((a, b) => {
+    if (a.favorite !== b.favorite) return a.favorite ? -1 : 1;
+    if (a.isBuiltin !== b.isBuiltin) return a.isBuiltin ? -1 : 1;
+    return (a.title || '').localeCompare(b.title || '', 'fr', { sensitivity: 'base' });
+  });
+
+  listEl.innerHTML = '';
+
+  if (!audios.length) {
+    emptyEl.hidden = false;
+    return;
+  }
+
+  emptyEl.hidden = true;
+
+  audios.forEach(entry => {
+    const item = document.createElement('div');
+    item.className = 'audio-item';
+
+    const main = document.createElement('div');
+    main.className = 'audio-main';
+
+    const titleEl = document.createElement('div');
+    titleEl.className = 'audio-title';
+    titleEl.textContent = entry.title || 'Audio';
+    main.appendChild(titleEl);
+
+    const metaEl = document.createElement('div');
+    metaEl.className = 'audio-meta';
+    const metaParts = [getAudioCategoryLabel(entry.category)];
+    if (entry.duration) {
+      metaParts.push(formatAudioDuration(entry.duration));
+    }
+    metaEl.textContent = metaParts.filter(Boolean).join(' • ');
+    main.appendChild(metaEl);
+
+    const tags = getDefaultAssignmentsForEntry(entry.id);
+    if (entry.isBuiltin || tags.length) {
+      const tagsWrap = document.createElement('div');
+      tagsWrap.className = 'audio-tags';
+      if (entry.isBuiltin) {
+        const badge = document.createElement('span');
+        badge.className = 'audio-badge';
+        badge.textContent = 'Intégré';
+        tagsWrap.appendChild(badge);
+      }
+      tags.forEach(label => {
+        const tag = document.createElement('span');
+        tag.className = 'audio-tag';
+        tag.textContent = `Défaut ${label.toLowerCase()}`;
+        tagsWrap.appendChild(tag);
+      });
+      if (tagsWrap.childElementCount > 0) {
+        main.appendChild(tagsWrap);
+      }
+    }
+
+    item.appendChild(main);
+
+    const actions = document.createElement('div');
+    actions.className = 'audio-actions';
+
+    const previewBtn = document.createElement('button');
+    previewBtn.type = 'button';
+    previewBtn.className = 'audio-action-btn';
+    previewBtn.dataset.action = 'preview';
+    previewBtn.dataset.id = entry.id;
+    if (previewAudioState.entryId === entry.id) {
+      previewBtn.dataset.state = 'active';
+      previewBtn.textContent = 'Pause';
+    } else {
+      previewBtn.textContent = 'Lecture';
+    }
+    actions.appendChild(previewBtn);
+
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'audio-action-btn';
+    editBtn.dataset.action = 'edit';
+    editBtn.dataset.id = entry.id;
+    editBtn.textContent = 'Éditer';
+    actions.appendChild(editBtn);
+
+    const favBtn = document.createElement('button');
+    favBtn.type = 'button';
+    favBtn.className = 'audio-favorite-btn';
+    favBtn.dataset.action = 'favorite';
+    favBtn.dataset.id = entry.id;
+    favBtn.dataset.active = entry.favorite ? 'true' : 'false';
+    favBtn.textContent = entry.favorite ? '★' : '☆';
+    actions.appendChild(favBtn);
+
+    item.appendChild(actions);
+    listEl.appendChild(item);
+  });
+
+  listEl.querySelectorAll('button[data-action="preview"]').forEach(button => {
+    button.onclick = () => toggleAudioPreview(button.dataset.id, button);
+  });
+
+  listEl.querySelectorAll('button[data-action="edit"]').forEach(button => {
+    button.onclick = () => startAudioEdit(button.dataset.id);
+  });
+
+  listEl.querySelectorAll('button[data-action="favorite"]').forEach(button => {
+    button.onclick = () => {
+      const entry = getAudioEntryById(button.dataset.id);
+      if (!entry) return;
+      entry.favorite = !entry.favorite;
+      saveState();
+      renderAudioLibrary();
+    };
+  });
+}
 function loadState() {
   const saved = localStorage.getItem(STORAGE_KEY);
   if (saved) {
@@ -424,6 +1098,7 @@ function loadState() {
     }
   }
 
+  ensureAudioLibraryState();
   sanitizeStreakData();
 }
 
@@ -473,11 +1148,19 @@ function createEmptyTask() {
 
 function normalizeAudioValue(audioValue) {
   if (!audioValue) return 'Aucun';
-  const lower = audioValue.toString().toLowerCase();
-  if (lower === 'respiration') return 'respiration';
-  if (lower === 'étirements' || lower === 'etirements') return 'étirements';
+  if (audioValue === 'Aucun') return 'Aucun';
+  const value = audioValue.toString();
+  const lower = value.toLowerCase();
   if (lower === 'aucun') return 'Aucun';
-  return audioValue;
+  if (value === 'builtin-respiration' || value === 'builtin-etirements') {
+    return value;
+  }
+  if (lower === 'respiration') return 'builtin-respiration';
+  if (lower === 'étirements' || lower === 'etirements') return 'builtin-etirements';
+  if ((state.audioLibrary || []).some(entry => entry.id === value)) {
+    return value;
+  }
+  return 'Aucun';
 }
 
 function ensureTasksForDate(dateStr) {
@@ -513,10 +1196,21 @@ function isTaskEmpty(task) {
 
 function formatAudioLabel(audioValue) {
   if (!audioValue || audioValue === 'Aucun') return '';
-  const lower = audioValue.toString().toLowerCase();
-  if (lower === 'respiration') return 'Respiration';
-  if (lower === 'étirements' || lower === 'etirements') return 'Étirements';
-  return audioValue;
+  const entry = getAudioEntryById(audioValue);
+  return entry ? entry.title : '';
+}
+
+function formatTaskAudioLabel(task) {
+  if (!task) return '';
+  const directLabel = formatAudioLabel(task.audio);
+  if (directLabel) {
+    return directLabel;
+  }
+  const resolved = getResolvedAudioForTask(task);
+  if (resolved && resolved.entry) {
+    return `${resolved.entry.title} (auto)`;
+  }
+  return '';
 }
 
 function formatCount(value, singular, plural) {
@@ -543,7 +1237,7 @@ function formatTaskMeta(task) {
   if (task.moment) {
     parts.push(task.moment);
   }
-  const audioLabel = formatAudioLabel(task.audio);
+  const audioLabel = formatTaskAudioLabel(task);
   if (audioLabel) {
     parts.push(audioLabel);
   }
@@ -701,10 +1395,16 @@ function showView(viewName) {
       renderPlanifier();
     } else if (viewName === 'programme') {
       renderProgramme();
+    } else if (viewName === 'bibliotheque') {
+      renderAudioLibrary();
     } else if (viewName === 'vignettes') {
       renderVignettes();
     } else if (viewName === 'hebdo') {
       renderWeeklyReview();
+    }
+
+    if (viewName !== 'bibliotheque') {
+      stopPreviewAudio();
     }
   }
 }
@@ -861,11 +1561,7 @@ function renderPlanifier() {
         <div class="task-form-row">
           <input type="text" placeholder="Titre de la tâche" data-day="${idx}" data-task="${i - 1}" data-field="title">
           <input type="text" placeholder="Moment (Matin, 14:00…)" data-day="${idx}" data-task="${i - 1}" data-field="moment">
-          <select data-day="${idx}" data-task="${i - 1}" data-field="audio">
-            <option value="Aucun">Aucun</option>
-            <option value="respiration">Respiration</option>
-            <option value="étirements">Étirements</option>
-          </select>
+          <select data-day="${idx}" data-task="${i - 1}" data-field="audio"></select>
         </div>
       `;
 
@@ -875,7 +1571,7 @@ function renderPlanifier() {
 
       titleInput.value = taskData.title || '';
       momentInput.value = taskData.moment || '';
-      audioSelect.value = normalizeAudioValue(taskData.audio || 'Aucun');
+      populateAudioSelectOptions(audioSelect, normalizeAudioValue(taskData.audio || 'Aucun'));
 
       content.appendChild(taskForm);
     }
@@ -2017,17 +2713,17 @@ function checkAllTasksDone() {
   }
 }
 
-window.startTask = function(taskIdx) {
+window.startTask = async function(taskIdx) {
   const today = getToday();
+  ensureTasksForDate(today);
   const task = state.tasks[today][taskIdx];
+  if (!task) return;
 
-  if (task.audio !== 'Aucun') {
-    showRitualModal(task.audio, () => {
-      showTimerModal(taskIdx);
-    });
-  } else {
-    showTimerModal(taskIdx);
+  const audioId = resolveAudioIdForTask(task);
+  if (audioId) {
+    await openAudioRitualModal(audioId, task).catch(() => true);
   }
+  showTimerModal(taskIdx);
 };
 
 window.toggleTaskCompletion = function(taskIdx) {
@@ -2063,45 +2759,111 @@ window.reportTask = function(dateStr, taskIdx) {
   showReportModal(dateStr, taskIdx);
 };
 
-function showRitualModal(audioType, onComplete) {
+function openAudioRitualModal(audioId, task) {
+  stopPreviewAudio();
+  stopModalAudio();
+
   const modal = document.getElementById('modal-overlay');
   const content = document.getElementById('modal-content');
+  if (!modal || !content) return Promise.resolve(true);
 
-  let ritualText = '';
-  if (audioType === 'respiration') {
-    ritualText = `
-      <h3>Respiration 4-7-8</h3>
-      <p>Installez-vous confortablement.</p>
-      <p>Inspirez par le nez pendant 4 secondes.</p>
-      <p>Retenez votre souffle pendant 7 secondes.</p>
-      <p>Expirez par la bouche pendant 8 secondes.</p>
-      <p>Répétez 3 fois (environ 90 secondes).</p>
-    `;
-  } else if (audioType === 'étirements') {
-    ritualText = `
-      <h3>Étirements rapides</h3>
-      <p>Levez-vous et étirez vos bras vers le ciel.</p>
-      <p>Tournez doucement votre tête de gauche à droite.</p>
-      <p>Roulez vos épaules en arrière 5 fois.</p>
-      <p>Penchez-vous doucement en avant pour étirer votre dos.</p>
-      <p>Durée : environ 60-90 secondes.</p>
-    `;
-  }
+  const entry = getAudioEntryById(audioId);
+  const resolvedInfo = task ? getResolvedAudioForTask(task) : null;
 
-  content.innerHTML = `
-    <div class="ritual-content">
-      ${ritualText}
-      <button class="btn btn-primary" onclick="closeModal(); ${onComplete ? 'arguments[0]()' : ''}">Finir</button>
-    </div>
-  `;
+  return new Promise(resolve => {
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      stopModalAudio();
+      closeModal();
+      resolve(true);
+    };
 
-  modal.classList.add('show');
+    const skipWithMessage = () => {
+      if (finished) return;
+      showToast('Aucun audio');
+      finish();
+    };
 
-  const finishBtn = content.querySelector('button');
-  finishBtn.onclick = () => {
-    closeModal();
-    if (onComplete) onComplete();
-  };
+    if (!entry) {
+      skipWithMessage();
+      return;
+    }
+
+    resolveAudioSource(entry)
+      .then(source => {
+        if (finished) {
+          if (source.revoke) source.revoke();
+          return;
+        }
+
+        const metaParts = [getAudioCategoryLabel(entry.category)];
+        if (entry.duration) {
+          metaParts.push(formatAudioDuration(entry.duration));
+        }
+        const assignmentLine = resolvedInfo?.isDefault
+          ? `<p class="audio-meta">Assignation ${resolvedInfo.slot.toLowerCase()}</p>`
+          : '';
+
+        content.innerHTML = `
+          <div class="ritual-content audio-ritual-modal">
+            <h3>${entry.title}</h3>
+            <p class="audio-meta">${metaParts.filter(Boolean).join(' • ')}</p>
+            ${assignmentLine}
+            <div class="audio-ritual-controls">
+              <button class="btn btn-secondary" id="modal-audio-toggle">Lecture</button>
+              <button class="btn btn-primary" id="modal-audio-continue">Commencer</button>
+            </div>
+          </div>
+        `;
+
+        modal.classList.add('show');
+
+        const toggleBtn = document.getElementById('modal-audio-toggle');
+        const continueBtn = document.getElementById('modal-audio-continue');
+
+        const audio = new Audio(source.url);
+        modalAudioState = { audio, revoke: source.revoke };
+
+        audio.onerror = () => {
+          skipWithMessage();
+        };
+
+        if (toggleBtn) {
+          toggleBtn.onclick = async () => {
+            try {
+              if (audio.paused) {
+                await audio.play();
+                toggleBtn.textContent = 'Pause';
+              } else {
+                audio.pause();
+                audio.currentTime = 0;
+                toggleBtn.textContent = 'Lecture';
+              }
+            } catch (err) {
+              showToast('Lecture impossible : interaction requise ou format non supporté.');
+            }
+          };
+        }
+
+        audio.onended = () => {
+          if (toggleBtn) toggleBtn.textContent = 'Lecture';
+          audio.currentTime = 0;
+        };
+
+        audio.onpause = () => {
+          if (toggleBtn) toggleBtn.textContent = 'Lecture';
+        };
+
+        if (continueBtn) {
+          continueBtn.onclick = finish;
+        }
+      })
+      .catch(() => {
+        skipWithMessage();
+      });
+  });
 }
 
 function showTimerModal(taskIdx) {
@@ -2299,6 +3061,7 @@ function showReportModal(dateStr, taskIdx) {
 }
 
 function closeModal() {
+  stopModalAudio();
   const modal = document.getElementById('modal-overlay');
   const content = document.getElementById('modal-content');
   if (modal) {
