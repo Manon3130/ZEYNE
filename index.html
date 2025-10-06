@@ -98,6 +98,11 @@
       <section id="view-planifier" class="view">
         <div class="card card-form">
           <h2>Planifier</h2>
+          <div class="planifier-tabs" role="tablist">
+            <button type="button" class="planifier-tab planifier-tab-active" id="planifier-editor-tab" role="tab" aria-selected="true">Planifier</button>
+            <button type="button" class="planifier-tab" id="planifier-template-tab" role="tab" aria-selected="false">Templates</button>
+          </div>
+          <p class="planifier-helper">Planifiez vos micro-tâches ou gagnez du temps avec des modèles prêts à l’emploi.</p>
           <div id="planifier-days"></div>
           <button class="btn btn-primary" id="save-planifier-btn">Enregistrer</button>
         </div>
