@@ -118,52 +118,100 @@
 
       <section id="view-hebdo" class="view">
         <div class="card card-weekly">
-          <div class="weekly-header">
-            <h2>Revue hebdo</h2>
-            <p class="weekly-subtitle">Synthèse des 7 derniers jours (J-6 → J)</p>
+          <div class="weekly-tabs" role="tablist">
+            <button type="button" class="weekly-tab weekly-tab-active" role="tab" aria-selected="true" aria-controls="weekly-panel-review" data-tab="review">Revue hebdo</button>
+            <button type="button" class="weekly-tab" role="tab" aria-selected="false" aria-controls="weekly-panel-insights" data-tab="insights">Insights</button>
           </div>
-          <div class="weekly-kpis">
-            <div class="weekly-kpi-card">
-              <span class="kpi-label">Jours 3/3</span>
-              <span class="kpi-value" id="weekly-full-days">0 / 7</span>
-              <span class="kpi-caption">planifiés</span>
+
+          <div class="weekly-panel active" id="weekly-panel-review" data-panel="review">
+            <div class="weekly-header">
+              <h2>Revue hebdo</h2>
+              <p class="weekly-subtitle">Synthèse des 7 derniers jours (J-6 → J)</p>
             </div>
-            <div class="weekly-kpi-card">
-              <span class="kpi-label">Taux de réussite</span>
-              <span class="kpi-value" id="weekly-success-rate">0%</span>
-              <span class="kpi-caption">(jours 3/3 ÷ 7)</span>
-            </div>
-            <div class="weekly-kpi-card">
-              <span class="kpi-label">Reports</span>
-              <span class="kpi-value" id="weekly-reports">0 report · Motif dominant : —</span>
-            </div>
-            <div class="weekly-kpi-card regularity-card">
-              <span class="kpi-label">Régularité</span>
-              <div class="regularity-metrics">
-                <div class="regularity-row">
-                  <span class="regularity-icon" aria-hidden="true">🔥</span>
-                  <span class="regularity-text" id="weekly-regularity-current">Streak actuel : 0 jour</span>
-                </div>
-                <div class="regularity-row">
-                  <span class="regularity-icon" aria-hidden="true">📈</span>
-                  <span class="regularity-text" id="weekly-regularity-best">Meilleur streak : 0 jour</span>
-                </div>
-                <div class="regularity-row">
-                  <span class="regularity-icon" id="weekly-regularity-badge-icon" aria-hidden="true">🏅</span>
-                  <span class="regularity-text" id="weekly-regularity-badge-text">Dernier badge : —</span>
+            <div class="weekly-kpis">
+              <div class="weekly-kpi-card">
+                <span class="kpi-label">Jours 3/3</span>
+                <span class="kpi-value" id="weekly-full-days">0 / 7</span>
+                <span class="kpi-caption">planifiés</span>
+              </div>
+              <div class="weekly-kpi-card">
+                <span class="kpi-label">Taux de réussite</span>
+                <span class="kpi-value" id="weekly-success-rate">0%</span>
+                <span class="kpi-caption">(jours 3/3 ÷ 7)</span>
+              </div>
+              <div class="weekly-kpi-card">
+                <span class="kpi-label">Reports</span>
+                <span class="kpi-value" id="weekly-reports">0 report · Motif dominant : —</span>
+              </div>
+              <div class="weekly-kpi-card regularity-card">
+                <span class="kpi-label">Régularité</span>
+                <div class="regularity-metrics">
+                  <div class="regularity-row">
+                    <span class="regularity-icon" aria-hidden="true">🔥</span>
+                    <span class="regularity-text" id="weekly-regularity-current">Streak actuel : 0 jour</span>
+                  </div>
+                  <div class="regularity-row">
+                    <span class="regularity-icon" aria-hidden="true">📈</span>
+                    <span class="regularity-text" id="weekly-regularity-best">Meilleur streak : 0 jour</span>
+                  </div>
+                  <div class="regularity-row">
+                    <span class="regularity-icon" id="weekly-regularity-badge-icon" aria-hidden="true">🏅</span>
+                    <span class="regularity-text" id="weekly-regularity-badge-text">Dernier badge : —</span>
+                  </div>
                 </div>
               </div>
             </div>
+
+            <div class="weekly-graph-card">
+              <h3>Progression quotidienne</h3>
+              <div class="weekly-graph" id="weekly-graph"></div>
+            </div>
+
+            <div class="weekly-reco-card">
+              <h3>Recommandation</h3>
+              <p id="weekly-recommendation">Rien à signaler — continue comme ça.</p>
+            </div>
           </div>
 
-          <div class="weekly-graph-card">
-            <h3>Progression quotidienne</h3>
-            <div class="weekly-graph" id="weekly-graph"></div>
-          </div>
-
-          <div class="weekly-reco-card">
-            <h3>Recommandation</h3>
-            <p id="weekly-recommendation">Rien à signaler — continue comme ça.</p>
+          <div class="weekly-panel" id="weekly-panel-insights" data-panel="insights" hidden>
+            <div class="weekly-insights-empty" id="weekly-insights-empty">Pas encore de données pour générer des insights.</div>
+            <div class="weekly-insights" id="weekly-insights-content">
+              <div class="weekly-insights-kpis">
+                <div class="insight-kpi-card">
+                  <span class="insight-label">Créneau le + fiable</span>
+                  <span class="insight-value" id="insight-best-slot">—</span>
+                </div>
+                <div class="insight-kpi-card">
+                  <span class="insight-label">Motif de report n°1</span>
+                  <span class="insight-value" id="insight-top-report">—</span>
+                </div>
+                <div class="insight-kpi-card">
+                  <span class="insight-label">Motivation moyenne</span>
+                  <span class="insight-value" id="insight-avg-motivation">—</span>
+                </div>
+                <div class="insight-kpi-card">
+                  <span class="insight-label">Humeur dominante</span>
+                  <span class="insight-value" id="insight-dominant-mood">—</span>
+                </div>
+              </div>
+              <div class="weekly-insights-charts">
+                <div class="insight-chart">
+                  <div class="insight-chart-header">
+                    <span class="insight-chart-title">Complétion quotidienne</span>
+                    <span class="insight-chart-caption">7 derniers jours</span>
+                  </div>
+                  <div class="insight-bars" id="insight-completion-bars"></div>
+                </div>
+                <div class="insight-chart">
+                  <div class="insight-chart-header">
+                    <span class="insight-chart-title">Motivation</span>
+                    <span class="insight-chart-caption">Glissant 7j</span>
+                  </div>
+                  <div class="insight-sparkline-wrapper" id="insight-motivation-sparkline"></div>
+                </div>
+              </div>
+              <p class="insight-text" id="insight-textual">Pas encore assez de recul pour un insight personnalisé.</p>
+            </div>
           </div>
         </div>
       </section>

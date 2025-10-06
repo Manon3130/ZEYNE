@@ -15,6 +15,13 @@ const BADGE_DEFINITIONS = [
   { id: 'platinum', label: 'Platine', threshold: 30, icon: '🏆' }
 ];
 
+const MOOD_DETAILS = {
+  sad: { emoji: '😞', label: 'Bas' },
+  tired: { emoji: '😴', label: 'Fatigué' },
+  sick: { emoji: '🤒', label: 'Fragile' },
+  happy: { emoji: '🙂', label: 'Positif' }
+};
+
 const REPORT_REASON_DETAILS = {
   'trop-gros': {
     label: 'Trop gros',
@@ -391,6 +398,7 @@ let state = {
   vignettes: ['', '', ''],
   kpiImage: '',
   mood: { motivation: 50, emoji: null },
+  moodHistory: {},
   reports: {},
   microReviews: {},
   streak: createDefaultStreakState(),
@@ -406,6 +414,7 @@ function loadState() {
       state = JSON.parse(saved);
       if (!state.vignettes) state.vignettes = ['', '', ''];
       if (!state.mood) state.mood = { motivation: 50, emoji: null };
+      if (!state.moodHistory) state.moodHistory = {};
       if (!state.tasks) state.tasks = {};
       if (!state.settings.startISO) state.settings.startISO = '';
       if (!state.reports) state.reports = {};
@@ -541,6 +550,73 @@ function formatTaskMeta(task) {
   return parts.join(' • ') || '';
 }
 
+function categorizeMomentSlot(momentValue) {
+  if (!momentValue) return null;
+  const raw = momentValue.toString().trim();
+  if (!raw) return null;
+  const value = raw.toLowerCase();
+
+  if (value.includes('matin') || value.includes('a.m') || value.includes('am')) {
+    return 'Matin';
+  }
+
+  if (
+    value.includes('après') ||
+    value.includes('apres') ||
+    value.includes('apr') ||
+    value.includes('apm') ||
+    value.includes('pm') ||
+    value.includes('midi')
+  ) {
+    return 'Après-midi';
+  }
+
+  if (
+    value.includes('soir') ||
+    value.includes('soirée') ||
+    value.includes('nuit') ||
+    value.includes('evening') ||
+    value.includes('fin de journée')
+  ) {
+    return 'Soir';
+  }
+
+  const match = value.match(/(\d{1,2})(?::\d{2})?/);
+  if (match) {
+    const hour = parseInt(match[1], 10);
+    if (!Number.isNaN(hour)) {
+      if (hour < 12) return 'Matin';
+      if (hour < 18) return 'Après-midi';
+      if (hour <= 23) return 'Soir';
+    }
+  }
+
+  return null;
+}
+
+function buildSparklinePath(values, width, height) {
+  if (!Array.isArray(values) || values.length === 0) return '';
+
+  const step = values.length > 1 ? width / (values.length - 1) : width;
+  let path = '';
+  let drawing = false;
+
+  values.forEach((value, index) => {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      const clamped = Math.max(0, Math.min(100, value));
+      const x = index * step;
+      const y = height - (clamped / 100) * height;
+      const command = drawing ? 'L' : 'M';
+      path += `${command}${x.toFixed(2)},${y.toFixed(2)} `;
+      drawing = true;
+    } else {
+      drawing = false;
+    }
+  });
+
+  return path.trim();
+}
+
 function getLastSevenDates() {
   const dates = [];
   const today = getTodayDateObj();
@@ -630,6 +706,38 @@ function showView(viewName) {
     } else if (viewName === 'hebdo') {
       renderWeeklyReview();
     }
+  }
+}
+
+function initWeeklyTabs() {
+  const tabButtons = document.querySelectorAll('.weekly-tab');
+  const panels = document.querySelectorAll('.weekly-panel');
+
+  const activateTab = (target) => {
+    tabButtons.forEach(btn => {
+      const isActive = btn.getAttribute('data-tab') === target;
+      btn.classList.toggle('weekly-tab-active', isActive);
+      btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+
+    panels.forEach(panel => {
+      const isActive = panel.getAttribute('data-panel') === target;
+      panel.classList.toggle('active', isActive);
+      panel.toggleAttribute('hidden', !isActive);
+    });
+  };
+
+  tabButtons.forEach(button => {
+    button.addEventListener('click', () => {
+      const target = button.getAttribute('data-tab');
+      activateTab(target);
+      renderWeeklyReview();
+    });
+  });
+
+  const initialButton = Array.from(tabButtons).find(btn => btn.classList.contains('weekly-tab-active')) || tabButtons[0];
+  if (initialButton) {
+    activateTab(initialButton.getAttribute('data-tab'));
   }
 }
 
@@ -1265,6 +1373,15 @@ function renderWeeklyReview() {
   const weeklyRegularityBadgeIconEl = document.getElementById('weekly-regularity-badge-icon');
   const weeklyGraphEl = document.getElementById('weekly-graph');
   const weeklyRecommendationEl = document.getElementById('weekly-recommendation');
+  const insightBestSlotEl = document.getElementById('insight-best-slot');
+  const insightTopReportEl = document.getElementById('insight-top-report');
+  const insightAvgMotivationEl = document.getElementById('insight-avg-motivation');
+  const insightDominantMoodEl = document.getElementById('insight-dominant-mood');
+  const insightCompletionBarsEl = document.getElementById('insight-completion-bars');
+  const insightSparklineEl = document.getElementById('insight-motivation-sparkline');
+  const insightTextEl = document.getElementById('insight-textual');
+  const insightsContentEl = document.getElementById('weekly-insights-content');
+  const insightsEmptyEl = document.getElementById('weekly-insights-empty');
 
   if (!weeklyFullDaysEl || !weeklySuccessRateEl || !weeklyReportsEl || !weeklyRegularityCurrentEl || !weeklyRegularityBestEl || !weeklyRegularityBadgeTextEl || !weeklyRegularityBadgeIconEl || !weeklyGraphEl || !weeklyRecommendationEl) {
     return;
@@ -1273,7 +1390,8 @@ function renderWeeklyReview() {
   const lastSevenDates = getLastSevenDates();
   const weeklyData = lastSevenDates.map(dateStr => ({
     dateStr,
-    doneCount: getTasksDoneCount(dateStr)
+    doneCount: getTasksDoneCount(dateStr),
+    tasks: Array.isArray(state.tasks?.[dateStr]) ? state.tasks[dateStr] : []
   }));
 
   const fullDays = weeklyData.filter(day => day.doneCount >= 3).length;
@@ -1309,23 +1427,21 @@ function renderWeeklyReview() {
   let dominantCount = 0;
 
   Object.entries(reasonTotals).forEach(([reasonKey, count]) => {
-    if (count > dominantCount) {
+    if (count > dominantCount || dominantReason === null) {
       dominantCount = count;
       dominantReason = reasonKey;
     } else if (count === dominantCount && dominantReason !== null) {
       if (reasonOrder[reasonKey] < reasonOrder[dominantReason]) {
         dominantReason = reasonKey;
       }
-    } else if (dominantReason === null) {
-      dominantReason = reasonKey;
-      dominantCount = count;
     }
   });
 
+  const dominantReasonLabel = dominantReason ? (REPORT_REASON_DETAILS[dominantReason]?.label || dominantReason) : null;
+
   if (totalReports > 0) {
-    if (dominantReason) {
-      const reasonLabel = REPORT_REASON_DETAILS[dominantReason]?.label || dominantReason;
-      weeklyReportsEl.textContent = `${totalReports} report${totalReports > 1 ? 's' : ''} · Motif dominant : ${reasonLabel}`;
+    if (dominantReasonLabel) {
+      weeklyReportsEl.textContent = `${totalReports} report${totalReports > 1 ? 's' : ''} · Motif dominant : ${dominantReasonLabel}`;
     } else {
       weeklyReportsEl.textContent = `${totalReports} report${totalReports > 1 ? 's' : ''} · Motif dominant : —`;
     }
@@ -1360,7 +1476,7 @@ function renderWeeklyReview() {
     bar.className = 'weekly-graph-bar';
     const percent = Math.min(100, Math.max(0, Math.round((doneCount / 3) * 100)));
     bar.style.height = `${percent}%`;
-    bar.title = `${doneCount}/3 tâches accomplies`; // tooltip
+    bar.title = `${doneCount}/3 tâches accomplies`;
 
     const dayLabel = document.createElement('span');
     dayLabel.className = 'weekly-graph-day';
@@ -1379,6 +1495,200 @@ function renderWeeklyReview() {
   }
 
   weeklyRecommendationEl.textContent = recommendationText;
+
+  const momentStats = {
+    'Matin': { total: 0, done: 0 },
+    'Après-midi': { total: 0, done: 0 },
+    'Soir': { total: 0, done: 0 }
+  };
+
+  weeklyData.forEach(({ tasks }) => {
+    tasks.forEach(task => {
+      if (!task) return;
+      const slot = categorizeMomentSlot(task.moment);
+      if (!slot) return;
+      if (isTaskEmpty(task)) return;
+      momentStats[slot].total += 1;
+      if (task.status === 'done') {
+        momentStats[slot].done += 1;
+      }
+    });
+  });
+
+  let bestSlotLabel = null;
+  let bestSlotRate = 0;
+  let bestSlotDone = 0;
+
+  Object.entries(momentStats).forEach(([slot, stats]) => {
+    if (!stats.total) return;
+    const rate = stats.done / stats.total;
+    if (bestSlotLabel === null || rate > bestSlotRate || (rate === bestSlotRate && stats.done > bestSlotDone)) {
+      bestSlotLabel = slot;
+      bestSlotRate = rate;
+      bestSlotDone = stats.done;
+    }
+  });
+
+  const moodHistory = state.moodHistory || {};
+  const sanitizedMotivationValues = lastSevenDates.map(dateStr => {
+    const entry = moodHistory[dateStr];
+    if (entry && typeof entry.motivation === 'number' && !Number.isNaN(entry.motivation)) {
+      return Math.max(0, Math.min(100, entry.motivation));
+    }
+    return null;
+  });
+
+  const recordedMotivations = sanitizedMotivationValues.filter(value => typeof value === 'number');
+  const avgMotivation = recordedMotivations.length
+    ? Math.round(recordedMotivations.reduce((acc, value) => acc + value, 0) / recordedMotivations.length)
+    : null;
+
+  const moodCounts = {};
+  const moodOrder = {};
+  let moodOrderIndex = 0;
+
+  lastSevenDates.forEach(dateStr => {
+    const entry = moodHistory[dateStr];
+    if (!entry || !entry.emoji) return;
+    const key = entry.emoji;
+    if (moodCounts[key] === undefined) {
+      moodCounts[key] = 0;
+      moodOrder[key] = moodOrderIndex++;
+    }
+    moodCounts[key] += 1;
+  });
+
+  let dominantMoodKey = null;
+  let dominantMoodCount = 0;
+
+  Object.entries(moodCounts).forEach(([key, count]) => {
+    if (dominantMoodKey === null || count > dominantMoodCount || (count === dominantMoodCount && moodOrder[key] < moodOrder[dominantMoodKey])) {
+      dominantMoodKey = key;
+      dominantMoodCount = count;
+    }
+  });
+
+  const hasCompletionData = weeklyData.some(({ tasks }) => tasks.some(task => task && !isTaskEmpty(task)));
+  const hasMotivationData = recordedMotivations.length > 0;
+  const hasReportData = totalReports > 0;
+  const hasBestSlot = Boolean(bestSlotLabel);
+  const hasMoodData = Boolean(dominantMoodKey);
+  const shouldShowInsights = hasCompletionData || hasMotivationData || hasReportData || hasBestSlot || hasMoodData;
+
+  if (insightsContentEl && insightsEmptyEl) {
+    if (shouldShowInsights) {
+      insightsContentEl.removeAttribute('hidden');
+      insightsEmptyEl.setAttribute('hidden', '');
+    } else {
+      insightsContentEl.setAttribute('hidden', '');
+      insightsEmptyEl.removeAttribute('hidden');
+    }
+  }
+
+  if (insightBestSlotEl) {
+    if (bestSlotLabel) {
+      const percent = Math.round(bestSlotRate * 100);
+      const suffix = Number.isFinite(percent) ? ` · ${percent}%` : '';
+      insightBestSlotEl.textContent = `${bestSlotLabel}${suffix}`;
+    } else {
+      insightBestSlotEl.textContent = '—';
+    }
+  }
+
+  if (insightTopReportEl) {
+    if (totalReports > 0 && dominantReasonLabel) {
+      insightTopReportEl.textContent = dominantReasonLabel;
+    } else {
+      insightTopReportEl.textContent = '—';
+    }
+  }
+
+  if (insightAvgMotivationEl) {
+    insightAvgMotivationEl.textContent = avgMotivation !== null ? `${avgMotivation}%` : '—';
+  }
+
+  if (insightDominantMoodEl) {
+    if (dominantMoodKey && MOOD_DETAILS[dominantMoodKey]) {
+      const detail = MOOD_DETAILS[dominantMoodKey];
+      insightDominantMoodEl.textContent = `${detail.emoji} ${detail.label}`;
+    } else {
+      insightDominantMoodEl.textContent = '—';
+    }
+  }
+
+  if (insightCompletionBarsEl) {
+    insightCompletionBarsEl.innerHTML = '';
+    weeklyData.forEach(({ dateStr, doneCount }) => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'insight-bar';
+
+      const fill = document.createElement('div');
+      fill.className = 'insight-bar-fill';
+      const percent = Math.min(100, Math.max(0, Math.round((doneCount / 3) * 100)));
+      fill.style.height = `${percent}%`;
+      fill.title = `${doneCount}/3 tâches complétées`;
+
+      const dayLabel = document.createElement('span');
+      dayLabel.className = 'insight-bar-day';
+      const date = new Date(dateStr);
+      dayLabel.textContent = DAY_LABELS_SHORT[date.getDay()] || '';
+
+      wrapper.appendChild(fill);
+      wrapper.appendChild(dayLabel);
+      insightCompletionBarsEl.appendChild(wrapper);
+    });
+  }
+
+  if (insightSparklineEl) {
+    insightSparklineEl.innerHTML = '';
+    const pathData = buildSparklinePath(sanitizedMotivationValues, 120, 48);
+    if (pathData) {
+      const svgNS = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(svgNS, 'svg');
+      svg.setAttribute('viewBox', '0 0 120 48');
+      svg.setAttribute('preserveAspectRatio', 'none');
+      svg.classList.add('insight-sparkline');
+
+      const background = document.createElementNS(svgNS, 'rect');
+      background.setAttribute('x', '0');
+      background.setAttribute('y', '0');
+      background.setAttribute('width', '120');
+      background.setAttribute('height', '48');
+      background.setAttribute('fill', 'rgba(166, 128, 118, 0.12)');
+
+      const path = document.createElementNS(svgNS, 'path');
+      path.setAttribute('d', pathData);
+
+      svg.appendChild(background);
+      svg.appendChild(path);
+      insightSparklineEl.appendChild(svg);
+    } else {
+      const placeholder = document.createElement('span');
+      placeholder.className = 'insight-placeholder';
+      placeholder.textContent = '—';
+      insightSparklineEl.appendChild(placeholder);
+    }
+  }
+
+  if (insightTextEl) {
+    let insightSentence = 'Pas encore assez de recul pour un insight personnalisé.';
+
+    if (bestSlotLabel && dominantReason && REPORT_REASON_DETAILS[dominantReason]) {
+      insightSentence = `Ton meilleur taux est ${bestSlotLabel.toLowerCase()}. ${REPORT_REASON_DETAILS[dominantReason].recommendation}`;
+    } else if (bestSlotLabel) {
+      insightSentence = `Ton meilleur taux est ${bestSlotLabel.toLowerCase()}. Continue sur cette lancée !`;
+    } else if (dominantReason && REPORT_REASON_DETAILS[dominantReason]) {
+      const detail = REPORT_REASON_DETAILS[dominantReason];
+      insightSentence = `${detail.label} ressort. ${detail.recommendation}`;
+    } else if (avgMotivation !== null) {
+      insightSentence = `Motivation moyenne ${avgMotivation}%. Ajuste ton énergie en conséquence.`;
+    } else if (dominantMoodKey && MOOD_DETAILS[dominantMoodKey]) {
+      const detail = MOOD_DETAILS[dominantMoodKey];
+      insightSentence = `Humeur dominante : ${detail.emoji}. Calibre tes micro-pas en fonction.`;
+    }
+
+    insightTextEl.textContent = insightSentence;
+  }
 }
 
 function renderDaysRemaining() {
@@ -1478,13 +1788,42 @@ function renderOtherDays() {
   }
 }
 
+function updateDailyMoodHistory(partial = {}) {
+  if (!state.moodHistory) state.moodHistory = {};
+  const today = getToday();
+  const existing = state.moodHistory[today] ? { ...state.moodHistory[today] } : {};
+  const entry = { ...existing };
+
+  if (partial.motivation !== undefined) {
+    entry.motivation = partial.motivation;
+  } else if (entry.motivation === undefined && typeof state.mood?.motivation === 'number') {
+    entry.motivation = state.mood.motivation;
+  }
+
+  if (partial.emoji !== undefined) {
+    entry.emoji = partial.emoji;
+  } else if (entry.emoji === undefined && state.mood?.emoji) {
+    entry.emoji = state.mood.emoji;
+  }
+
+  if (entry.motivation === undefined && entry.emoji === undefined) {
+    return;
+  }
+
+  entry.updatedAt = new Date().toISOString();
+  state.moodHistory[today] = entry;
+}
+
 function renderMood() {
   const slider = document.getElementById('motivation-slider');
   slider.value = state.mood.motivation || 50;
 
   slider.oninput = () => {
-    state.mood.motivation = parseInt(slider.value);
+    const value = parseInt(slider.value);
+    state.mood.motivation = value;
+    updateDailyMoodHistory({ motivation: value });
     saveState();
+    refreshWeeklyReviewIfVisible();
   };
 
   const emojiBtns = document.querySelectorAll('.emoji-btn');
@@ -1501,6 +1840,8 @@ function renderMood() {
       saveState();
       emojiBtns.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
+      updateDailyMoodHistory({ emoji });
+      refreshWeeklyReviewIfVisible();
     };
   });
 }
@@ -2059,4 +2400,5 @@ document.getElementById('enable-notifications-btn')?.addEventListener('click', (
 
 loadState();
 initNavigation();
+initWeeklyTabs();
 showView('aujourdhui');
