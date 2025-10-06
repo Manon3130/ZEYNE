@@ -8,6 +8,13 @@ const ENCOURAGEMENT_MESSAGES = [
   'Constance +1. Demain, on recommence.'
 ];
 
+const BADGE_DEFINITIONS = [
+  { id: 'bronze', label: 'Bronze', threshold: 3, icon: '🥉' },
+  { id: 'silver', label: 'Argent', threshold: 7, icon: '🥈' },
+  { id: 'gold', label: 'Or', threshold: 14, icon: '🥇' },
+  { id: 'platinum', label: 'Platine', threshold: 30, icon: '🏆' }
+];
+
 const REPORT_REASON_DETAILS = {
   'trop-gros': {
     label: 'Trop gros',
@@ -34,6 +41,286 @@ const REPORT_REASON_DETAILS = {
 const DAY_LABELS_SHORT = ['di', 'lu', 'ma', 'me', 'je', 've', 'sa'];
 
 const DAYS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
+
+function createDefaultStreakState() {
+  return {
+    current: 0,
+    best: 0,
+    lastCountedDay: null,
+    daysDone: []
+  };
+}
+
+function createDefaultBadgesState() {
+  return {
+    unlocked: []
+  };
+}
+
+function isValidISODate(value) {
+  if (typeof value !== 'string') return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  const iso = date.toISOString().split('T')[0];
+  return iso === value;
+}
+
+function sanitizeDaysDoneList(days) {
+  if (!Array.isArray(days)) return [];
+  const filtered = days.filter(isValidISODate);
+  const unique = Array.from(new Set(filtered));
+  unique.sort();
+  return unique;
+}
+
+function differenceInDays(startISO, endISO) {
+  if (!isValidISODate(startISO) || !isValidISODate(endISO)) return null;
+  const start = new Date(startISO);
+  const end = new Date(endISO);
+  start.setHours(0, 0, 0, 0);
+  end.setHours(0, 0, 0, 0);
+  const diffMs = end.getTime() - start.getTime();
+  return Math.round(diffMs / (1000 * 60 * 60 * 24));
+}
+
+function computeBestStreak(days) {
+  const unique = sanitizeDaysDoneList(days);
+  if (!unique.length) return 0;
+
+  let best = 0;
+  let current = 0;
+  let previous = null;
+
+  unique.forEach(dayStr => {
+    if (previous === null) {
+      current = 1;
+    } else {
+      const diff = differenceInDays(previous, dayStr);
+      if (diff === 1) {
+        current += 1;
+      } else if (diff !== null && diff > 1) {
+        current = 1;
+      }
+    }
+    previous = dayStr;
+    if (current > best) {
+      best = current;
+    }
+  });
+
+  return best;
+}
+
+function computeCurrentStreakInfo(days, referenceDayStr) {
+  const unique = sanitizeDaysDoneList(days);
+  if (!unique.length) {
+    return { streak: 0, lastDay: null };
+  }
+
+  const doneSet = new Set(unique);
+  const reference = isValidISODate(referenceDayStr) ? new Date(referenceDayStr) : getTodayDateObj();
+  if (Number.isNaN(reference.getTime())) {
+    return { streak: 0, lastDay: null };
+  }
+  reference.setHours(0, 0, 0, 0);
+  const referenceISO = reference.toISOString().split('T')[0];
+
+  const earliest = new Date(unique[0]);
+  earliest.setHours(0, 0, 0, 0);
+
+  const cursor = new Date(reference);
+
+  while (cursor.getTime() >= earliest.getTime()) {
+    const cursorISO = cursor.toISOString().split('T')[0];
+    if (doneSet.has(cursorISO)) {
+      const lastDay = cursorISO;
+      let streak = 0;
+      const runCursor = new Date(cursor);
+      while (true) {
+        const runISO = runCursor.toISOString().split('T')[0];
+        if (!doneSet.has(runISO)) break;
+        streak += 1;
+        runCursor.setDate(runCursor.getDate() - 1);
+      }
+
+      const gap = differenceInDays(lastDay, referenceISO);
+      if (gap !== null && gap > 1) {
+        return { streak: 0, lastDay: null };
+      }
+
+      return { streak, lastDay };
+    }
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  return { streak: 0, lastDay: null };
+}
+
+function formatDayCount(value) {
+  const normalized = Number(value) || 0;
+  return `${normalized} jour${normalized > 1 ? 's' : ''}`;
+}
+
+function ensureStreakStructure() {
+  if (!state.streak || typeof state.streak !== 'object') {
+    state.streak = createDefaultStreakState();
+  }
+
+  const fallback = createDefaultStreakState();
+  state.streak.current = Number.isFinite(Number(state.streak.current)) ? Number(state.streak.current) : fallback.current;
+  state.streak.best = Number.isFinite(Number(state.streak.best)) ? Number(state.streak.best) : fallback.best;
+  state.streak.lastCountedDay = isValidISODate(state.streak.lastCountedDay) ? state.streak.lastCountedDay : fallback.lastCountedDay;
+  state.streak.daysDone = sanitizeDaysDoneList(state.streak.daysDone);
+}
+
+function ensureBadgesStructure() {
+  if (!state.badges || typeof state.badges !== 'object') {
+    state.badges = createDefaultBadgesState();
+  }
+
+  const unlocked = Array.isArray(state.badges.unlocked) ? state.badges.unlocked : [];
+  const normalized = unlocked
+    .map(entry => {
+      if (typeof entry === 'string') {
+        return { id: entry, unlockedAt: null };
+      }
+      if (!entry || typeof entry !== 'object') {
+        return null;
+      }
+      const id = entry.id;
+      const unlockedAt = typeof entry.unlockedAt === 'string' && !Number.isNaN(new Date(entry.unlockedAt).getTime())
+        ? entry.unlockedAt
+        : null;
+      return { id, unlockedAt };
+    })
+    .filter(Boolean)
+    .filter(entry => BADGE_DEFINITIONS.some(def => def.id === entry.id));
+
+  const dedupMap = new Map();
+  normalized.forEach(entry => {
+    const existing = dedupMap.get(entry.id);
+    if (!existing) {
+      dedupMap.set(entry.id, entry);
+    } else {
+      const existingTime = existing.unlockedAt ? new Date(existing.unlockedAt).getTime() : -Infinity;
+      const entryTime = entry.unlockedAt ? new Date(entry.unlockedAt).getTime() : -Infinity;
+      if (entryTime > existingTime) {
+        dedupMap.set(entry.id, entry);
+      }
+    }
+  });
+
+  const deduped = Array.from(dedupMap.values());
+  deduped.sort((a, b) => {
+    const aDate = a.unlockedAt ? new Date(a.unlockedAt).getTime() : 0;
+    const bDate = b.unlockedAt ? new Date(b.unlockedAt).getTime() : 0;
+    return aDate - bDate;
+  });
+
+  state.badges.unlocked = deduped;
+}
+
+function sanitizeStreakData(referenceDayStr = getToday()) {
+  ensureStreakStructure();
+  ensureBadgesStructure();
+
+  const previousBest = Number(state.streak.best) || 0;
+  const { streak, lastDay } = computeCurrentStreakInfo(state.streak.daysDone, referenceDayStr);
+  state.streak.current = streak;
+  state.streak.lastCountedDay = lastDay;
+
+  const computedBest = computeBestStreak(state.streak.daysDone);
+  if (computedBest > previousBest) {
+    state.streak.best = computedBest;
+  } else {
+    state.streak.best = previousBest;
+  }
+}
+
+function updateDayCompletionRecord(dayStr, isComplete, referenceDayStr = getToday()) {
+  ensureStreakStructure();
+
+  if (!isValidISODate(dayStr)) {
+    sanitizeStreakData(referenceDayStr);
+    return {
+      current: state.streak.current,
+      best: state.streak.best,
+      bestChanged: false
+    };
+  }
+
+  const days = sanitizeDaysDoneList(state.streak.daysDone);
+  const index = days.indexOf(dayStr);
+  if (isComplete && index === -1) {
+    days.push(dayStr);
+  } else if (!isComplete && index !== -1) {
+    days.splice(index, 1);
+  }
+
+  state.streak.daysDone = sanitizeDaysDoneList(days);
+
+  const previousCurrent = Number(state.streak.current) || 0;
+  const previousBest = Number(state.streak.best) || 0;
+  const { streak, lastDay } = computeCurrentStreakInfo(state.streak.daysDone, referenceDayStr);
+  state.streak.current = streak;
+  state.streak.lastCountedDay = lastDay;
+
+  const computedBest = computeBestStreak(state.streak.daysDone);
+  const newBest = Math.max(previousBest, computedBest);
+  state.streak.best = newBest;
+
+  return {
+    current: state.streak.current,
+    best: state.streak.best,
+    bestChanged: newBest > previousBest,
+    currentChanged: state.streak.current !== previousCurrent
+  };
+}
+
+function getBadgeDefinitionById(id) {
+  return BADGE_DEFINITIONS.find(def => def.id === id) || null;
+}
+
+function getBadgeForStreak(streakValue) {
+  const normalized = Number(streakValue) || 0;
+  let badge = null;
+  BADGE_DEFINITIONS.forEach(def => {
+    if (normalized >= def.threshold) {
+      badge = def;
+    }
+  });
+  return badge;
+}
+
+function getLastUnlockedBadge() {
+  ensureBadgesStructure();
+  if (!state.badges.unlocked.length) return null;
+  const last = state.badges.unlocked[state.badges.unlocked.length - 1];
+  const definition = getBadgeDefinitionById(last.id);
+  if (!definition) return null;
+  return { ...definition, unlockedAt: last.unlockedAt };
+}
+
+function unlockBadgesForCurrentStreak(currentStreak) {
+  ensureBadgesStructure();
+  const unlockedIds = new Set(state.badges.unlocked.map(entry => entry.id));
+  const eligible = BADGE_DEFINITIONS.filter(def => currentStreak >= def.threshold && !unlockedIds.has(def.id));
+  if (!eligible.length) {
+    return null;
+  }
+
+  const timestamp = new Date().toISOString();
+  eligible.forEach(def => {
+    state.badges.unlocked.push({ id: def.id, unlockedAt: timestamp });
+  });
+  state.badges.unlocked.sort((a, b) => {
+    const aTime = a.unlockedAt ? new Date(a.unlockedAt).getTime() : 0;
+    const bTime = b.unlockedAt ? new Date(b.unlockedAt).getTime() : 0;
+    return aTime - bTime;
+  });
+
+  return eligible[eligible.length - 1];
+}
 
 const TEMPLATE_LIBRARY = [
   {
@@ -105,7 +392,9 @@ let state = {
   kpiImage: '',
   mood: { motivation: 50, emoji: null },
   reports: {},
-  microReviews: {}
+  microReviews: {},
+  streak: createDefaultStreakState(),
+  badges: createDefaultBadgesState()
 };
 
 let lastTemplateApplication = null;
@@ -125,24 +414,35 @@ function loadState() {
       console.error('Error loading state:', e);
     }
   }
+
+  sanitizeStreakData();
 }
 
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
+function getTodayDateObj() {
+  const now = new Date();
+  if (now.getHours() < 2) {
+    now.setDate(now.getDate() - 1);
+  }
+  now.setHours(0, 0, 0, 0);
+  return now;
+}
+
 function getToday() {
-  return new Date().toISOString().split('T')[0];
+  return getTodayDateObj().toISOString().split('T')[0];
 }
 
 function getDateString(offset = 0) {
-  const date = new Date();
+  const date = getTodayDateObj();
   date.setDate(date.getDate() + offset);
   return date.toISOString().split('T')[0];
 }
 
 function getNextMondayDate() {
-  const date = new Date();
+  const date = getTodayDateObj();
   const day = date.getDay();
   const daysUntilNextMonday = ((8 - day) % 7) || 7;
   date.setDate(date.getDate() + daysUntilNextMonday);
@@ -151,8 +451,7 @@ function getNextMondayDate() {
 }
 
 function getStartDateForPeriod(period) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const today = getTodayDateObj();
   if (period === 'next-week') {
     return getNextMondayDate();
   }
@@ -244,7 +543,7 @@ function formatTaskMeta(task) {
 
 function getLastSevenDates() {
   const dates = [];
-  const today = new Date();
+  const today = getTodayDateObj();
   for (let offset = 6; offset >= 0; offset--) {
     const date = new Date(today);
     date.setDate(today.getDate() - offset);
@@ -292,23 +591,6 @@ function recordReportForDate(dateStr, reasonKey) {
 function getTasksDoneCount(dateStr) {
   const tasks = Array.isArray(state.tasks[dateStr]) ? state.tasks[dateStr] : [];
   return tasks.filter(task => task && task.status === 'done').length;
-}
-
-function computeCurrentStreak() {
-  let streak = 0;
-  const cursor = new Date();
-
-  while (true) {
-    const cursorStr = cursor.toISOString().split('T')[0];
-    const doneCount = getTasksDoneCount(cursorStr);
-    if (doneCount < 3) {
-      break;
-    }
-    streak += 1;
-    cursor.setDate(cursor.getDate() - 1);
-  }
-
-  return streak;
 }
 
 function refreshWeeklyReviewIfVisible() {
@@ -968,17 +1250,23 @@ function renderDashboard() {
   renderMood();
   renderKPIImage();
   updateMomentum();
+  renderStreakSummary();
 }
 
 function renderWeeklyReview() {
+  sanitizeStreakData();
+
   const weeklyFullDaysEl = document.getElementById('weekly-full-days');
   const weeklySuccessRateEl = document.getElementById('weekly-success-rate');
   const weeklyReportsEl = document.getElementById('weekly-reports');
-  const weeklyStreakEl = document.getElementById('weekly-streak');
+  const weeklyRegularityCurrentEl = document.getElementById('weekly-regularity-current');
+  const weeklyRegularityBestEl = document.getElementById('weekly-regularity-best');
+  const weeklyRegularityBadgeTextEl = document.getElementById('weekly-regularity-badge-text');
+  const weeklyRegularityBadgeIconEl = document.getElementById('weekly-regularity-badge-icon');
   const weeklyGraphEl = document.getElementById('weekly-graph');
   const weeklyRecommendationEl = document.getElementById('weekly-recommendation');
 
-  if (!weeklyFullDaysEl || !weeklySuccessRateEl || !weeklyReportsEl || !weeklyStreakEl || !weeklyGraphEl || !weeklyRecommendationEl) {
+  if (!weeklyFullDaysEl || !weeklySuccessRateEl || !weeklyReportsEl || !weeklyRegularityCurrentEl || !weeklyRegularityBestEl || !weeklyRegularityBadgeTextEl || !weeklyRegularityBadgeIconEl || !weeklyGraphEl || !weeklyRecommendationEl) {
     return;
   }
 
@@ -1045,8 +1333,19 @@ function renderWeeklyReview() {
     weeklyReportsEl.textContent = '0 report · Motif dominant : —';
   }
 
-  const streak = computeCurrentStreak();
-  weeklyStreakEl.textContent = `${streak} jour${streak > 1 ? 's' : ''}`;
+  const currentStreak = state.streak?.current || 0;
+  const bestStreak = state.streak?.best || 0;
+  weeklyRegularityCurrentEl.textContent = `Streak actuel : ${formatDayCount(currentStreak)}`;
+  weeklyRegularityBestEl.textContent = `Meilleur streak : ${formatDayCount(bestStreak)}`;
+
+  const lastBadge = getLastUnlockedBadge();
+  if (lastBadge) {
+    weeklyRegularityBadgeTextEl.textContent = `Dernier badge : ${lastBadge.label}`;
+    weeklyRegularityBadgeIconEl.textContent = lastBadge.icon;
+  } else {
+    weeklyRegularityBadgeTextEl.textContent = 'Dernier badge : —';
+    weeklyRegularityBadgeIconEl.textContent = '🏅';
+  }
 
   weeklyGraphEl.innerHTML = '';
   weeklyData.forEach(({ dateStr, doneCount }) => {
@@ -1206,6 +1505,67 @@ function renderMood() {
   });
 }
 
+function renderStreakSummary() {
+  sanitizeStreakData();
+
+  const summary = document.getElementById('streak-summary');
+  const textEl = document.getElementById('streak-text');
+  const badgeEl = document.getElementById('streak-badge');
+  const tooltipEl = document.getElementById('streak-tooltip');
+
+  if (!summary || !textEl || !badgeEl || !tooltipEl) {
+    return;
+  }
+
+  const current = state.streak?.current || 0;
+  const best = state.streak?.best || 0;
+  textEl.textContent = `Streak : ${formatDayCount(current)}`;
+  tooltipEl.textContent = `Meilleur streak : ${formatDayCount(best)}`;
+  summary.setAttribute('title', `Meilleur streak : ${formatDayCount(best)}`);
+  summary.setAttribute('aria-label', `Streak actuel : ${formatDayCount(current)}. Meilleur streak : ${formatDayCount(best)}`);
+
+  const badge = getBadgeForStreak(current);
+  if (badge) {
+    badgeEl.textContent = badge.icon;
+    badgeEl.setAttribute('aria-label', `Badge ${badge.label}`);
+    summary.classList.add('has-badge');
+  } else {
+    badgeEl.textContent = '—';
+    badgeEl.removeAttribute('aria-label');
+    summary.classList.remove('has-badge');
+  }
+}
+
+function showToast(message) {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.textContent = message;
+  container.appendChild(toast);
+
+  requestAnimationFrame(() => {
+    toast.classList.add('show');
+  });
+
+  setTimeout(() => {
+    toast.classList.remove('show');
+    setTimeout(() => {
+      toast.remove();
+    }, 300);
+  }, 2600);
+}
+
+function handleDailyCompletionFeedback(currentStreak, badge) {
+  const normalized = Number(currentStreak) || 0;
+  showToast(`Journée validée ✅ — Streak : ${formatDayCount(normalized)}`);
+
+  if (badge) {
+    showBadgeModal(badge);
+  }
+}
+
 function updateMomentum() {
   updateDailyMomentumRing();
   updateGlobalProgressBar();
@@ -1331,14 +1691,31 @@ window.startTask = function(taskIdx) {
 
 window.toggleTaskCompletion = function(taskIdx) {
   const today = getToday();
-  const task = state.tasks[today][taskIdx];
+  ensureTasksForDate(today);
+  const tasksForToday = state.tasks[today];
+  const task = tasksForToday[taskIdx];
   if (!task) return;
 
+  const wasComplete = tasksForToday.every(t => t.status === 'done');
+
   task.status = task.status === 'done' ? 'planned' : 'done';
+
+  const isNowComplete = tasksForToday.every(t => t.status === 'done');
+  const streakResult = updateDayCompletionRecord(today, isNowComplete);
+  let newlyUnlockedBadge = null;
+  if (isNowComplete) {
+    newlyUnlockedBadge = unlockBadgesForCurrentStreak(state.streak.current);
+  }
+
   saveState();
   renderDailyTasks();
   updateMomentum();
+  renderStreakSummary();
   refreshWeeklyReviewIfVisible();
+
+  if (!wasComplete && isNowComplete) {
+    handleDailyCompletionFeedback(streakResult?.current || state.streak.current || 0, newlyUnlockedBadge);
+  }
 };
 
 window.reportTask = function(dateStr, taskIdx) {
@@ -1588,8 +1965,36 @@ function closeModal() {
   }
   if (content) {
     content.classList.remove('template-wide');
+    content.classList.remove('badge-modal-container');
   }
   setPlanifierTabsMode('editor');
+}
+
+function showBadgeModal(badge) {
+  if (!badge) return;
+
+  const modal = document.getElementById('modal-overlay');
+  const content = document.getElementById('modal-content');
+  if (!modal || !content) return;
+
+  content.classList.remove('template-wide');
+  content.classList.add('badge-modal-container');
+  content.innerHTML = `
+    <div class="badge-modal">
+      <div class="badge-modal-icon" aria-hidden="true">${badge.icon}</div>
+      <h3>Nouveau badge : ${badge.label}</h3>
+      <p>${badge.threshold} jours consécutifs — continue !</p>
+      <button class="btn btn-primary" id="badge-modal-close-btn">OK</button>
+    </div>
+  `;
+
+  modal.classList.add('show');
+
+  const closeBtn = document.getElementById('badge-modal-close-btn');
+  if (closeBtn) {
+    closeBtn.focus();
+    closeBtn.onclick = () => closeModal();
+  }
 }
 
 function launchConfetti() {
