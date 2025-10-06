@@ -17,6 +17,7 @@
       <nav class="nav-menu">
         <a href="#" data-view="programme">Programme</a>
         <a href="#" data-view="planifier">Planifier</a>
+        <a href="#" data-view="bibliotheque">Bibliothèque</a>
         <a href="#" data-view="aujourdhui" class="active">Aujourd'hui</a>
         <a href="#" data-view="hebdo">Voir ma semaine</a>
         <a href="#" data-view="notifications">Notifications</a>
@@ -113,6 +114,67 @@
           <p class="planifier-helper">Planifiez vos micro-tâches ou gagnez du temps avec des modèles prêts à l’emploi.</p>
           <div id="planifier-days"></div>
           <button class="btn btn-primary" id="save-planifier-btn">Enregistrer</button>
+        </div>
+      </section>
+
+      <section id="view-bibliotheque" class="view">
+        <div class="card card-library">
+          <div class="library-header">
+            <div>
+              <h2>Bibliothèque audio</h2>
+              <p class="library-subtitle">Centralisez vos rituels sonores : import, favoris et assignations automatiques.</p>
+            </div>
+            <div class="library-actions">
+              <input type="file" id="audio-file-input" accept="audio/*" hidden>
+              <button class="btn btn-primary" id="import-audio-btn" type="button">Importer un audio</button>
+            </div>
+          </div>
+
+          <div class="library-defaults" id="library-defaults">
+            <h3>Assignations par défaut</h3>
+            <p class="library-defaults-help">Sélectionnez l'audio qui se lancera automatiquement selon le moment de la journée.</p>
+            <div class="library-defaults-grid">
+              <label class="library-default-item">
+                <span>Matin</span>
+                <select class="default-audio-select" data-slot="morning"></select>
+              </label>
+              <label class="library-default-item">
+                <span>Après-midi</span>
+                <select class="default-audio-select" data-slot="afternoon"></select>
+              </label>
+              <label class="library-default-item">
+                <span>Soir</span>
+                <select class="default-audio-select" data-slot="evening"></select>
+              </label>
+            </div>
+          </div>
+
+          <div class="library-editor" id="library-editor" hidden>
+            <h3 id="library-editor-title">Nouvel audio</h3>
+            <div class="library-editor-grid">
+              <div class="form-group">
+                <label for="audio-title-input">Titre</label>
+                <input type="text" id="audio-title-input" placeholder="Titre de l'audio">
+              </div>
+              <div class="form-group">
+                <label for="audio-category-input">Catégorie</label>
+                <select id="audio-category-input"></select>
+              </div>
+              <div class="form-group">
+                <label>Durée</label>
+                <div id="audio-duration-display" class="audio-duration">—</div>
+              </div>
+            </div>
+            <div class="library-editor-actions">
+              <button class="btn btn-secondary" type="button" id="audio-cancel-btn">Annuler</button>
+              <button class="btn btn-primary" type="button" id="audio-save-btn">Enregistrer</button>
+            </div>
+          </div>
+
+          <div class="audio-list" id="audio-list"></div>
+          <div class="audio-empty" id="audio-empty" hidden>
+            <p>Aucun audio importé pour le moment. Ajoutez vos propres rituels ou utilisez les audios intégrés.</p>
+          </div>
         </div>
       </section>
 
