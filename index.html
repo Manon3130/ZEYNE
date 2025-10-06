@@ -35,8 +35,16 @@
             <div class="progress-bar-container" id="global-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Progression globale des mini-tâches">
               <div class="progress-bar" id="progress-bar"></div>
             </div>
-            <div class="momentum-ring" id="momentum-ring" aria-label="Progression des mini-tâches du jour">
-              <span class="momentum-percentage" id="momentum-percentage">0%</span>
+            <div class="momentum-row">
+              <div class="momentum-ring" id="momentum-ring" aria-label="Progression des mini-tâches du jour">
+                <span class="momentum-percentage" id="momentum-percentage">0%</span>
+              </div>
+              <div class="streak-summary" id="streak-summary" tabindex="0" aria-describedby="streak-tooltip">
+                <span class="streak-icon" aria-hidden="true">🔥</span>
+                <span class="streak-text" id="streak-text">Streak : 0 jour</span>
+                <span class="streak-badge" id="streak-badge" aria-hidden="true">—</span>
+                <span class="streak-tooltip" id="streak-tooltip" role="tooltip">Meilleur streak : 0 jour</span>
+              </div>
             </div>
             <div class="kpi-image-container">
               <img id="kpi-image-display" src="" alt="KPI" style="display:none;">
@@ -129,9 +137,22 @@
               <span class="kpi-label">Reports</span>
               <span class="kpi-value" id="weekly-reports">0 report · Motif dominant : —</span>
             </div>
-            <div class="weekly-kpi-card">
-              <span class="kpi-label">Streak actuel</span>
-              <span class="kpi-value" id="weekly-streak">0 jour</span>
+            <div class="weekly-kpi-card regularity-card">
+              <span class="kpi-label">Régularité</span>
+              <div class="regularity-metrics">
+                <div class="regularity-row">
+                  <span class="regularity-icon" aria-hidden="true">🔥</span>
+                  <span class="regularity-text" id="weekly-regularity-current">Streak actuel : 0 jour</span>
+                </div>
+                <div class="regularity-row">
+                  <span class="regularity-icon" aria-hidden="true">📈</span>
+                  <span class="regularity-text" id="weekly-regularity-best">Meilleur streak : 0 jour</span>
+                </div>
+                <div class="regularity-row">
+                  <span class="regularity-icon" id="weekly-regularity-badge-icon" aria-hidden="true">🏅</span>
+                  <span class="regularity-text" id="weekly-regularity-badge-text">Dernier badge : —</span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -185,6 +206,8 @@
   <div id="modal-overlay" class="modal-overlay">
     <div class="modal-content" id="modal-content"></div>
   </div>
+
+  <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
 
   <canvas id="confetti-canvas"></canvas>
 
