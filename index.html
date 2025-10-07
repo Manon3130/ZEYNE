@@ -36,6 +36,10 @@
             <div class="progress-bar-container" id="global-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Progression globale des mini-tâches">
               <div class="progress-bar" id="progress-bar"></div>
             </div>
+            <div class="next-reminder-banner" id="next-reminder-banner" hidden>
+              <span id="next-reminder-text"></span>
+              <button type="button" class="btn btn-secondary" id="next-reminder-snooze-btn">Snooze 10 min</button>
+            </div>
             <div class="momentum-row">
               <div class="momentum-ring" id="momentum-ring" aria-label="Progression des mini-tâches du jour">
                 <span class="momentum-percentage" id="momentum-percentage">0%</span>
@@ -281,9 +285,85 @@
       <section id="view-notifications" class="view">
         <div class="card card-form">
           <h2>Notifications</h2>
-          <p>Autoriser les rappels pour vos micro-tâches.</p>
-          <button class="btn btn-primary" id="enable-notifications-btn">Activer notifications</button>
-          <div id="notification-status"></div>
+          <p>Configurez vos rappels quotidiens et choisissez comment vous voulez être averti.</p>
+
+          <div class="notification-section">
+            <label class="toggle-switch">
+              <input type="checkbox" id="notifications-enabled-toggle">
+              <span class="toggle-slider" aria-hidden="true"></span>
+              <span class="toggle-label">Activer les rappels quotidiens</span>
+            </label>
+            <div class="notification-timezone">Fuseau horaire : <span id="notifications-timezone">—</span></div>
+          </div>
+
+          <div class="notification-slots" role="group" aria-labelledby="notification-slots-title">
+            <h3 id="notification-slots-title">Créneaux</h3>
+            <div class="notification-slot" data-slot="morning">
+              <label class="toggle-switch">
+                <input type="checkbox" id="notifications-slot-morning-enabled">
+                <span class="toggle-slider" aria-hidden="true"></span>
+                <span class="toggle-label">Matin</span>
+              </label>
+              <input type="time" id="notifications-slot-morning-time" aria-label="Heure du rappel du matin">
+            </div>
+            <div class="notification-slot" data-slot="afternoon">
+              <label class="toggle-switch">
+                <input type="checkbox" id="notifications-slot-afternoon-enabled">
+                <span class="toggle-slider" aria-hidden="true"></span>
+                <span class="toggle-label">Après-midi</span>
+              </label>
+              <input type="time" id="notifications-slot-afternoon-time" aria-label="Heure du rappel de l'après-midi">
+            </div>
+            <div class="notification-slot" data-slot="evening">
+              <label class="toggle-switch">
+                <input type="checkbox" id="notifications-slot-evening-enabled">
+                <span class="toggle-slider" aria-hidden="true"></span>
+                <span class="toggle-label">Soir</span>
+              </label>
+              <input type="time" id="notifications-slot-evening-time" aria-label="Heure du rappel du soir">
+            </div>
+          </div>
+
+          <div class="notification-dnd">
+            <h3>Ne pas déranger</h3>
+            <label class="toggle-switch">
+              <input type="checkbox" id="notifications-dnd-enabled">
+              <span class="toggle-slider" aria-hidden="true"></span>
+              <span class="toggle-label">Activer la plage silencieuse</span>
+            </label>
+            <div class="notification-dnd-range">
+              <label>
+                Début
+                <input type="time" id="notifications-dnd-start" aria-label="Début de la plage ne pas déranger">
+              </label>
+              <label>
+                Fin
+                <input type="time" id="notifications-dnd-end" aria-label="Fin de la plage ne pas déranger">
+              </label>
+            </div>
+            <p class="notification-hint">Les rappels programmés pendant cette plage seront reportés à la fin du mode silencieux.</p>
+          </div>
+
+          <div class="notification-sound">
+            <h3>Son</h3>
+            <label class="toggle-switch">
+              <input type="checkbox" id="notifications-sound-beep">
+              <span class="toggle-slider" aria-hidden="true"></span>
+              <span class="toggle-label">Beep lors des rappels</span>
+            </label>
+          </div>
+
+          <div class="notification-actions">
+            <button class="btn btn-secondary" id="notifications-snooze-btn" type="button">Rappeler dans 10 min</button>
+            <button class="btn btn-primary" id="notifications-test-btn" type="button">Tester</button>
+            <button class="btn btn-outline" id="enable-notifications-btn" type="button">Autoriser les notifications</button>
+            <button class="btn btn-outline" id="notifications-ics-btn" type="button">Ajouter au calendrier (ICS)</button>
+          </div>
+
+          <div class="notification-status">
+            <div id="notification-status-text">—</div>
+            <div id="notification-permission-state">Notifications système : —</div>
+          </div>
         </div>
       </section>
 
