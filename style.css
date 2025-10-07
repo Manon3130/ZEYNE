@@ -693,6 +693,16 @@ body {
   transform: translateY(-1px);
 }
 
+.btn-outline {
+  background: transparent;
+  color: var(--primary);
+  border: 1px solid rgba(108, 75, 244, 0.5);
+}
+
+.btn-outline:hover {
+  background: rgba(108, 75, 244, 0.08);
+}
+
 .btn-secondary {
   background: rgba(255, 255, 255, 0.8);
   color: var(--text);
@@ -746,6 +756,224 @@ body {
 .btn-validate:hover {
   transform: translateY(-1px);
   box-shadow: 0 6px 16px rgba(234, 196, 175, 0.32);
+}
+
+.next-reminder-banner {
+  margin-top: 12px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: rgba(108, 75, 244, 0.08);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.next-reminder-banner[hidden] {
+  display: none !important;
+}
+
+.next-reminder-banner span {
+  font-weight: 500;
+}
+
+.notification-section,
+.notification-sound {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.notification-timezone {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.notification-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding: 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.notification-slots h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--text);
+}
+
+.notification-slot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.notification-slot input[type="time"] {
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-soft);
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--text);
+}
+
+.notification-slot input[type="time"]:disabled {
+  opacity: 0.6;
+}
+
+.notification-dnd {
+  padding: 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.6);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.notification-dnd h3,
+.notification-sound h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--text);
+}
+
+.notification-dnd-range {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.notification-dnd-range label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.9rem;
+}
+
+.notification-dnd-range input[type="time"] {
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-soft);
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.notification-hint {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 0;
+}
+
+.notification-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 24px 0;
+}
+
+.notification-actions .btn {
+  flex: 1 1 180px;
+}
+
+.notification-status {
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.6);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.notification-status strong {
+  font-weight: 600;
+}
+
+.toggle-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  user-select: none;
+  font-weight: 600;
+}
+
+.toggle-switch input[type="checkbox"] {
+  appearance: none;
+  width: 46px;
+  height: 26px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.15);
+  position: relative;
+  transition: background 0.2s ease;
+  outline: none;
+}
+
+.toggle-switch input[type="checkbox"]::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+  transition: transform 0.2s ease;
+}
+
+.toggle-switch input[type="checkbox"]:checked {
+  background: var(--primary);
+}
+
+.toggle-switch input[type="checkbox"]:checked::after {
+  transform: translateX(20px);
+}
+
+.toggle-switch input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.toggle-label {
+  font-weight: 500;
+}
+
+.notification-status-text-positive {
+  color: #2e7d32;
+  font-weight: 600;
+}
+
+.notification-status-text-negative {
+  color: #c62828;
+  font-weight: 600;
+}
+
+@media (max-width: 768px) {
+  .notification-actions {
+    flex-direction: column;
+  }
+
+  .notification-actions .btn {
+    flex: 1 1 auto;
+    width: 100%;
+  }
+
+  .notification-slot {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .notification-slot input[type="time"] {
+    width: 100%;
+  }
 }
 
 .btn-validate.checked,

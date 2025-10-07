@@ -87,6 +87,41 @@ const DAY_LABELS_SHORT = ['di', 'lu', 'ma', 'me', 'je', 've', 'sa'];
 
 const DAYS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
 
+const NOTIFICATION_SLOT_DETAILS = {
+  morning: { label: 'Matin', defaultTime: '09:00' },
+  afternoon: { label: 'Après-midi', defaultTime: '14:00' },
+  evening: { label: 'Soir', defaultTime: '19:00' }
+};
+
+const NOTIFICATION_SNOOZE_MINUTES = 10;
+const MAX_TIMEOUT_DELAY = 2147483647;
+
+function getLocalTimezone() {
+  try {
+    const options = Intl.DateTimeFormat().resolvedOptions();
+    if (options && typeof options.timeZone === 'string' && options.timeZone) {
+      return options.timeZone;
+    }
+  } catch (error) {
+    console.warn('Impossible de déterminer le fuseau horaire', error);
+  }
+  return 'UTC';
+}
+
+function createDefaultNotificationsState() {
+  return {
+    enabled: true,
+    timezone: getLocalTimezone(),
+    slots: {
+      morning: { enabled: true, time: NOTIFICATION_SLOT_DETAILS.morning.defaultTime },
+      afternoon: { enabled: true, time: NOTIFICATION_SLOT_DETAILS.afternoon.defaultTime },
+      evening: { enabled: true, time: NOTIFICATION_SLOT_DETAILS.evening.defaultTime }
+    },
+    dnd: { enabled: false, start: '22:00', end: '07:00' },
+    sound: { beep: true }
+  };
+}
+
 function createDefaultStreakState() {
   return {
     current: 0,
@@ -442,13 +477,22 @@ let state = {
   audioLibrary: [],
   defaultAudioAssignments: { morning: null, afternoon: null, evening: null },
   streak: createDefaultStreakState(),
-  badges: createDefaultBadgesState()
+  badges: createDefaultBadgesState(),
+  notifications: createDefaultNotificationsState()
 };
 
 let audioDBPromise = null;
 let pendingAudioDraft = null;
 let previewAudioState = { audio: null, entryId: null, revoke: null, button: null };
 let modalAudioState = { audio: null, revoke: null };
+const notificationRuntime = {
+  timers: new Map(),
+  nextOccurrences: new Map(),
+  snoozes: new Map()
+};
+let upcomingReminderIntervalId = null;
+let notificationsInitialized = false;
+let notificationBeepContext = null;
 
 let lastTemplateApplication = null;
 
@@ -581,6 +625,176 @@ function ensureAudioLibraryState() {
       task.audio = normalizeAudioValue(task.audio);
     });
   });
+}
+
+function normalizeTimeString(value, fallback) {
+  const defaultValue = typeof fallback === 'string' ? fallback : '09:00';
+  if (typeof value !== 'string') {
+    return normalizeTimeString(defaultValue, '09:00');
+  }
+  const match = value.trim().match(/^([0-9]{1,2}):([0-9]{1,2})$/);
+  if (!match) {
+    return normalizeTimeString(defaultValue, '09:00');
+  }
+  let hours = Number.parseInt(match[1], 10);
+  let minutes = Number.parseInt(match[2], 10);
+  if (!Number.isFinite(hours) || hours < 0 || hours > 23) {
+    hours = Number.parseInt(defaultValue.slice(0, 2), 10) || 0;
+  }
+  if (!Number.isFinite(minutes) || minutes < 0 || minutes > 59) {
+    minutes = Number.parseInt(defaultValue.slice(3, 5), 10) || 0;
+  }
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+function minutesFromTimeString(value, fallbackMinutes = 0) {
+  const normalized = normalizeTimeString(value, '00:00');
+  if (!normalized) return fallbackMinutes;
+  const [hoursStr, minutesStr] = normalized.split(':');
+  const hours = Number.parseInt(hoursStr, 10);
+  const minutes = Number.parseInt(minutesStr, 10);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return fallbackMinutes;
+  return hours * 60 + minutes;
+}
+
+function isMinutesWithinRange(minutes, start, end) {
+  if (start === end) return true;
+  if (start < end) {
+    return minutes >= start && minutes < end;
+  }
+  return minutes >= start || minutes < end;
+}
+
+function isDateInDnd(date) {
+  if (!state.notifications?.dnd?.enabled) {
+    return false;
+  }
+  const startMinutes = minutesFromTimeString(state.notifications.dnd.start, 22 * 60);
+  const endMinutes = minutesFromTimeString(state.notifications.dnd.end, 7 * 60);
+  const currentMinutes = date.getHours() * 60 + date.getMinutes();
+  return isMinutesWithinRange(currentMinutes, startMinutes, endMinutes);
+}
+
+function adjustDateForDnd(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return null;
+  }
+  if (!state.notifications?.dnd?.enabled) {
+    return new Date(date.getTime());
+  }
+
+  const startMinutes = minutesFromTimeString(state.notifications.dnd.start, 22 * 60);
+  const endMinutes = minutesFromTimeString(state.notifications.dnd.end, 7 * 60);
+
+  if (startMinutes === endMinutes) {
+    return null;
+  }
+
+  let candidate = new Date(date.getTime());
+  let safety = 0;
+
+  while (safety < 4 && isDateInDnd(candidate)) {
+    if (startMinutes < endMinutes) {
+      candidate.setHours(Math.floor(endMinutes / 60), endMinutes % 60, 0, 0);
+      if (candidate.getTime() <= date.getTime()) {
+        candidate.setDate(candidate.getDate() + 1);
+      }
+    } else {
+      const currentMinutes = candidate.getHours() * 60 + candidate.getMinutes();
+      if (currentMinutes >= startMinutes) {
+        candidate.setDate(candidate.getDate() + 1);
+        candidate.setHours(Math.floor(endMinutes / 60), endMinutes % 60, 0, 0);
+      } else {
+        candidate.setHours(Math.floor(endMinutes / 60), endMinutes % 60, 0, 0);
+      }
+    }
+    safety += 1;
+  }
+
+  if (safety >= 4 && isDateInDnd(candidate)) {
+    return null;
+  }
+
+  return candidate;
+}
+
+function ensureNotificationState() {
+  let changed = false;
+
+  if (!state.notifications || typeof state.notifications !== 'object') {
+    state.notifications = createDefaultNotificationsState();
+    return true;
+  }
+
+  const notifications = state.notifications;
+  const enabled = notifications.enabled !== false;
+  if (notifications.enabled !== enabled) {
+    notifications.enabled = enabled;
+    changed = true;
+  }
+
+  if (!notifications.slots || typeof notifications.slots !== 'object') {
+    notifications.slots = {};
+    changed = true;
+  }
+
+  Object.keys(NOTIFICATION_SLOT_DETAILS).forEach(slotKey => {
+    if (!notifications.slots[slotKey] || typeof notifications.slots[slotKey] !== 'object') {
+      notifications.slots[slotKey] = { enabled: true, time: NOTIFICATION_SLOT_DETAILS[slotKey].defaultTime };
+      changed = true;
+    }
+    const slot = notifications.slots[slotKey];
+    const normalizedEnabled = slot.enabled !== false;
+    const normalizedTime = normalizeTimeString(slot.time, NOTIFICATION_SLOT_DETAILS[slotKey].defaultTime);
+    if (slot.enabled !== normalizedEnabled) {
+      slot.enabled = normalizedEnabled;
+      changed = true;
+    }
+    if (slot.time !== normalizedTime) {
+      slot.time = normalizedTime;
+      changed = true;
+    }
+  });
+
+  if (!notifications.dnd || typeof notifications.dnd !== 'object') {
+    notifications.dnd = { enabled: false, start: '22:00', end: '07:00' };
+    changed = true;
+  } else {
+    const dndEnabled = notifications.dnd.enabled === true;
+    const dndStart = normalizeTimeString(notifications.dnd.start, '22:00');
+    const dndEnd = normalizeTimeString(notifications.dnd.end, '07:00');
+    if (notifications.dnd.enabled !== dndEnabled) {
+      notifications.dnd.enabled = dndEnabled;
+      changed = true;
+    }
+    if (notifications.dnd.start !== dndStart) {
+      notifications.dnd.start = dndStart;
+      changed = true;
+    }
+    if (notifications.dnd.end !== dndEnd) {
+      notifications.dnd.end = dndEnd;
+      changed = true;
+    }
+  }
+
+  if (!notifications.sound || typeof notifications.sound !== 'object') {
+    notifications.sound = { beep: true };
+    changed = true;
+  } else {
+    const beepEnabled = notifications.sound.beep !== false;
+    if (notifications.sound.beep !== beepEnabled) {
+      notifications.sound.beep = beepEnabled;
+      changed = true;
+    }
+  }
+
+  const timezone = getLocalTimezone();
+  if (!notifications.timezone || typeof notifications.timezone !== 'string' || notifications.timezone !== timezone) {
+    notifications.timezone = timezone;
+    changed = true;
+  }
+
+  return changed;
 }
 
 function getAudioEntryById(id) {
@@ -1099,7 +1313,12 @@ function loadState() {
   }
 
   ensureAudioLibraryState();
+  const notificationsNormalized = ensureNotificationState();
   sanitizeStreakData();
+
+  if (notificationsNormalized) {
+    saveState();
+  }
 }
 
 function saveState() {
@@ -1401,6 +1620,9 @@ function showView(viewName) {
       renderVignettes();
     } else if (viewName === 'hebdo') {
       renderWeeklyReview();
+    } else if (viewName === 'notifications') {
+      updateNotificationsForm();
+      refreshNotificationPermissionState();
     }
 
     if (viewName !== 'bibliotheque') {
@@ -2055,6 +2277,7 @@ function renderDashboard() {
   renderKPIImage();
   updateMomentum();
   renderStreakSummary();
+  updateUpcomingReminderBanner();
 }
 
 function renderWeeklyReview() {
@@ -2695,6 +2918,805 @@ function calculateGlobalProgressPercentage() {
   return Math.max(0, Math.min(100, progress));
 }
 
+function getNotificationSlotLabel(slotKey) {
+  return NOTIFICATION_SLOT_DETAILS[slotKey]?.label || slotKey;
+}
+
+function computeNextReminderDate(slotKey, referenceDate = new Date()) {
+  ensureNotificationState();
+
+  if (!state.notifications.enabled) {
+    return null;
+  }
+
+  const slotSettings = state.notifications.slots?.[slotKey];
+  if (!slotSettings || !slotSettings.enabled) {
+    return null;
+  }
+
+  const normalizedTime = normalizeTimeString(
+    slotSettings.time,
+    NOTIFICATION_SLOT_DETAILS[slotKey]?.defaultTime || '09:00'
+  );
+
+  const [hoursStr, minutesStr] = normalizedTime.split(':');
+  const hours = Number.parseInt(hoursStr, 10) || 0;
+  const minutes = Number.parseInt(minutesStr, 10) || 0;
+
+  const reference = referenceDate instanceof Date && !Number.isNaN(referenceDate.getTime())
+    ? new Date(referenceDate.getTime())
+    : new Date();
+
+  reference.setSeconds(0, 0);
+
+  const candidate = new Date(reference.getTime());
+  candidate.setHours(hours, minutes, 0, 0);
+
+  if (candidate.getTime() <= reference.getTime()) {
+    candidate.setDate(candidate.getDate() + 1);
+  }
+
+  const adjusted = adjustDateForDnd(candidate);
+  return adjusted instanceof Date ? adjusted : null;
+}
+
+function cancelScheduledReminder(slotKey) {
+  const timerId = notificationRuntime.timers.get(slotKey);
+  if (timerId !== undefined) {
+    clearTimeout(timerId);
+    notificationRuntime.timers.delete(slotKey);
+  }
+  notificationRuntime.nextOccurrences.delete(slotKey);
+}
+
+function scheduleNotificationForSlot(slotKey, options = {}) {
+  cancelScheduledReminder(slotKey);
+
+  ensureNotificationState();
+
+  if (!state.notifications.enabled) {
+    notificationRuntime.snoozes.delete(slotKey);
+    refreshNotificationIndicators();
+    return;
+  }
+
+  const slotSettings = state.notifications.slots?.[slotKey];
+  if (!slotSettings || !slotSettings.enabled) {
+    notificationRuntime.snoozes.delete(slotKey);
+    refreshNotificationIndicators();
+    return;
+  }
+
+  const now = new Date();
+  let targetDate = null;
+  let wasSnoozed = false;
+
+  if (options.forcedDate) {
+    const forced = options.forcedDate instanceof Date
+      ? options.forcedDate
+      : new Date(options.forcedDate);
+    if (forced instanceof Date && !Number.isNaN(forced.getTime()) && forced.getTime() > now.getTime()) {
+      targetDate = forced;
+    }
+  }
+
+  if (!targetDate && options.ignoreSnooze !== true) {
+    const storedSnooze = notificationRuntime.snoozes.get(slotKey);
+    if (storedSnooze instanceof Date && storedSnooze.getTime() > now.getTime()) {
+      const adjustedSnooze = adjustDateForDnd(storedSnooze);
+      if (adjustedSnooze) {
+        targetDate = adjustedSnooze;
+        notificationRuntime.snoozes.set(slotKey, adjustedSnooze);
+        wasSnoozed = true;
+      } else {
+        notificationRuntime.snoozes.delete(slotKey);
+      }
+    } else if (storedSnooze) {
+      notificationRuntime.snoozes.delete(slotKey);
+    }
+  }
+
+  if (!targetDate) {
+    const reference = options.fromDate instanceof Date && !Number.isNaN(options.fromDate.getTime())
+      ? options.fromDate
+      : now;
+    targetDate = computeNextReminderDate(slotKey, reference);
+  }
+
+  if (!(targetDate instanceof Date) || Number.isNaN(targetDate.getTime())) {
+    notificationRuntime.nextOccurrences.delete(slotKey);
+    refreshNotificationIndicators();
+    return;
+  }
+
+  if (targetDate.getTime() <= Date.now()) {
+    window.setTimeout(() => {
+      notificationRuntime.nextOccurrences.delete(slotKey);
+      handleReminderTrigger(slotKey, targetDate, wasSnoozed);
+    }, 0);
+    return;
+  }
+
+  const delay = targetDate.getTime() - Date.now();
+
+  if (delay > MAX_TIMEOUT_DELAY) {
+    const timerId = window.setTimeout(() => {
+      notificationRuntime.timers.delete(slotKey);
+      scheduleNotificationForSlot(slotKey, { ...options, forcedDate: targetDate });
+    }, MAX_TIMEOUT_DELAY);
+    notificationRuntime.timers.set(slotKey, timerId);
+    notificationRuntime.nextOccurrences.set(slotKey, targetDate);
+    refreshNotificationIndicators();
+    return;
+  }
+
+  const timerId = window.setTimeout(() => {
+    notificationRuntime.timers.delete(slotKey);
+    notificationRuntime.nextOccurrences.delete(slotKey);
+    handleReminderTrigger(slotKey, targetDate, wasSnoozed);
+  }, delay);
+
+  notificationRuntime.timers.set(slotKey, timerId);
+  notificationRuntime.nextOccurrences.set(slotKey, targetDate);
+  refreshNotificationIndicators();
+}
+
+function scheduleAllNotifications(options = {}) {
+  Object.keys(NOTIFICATION_SLOT_DETAILS).forEach(slotKey => {
+    scheduleNotificationForSlot(slotKey, options);
+  });
+}
+
+function getNextScheduledReminder() {
+  let next = null;
+  notificationRuntime.nextOccurrences.forEach((date, slotKey) => {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+      return;
+    }
+    if (date.getTime() < Date.now()) {
+      return;
+    }
+    if (!next || date.getTime() < next.date.getTime()) {
+      next = { slot: slotKey, date };
+    }
+  });
+  return next;
+}
+
+function formatTimeForDisplay(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return '';
+  }
+  try {
+    return new Intl.DateTimeFormat('fr-FR', {
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(date);
+  } catch (error) {
+    console.warn('Formatage heure impossible', error);
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${hours}:${minutes}`;
+  }
+}
+
+function refreshNotificationIndicators() {
+  updateNotificationsStatus();
+  updateUpcomingReminderBanner();
+}
+
+function updateUpcomingReminderBanner() {
+  const banner = document.getElementById('next-reminder-banner');
+  const textEl = document.getElementById('next-reminder-text');
+
+  if (!banner || !textEl) {
+    return;
+  }
+
+  if (!state.notifications?.enabled) {
+    banner.hidden = true;
+    return;
+  }
+
+  const upcoming = getNextScheduledReminder();
+  if (!upcoming) {
+    banner.hidden = true;
+    return;
+  }
+
+  const diffMs = upcoming.date.getTime() - Date.now();
+  if (diffMs < 0 || diffMs > 15 * 60 * 1000) {
+    banner.hidden = true;
+    return;
+  }
+
+  const minutes = Math.max(0, Math.round(diffMs / 60000));
+  const slotLabel = getNotificationSlotLabel(upcoming.slot);
+  let message;
+  if (minutes <= 0) {
+    message = `Rappel ${slotLabel} imminent`;
+  } else if (minutes === 1) {
+    message = `Rappel ${slotLabel} dans 1 minute`;
+  } else {
+    message = `Rappel ${slotLabel} dans ${minutes} minutes`;
+  }
+
+  textEl.textContent = message;
+  banner.hidden = false;
+}
+
+function isSameDay(dateA, dateB = new Date()) {
+  if (!(dateA instanceof Date) || Number.isNaN(dateA.getTime())) return false;
+  if (!(dateB instanceof Date) || Number.isNaN(dateB.getTime())) return false;
+  return dateA.getFullYear() === dateB.getFullYear()
+    && dateA.getMonth() === dateB.getMonth()
+    && dateA.getDate() === dateB.getDate();
+}
+
+function getNotificationPermissionLabel() {
+  if (!('Notification' in window)) {
+    return 'Notifications système : Non supportées';
+  }
+  if (!isPWAInstalled()) {
+    return 'Notifications système : PWA non installée';
+  }
+  const permission = Notification.permission;
+  if (permission === 'granted') {
+    return 'Notifications système : Autorisées';
+  }
+  if (permission === 'denied') {
+    return 'Notifications système : Refusées';
+  }
+  return 'Notifications système : Autorisation nécessaire';
+}
+
+function updateNotificationsStatus() {
+  const statusEl = document.getElementById('notification-status-text');
+  if (statusEl) {
+    statusEl.classList.remove('notification-status-text-positive', 'notification-status-text-negative');
+
+    if (!state.notifications?.enabled) {
+      statusEl.textContent = 'Rappels désactivés.';
+      statusEl.classList.add('notification-status-text-negative');
+    } else {
+      const activeSlots = Object.keys(NOTIFICATION_SLOT_DETAILS).filter(slotKey => state.notifications.slots?.[slotKey]?.enabled);
+      if (!activeSlots.length) {
+        statusEl.textContent = 'Aucun créneau actif.';
+        statusEl.classList.add('notification-status-text-negative');
+      } else {
+        const upcoming = getNextScheduledReminder();
+        if (upcoming) {
+          const slotLabel = getNotificationSlotLabel(upcoming.slot);
+          const formattedTime = formatTimeForDisplay(upcoming.date);
+          const dayLabel = isSameDay(upcoming.date) ? 'aujourd’hui' : 'demain';
+          statusEl.textContent = `Prochain rappel ${slotLabel} : ${formattedTime} (${dayLabel})`;
+        } else {
+          statusEl.textContent = 'Rappels activés. Programmation en cours…';
+        }
+        statusEl.classList.add('notification-status-text-positive');
+      }
+    }
+  }
+
+  const permissionEl = document.getElementById('notification-permission-state');
+  if (permissionEl) {
+    permissionEl.textContent = getNotificationPermissionLabel();
+  }
+}
+
+function playNotificationBeep() {
+  if (!state.notifications?.sound?.beep) {
+    return;
+  }
+
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) {
+      return;
+    }
+    if (!notificationBeepContext) {
+      notificationBeepContext = new AudioContextClass();
+    }
+    const ctx = notificationBeepContext;
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+    const now = ctx.currentTime;
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(880, now);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.25, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+    oscillator.start(now);
+    oscillator.stop(now + 0.5);
+  } catch (error) {
+    console.warn('Lecture du beep impossible', error);
+  }
+}
+
+function showSystemNotification(slotKey, { body, isTest = false, scheduledFor = null } = {}) {
+  if (!('Notification' in window)) return;
+  if (Notification.permission !== 'granted') return;
+  if (!isPWAInstalled()) return;
+  if (!navigator.serviceWorker || !navigator.serviceWorker.ready) return;
+
+  const slotLabel = getNotificationSlotLabel(slotKey);
+  const notificationBody = body || (isTest
+    ? `Notification de test — ${slotLabel}`
+    : `C'est l'heure de ton rituel ${slotLabel}.`);
+
+  navigator.serviceWorker.ready
+    .then(registration => {
+      registration.showNotification(`ZEYNE — ${slotLabel}`, {
+        body: notificationBody,
+        tag: `zeyne-reminder-${slotKey}`,
+        renotify: true,
+        data: {
+          slot: slotKey,
+          scheduledFor: scheduledFor instanceof Date && !Number.isNaN(scheduledFor.getTime())
+            ? scheduledFor.toISOString()
+            : null
+        },
+        actions: [
+          { action: 'snooze-10', title: 'Snooze 10 min' }
+        ]
+      });
+    })
+    .catch(error => {
+      console.warn('Notification système impossible', error);
+    });
+}
+
+function deliverReminderFeedback(slotKey, { isTest = false, scheduledFor = null, wasSnoozed = false } = {}) {
+  const slotLabel = getNotificationSlotLabel(slotKey);
+  let toastMessage = isTest
+    ? `Test rappel ${slotLabel} déclenché.`
+    : `Rappel ${slotLabel} — c'est le moment de ton rituel !`;
+
+  if (wasSnoozed && !isTest) {
+    toastMessage = `Rappel ${slotLabel} (snooze) — c'est le moment de ton rituel !`;
+  }
+
+  showToast(toastMessage);
+  playNotificationBeep();
+  showSystemNotification(slotKey, { isTest, scheduledFor });
+}
+
+function handleReminderTrigger(slotKey, scheduledFor, wasSnoozed = false) {
+  ensureNotificationState();
+
+  if (!state.notifications.enabled) {
+    refreshNotificationIndicators();
+    return;
+  }
+
+  const slotSettings = state.notifications.slots?.[slotKey];
+  if (!slotSettings || !slotSettings.enabled) {
+    refreshNotificationIndicators();
+    return;
+  }
+
+  const now = new Date();
+  if (isDateInDnd(now)) {
+    const nextAllowed = adjustDateForDnd(new Date(now.getTime() + 1000));
+    if (nextAllowed) {
+      scheduleNotificationForSlot(slotKey, { forcedDate: nextAllowed, ignoreSnooze: true });
+    }
+    refreshNotificationIndicators();
+    return;
+  }
+
+  notificationRuntime.snoozes.delete(slotKey);
+
+  const scheduledDate = scheduledFor instanceof Date && !Number.isNaN(scheduledFor.getTime())
+    ? scheduledFor
+    : now;
+
+  deliverReminderFeedback(slotKey, { scheduledFor: scheduledDate, wasSnoozed });
+
+  const nextReference = new Date(scheduledDate.getTime() + 1000);
+  scheduleNotificationForSlot(slotKey, { fromDate: nextReference, ignoreSnooze: true });
+}
+
+function applyNotificationSnooze(slotKey, baseDate) {
+  ensureNotificationState();
+
+  if (!state.notifications.enabled) {
+    showToast('Activez les rappels pour utiliser le snooze.');
+    return false;
+  }
+
+  const slotSettings = state.notifications.slots?.[slotKey];
+  if (!slotSettings || !slotSettings.enabled) {
+    showToast(`Le créneau ${getNotificationSlotLabel(slotKey)} est désactivé.`);
+    return false;
+  }
+
+  const reference = baseDate instanceof Date && !Number.isNaN(baseDate.getTime())
+    ? baseDate
+    : notificationRuntime.nextOccurrences.get(slotKey) || new Date();
+
+  const baseTime = Math.max(Date.now(), reference.getTime());
+  const snoozeDate = new Date(baseTime + NOTIFICATION_SNOOZE_MINUTES * 60000);
+  const adjusted = adjustDateForDnd(snoozeDate);
+
+  if (!adjusted) {
+    showToast('Mode ne pas déranger actif : snooze indisponible.');
+    return false;
+  }
+
+  notificationRuntime.snoozes.set(slotKey, adjusted);
+  scheduleNotificationForSlot(slotKey, { forcedDate: adjusted });
+
+  const formatted = formatTimeForDisplay(adjusted);
+  showToast(`Rappel ${getNotificationSlotLabel(slotKey)} reporté à ${formatted}.`);
+  return true;
+}
+
+function snoozeNextReminder() {
+  const upcoming = getNextScheduledReminder();
+  if (!upcoming) {
+    return false;
+  }
+  return applyNotificationSnooze(upcoming.slot, upcoming.date);
+}
+
+function formatICSDateTimeUTC(date) {
+  const utc = new Date(date.getTime());
+  return `${utc.getUTCFullYear()}${String(utc.getUTCMonth() + 1).padStart(2, '0')}${String(utc.getUTCDate()).padStart(2, '0')}T${String(utc.getUTCHours()).padStart(2, '0')}${String(utc.getUTCMinutes()).padStart(2, '0')}${String(utc.getUTCSeconds()).padStart(2, '0')}Z`;
+}
+
+function formatICSDateTimeLocal(date) {
+  return `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}T${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}00`;
+}
+
+function generateNotificationsICS() {
+  ensureNotificationState();
+
+  if (!state.notifications.enabled) {
+    return null;
+  }
+
+  const activeSlots = Object.keys(NOTIFICATION_SLOT_DETAILS).filter(slotKey => state.notifications.slots?.[slotKey]?.enabled);
+  if (!activeSlots.length) {
+    return null;
+  }
+
+  const timezone = state.notifications.timezone || getLocalTimezone();
+  const now = new Date();
+  const dtstamp = formatICSDateTimeUTC(now);
+
+  const events = activeSlots.map(slotKey => {
+    const timeStr = normalizeTimeString(state.notifications.slots[slotKey].time, NOTIFICATION_SLOT_DETAILS[slotKey].defaultTime);
+    const [hoursStr, minutesStr] = timeStr.split(':');
+    const start = new Date(now.getTime());
+    start.setSeconds(0, 0);
+    start.setHours(Number.parseInt(hoursStr, 10) || 0, Number.parseInt(minutesStr, 10) || 0, 0, 0);
+    if (start.getTime() <= now.getTime()) {
+      start.setDate(start.getDate() + 1);
+    }
+    const end = new Date(start.getTime() + 10 * 60000);
+    const uid = `zeyne-${slotKey}-${start.getTime()}@zeyne`;
+    return [
+      'BEGIN:VEVENT',
+      `UID:${uid}`,
+      `DTSTAMP:${dtstamp}`,
+      `SUMMARY:ZEYNE - Rappel ${getNotificationSlotLabel(slotKey)}`,
+      `DTSTART;TZID=${timezone}:${formatICSDateTimeLocal(start)}`,
+      `DTEND;TZID=${timezone}:${formatICSDateTimeLocal(end)}`,
+      'RRULE:FREQ=DAILY',
+      'END:VEVENT'
+    ].join('\n');
+  });
+
+  return `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//ZEYNE//Notifications//FR
+${events.join('\n')}
+END:VCALENDAR`;
+}
+
+function downloadNotificationsICS() {
+  const icsContent = generateNotificationsICS();
+  if (!icsContent) {
+    showToast('Aucun créneau actif à exporter.');
+    return;
+  }
+
+  const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'zeyne-rappels.ics';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+  showToast('Fichier calendrier généré ✅');
+}
+
+function isPWAInstalled() {
+  return window.matchMedia?.('(display-mode: standalone)').matches
+    || window.navigator.standalone === true;
+}
+
+function startUpcomingReminderTicker() {
+  if (upcomingReminderIntervalId) {
+    clearInterval(upcomingReminderIntervalId);
+  }
+  upcomingReminderIntervalId = window.setInterval(() => {
+    updateUpcomingReminderBanner();
+  }, 30000);
+}
+
+function updateNotificationsForm() {
+  ensureNotificationState();
+
+  const timezoneEl = document.getElementById('notifications-timezone');
+  if (timezoneEl) {
+    timezoneEl.textContent = state.notifications.timezone || getLocalTimezone();
+  }
+
+  const masterToggle = document.getElementById('notifications-enabled-toggle');
+  if (masterToggle) {
+    masterToggle.checked = !!state.notifications.enabled;
+  }
+
+  Object.keys(NOTIFICATION_SLOT_DETAILS).forEach(slotKey => {
+    const slotSettings = state.notifications.slots?.[slotKey] || { enabled: true, time: NOTIFICATION_SLOT_DETAILS[slotKey].defaultTime };
+    const toggle = document.getElementById(`notifications-slot-${slotKey}-enabled`);
+    const timeInput = document.getElementById(`notifications-slot-${slotKey}-time`);
+    if (toggle) {
+      toggle.checked = !!(slotSettings.enabled && state.notifications.enabled);
+      toggle.disabled = !state.notifications.enabled;
+    }
+    if (timeInput) {
+      timeInput.value = slotSettings.time || NOTIFICATION_SLOT_DETAILS[slotKey].defaultTime;
+      timeInput.disabled = !state.notifications.enabled || !slotSettings.enabled;
+    }
+  });
+
+  const dndToggle = document.getElementById('notifications-dnd-enabled');
+  if (dndToggle) {
+    dndToggle.checked = !!state.notifications.dnd?.enabled;
+    dndToggle.disabled = !state.notifications.enabled;
+  }
+
+  const dndStartInput = document.getElementById('notifications-dnd-start');
+  const dndEndInput = document.getElementById('notifications-dnd-end');
+  if (dndStartInput) {
+    dndStartInput.value = state.notifications.dnd?.start || '22:00';
+    dndStartInput.disabled = !state.notifications.enabled || !state.notifications.dnd?.enabled;
+  }
+  if (dndEndInput) {
+    dndEndInput.value = state.notifications.dnd?.end || '07:00';
+    dndEndInput.disabled = !state.notifications.enabled || !state.notifications.dnd?.enabled;
+  }
+
+  const soundToggle = document.getElementById('notifications-sound-beep');
+  if (soundToggle) {
+    soundToggle.checked = state.notifications.sound?.beep !== false;
+    soundToggle.disabled = !state.notifications.enabled;
+  }
+
+  const snoozeBtn = document.getElementById('notifications-snooze-btn');
+  if (snoozeBtn) {
+    snoozeBtn.disabled = !state.notifications.enabled;
+  }
+
+  const testBtn = document.getElementById('notifications-test-btn');
+  if (testBtn) {
+    testBtn.disabled = !state.notifications.enabled;
+  }
+
+  const bannerSnoozeBtn = document.getElementById('next-reminder-snooze-btn');
+  if (bannerSnoozeBtn) {
+    bannerSnoozeBtn.disabled = !state.notifications.enabled;
+  }
+
+  refreshNotificationIndicators();
+}
+
+function refreshNotificationPermissionState() {
+  updateNotificationsStatus();
+}
+
+function handleNotificationPermissionRequest() {
+  if (!('Notification' in window)) {
+    showToast('Notifications non supportées sur ce navigateur.');
+    return;
+  }
+  Notification.requestPermission()
+    .finally(() => {
+      refreshNotificationPermissionState();
+    });
+}
+
+function handleNotificationTest() {
+  ensureNotificationState();
+  if (!state.notifications.enabled) {
+    showToast('Activez les rappels pour tester les notifications.');
+    return;
+  }
+  const upcoming = getNextScheduledReminder();
+  const slotKey = upcoming?.slot || 'morning';
+  deliverReminderFeedback(slotKey, { isTest: true });
+}
+
+function initNotificationsModule() {
+  ensureNotificationState();
+
+  if (notificationsInitialized) {
+    updateNotificationsForm();
+    scheduleAllNotifications();
+    refreshNotificationPermissionState();
+    return;
+  }
+
+  notificationsInitialized = true;
+
+  const masterToggle = document.getElementById('notifications-enabled-toggle');
+  if (masterToggle) {
+    masterToggle.addEventListener('change', () => {
+      ensureNotificationState();
+      state.notifications.enabled = masterToggle.checked;
+      saveState();
+      updateNotificationsForm();
+      scheduleAllNotifications({ ignoreSnooze: true });
+    });
+  }
+
+  Object.keys(NOTIFICATION_SLOT_DETAILS).forEach(slotKey => {
+    const toggle = document.getElementById(`notifications-slot-${slotKey}-enabled`);
+    const timeInput = document.getElementById(`notifications-slot-${slotKey}-time`);
+
+    if (toggle) {
+      toggle.addEventListener('change', () => {
+        ensureNotificationState();
+        if (!state.notifications.slots[slotKey]) {
+          state.notifications.slots[slotKey] = { enabled: true, time: NOTIFICATION_SLOT_DETAILS[slotKey].defaultTime };
+        }
+        state.notifications.slots[slotKey].enabled = toggle.checked;
+        if (!toggle.checked) {
+          notificationRuntime.snoozes.delete(slotKey);
+        }
+        saveState();
+        updateNotificationsForm();
+        scheduleNotificationForSlot(slotKey, { ignoreSnooze: !toggle.checked });
+      });
+    }
+
+    if (timeInput) {
+      timeInput.addEventListener('change', () => {
+        ensureNotificationState();
+        if (!state.notifications.slots[slotKey]) {
+          state.notifications.slots[slotKey] = { enabled: true, time: NOTIFICATION_SLOT_DETAILS[slotKey].defaultTime };
+        }
+        const normalized = normalizeTimeString(timeInput.value, state.notifications.slots[slotKey].time);
+        state.notifications.slots[slotKey].time = normalized;
+        timeInput.value = normalized;
+        notificationRuntime.snoozes.delete(slotKey);
+        saveState();
+        scheduleNotificationForSlot(slotKey, { ignoreSnooze: true, fromDate: new Date() });
+        updateNotificationsForm();
+      });
+    }
+  });
+
+  const dndToggle = document.getElementById('notifications-dnd-enabled');
+  if (dndToggle) {
+    dndToggle.addEventListener('change', () => {
+      ensureNotificationState();
+      state.notifications.dnd.enabled = dndToggle.checked;
+      saveState();
+      updateNotificationsForm();
+      scheduleAllNotifications({ ignoreSnooze: true });
+    });
+  }
+
+  const dndStartInput = document.getElementById('notifications-dnd-start');
+  if (dndStartInput) {
+    dndStartInput.addEventListener('change', () => {
+      ensureNotificationState();
+      state.notifications.dnd.start = normalizeTimeString(dndStartInput.value, state.notifications.dnd.start);
+      dndStartInput.value = state.notifications.dnd.start;
+      saveState();
+      scheduleAllNotifications({ ignoreSnooze: true });
+      updateNotificationsForm();
+    });
+  }
+
+  const dndEndInput = document.getElementById('notifications-dnd-end');
+  if (dndEndInput) {
+    dndEndInput.addEventListener('change', () => {
+      ensureNotificationState();
+      state.notifications.dnd.end = normalizeTimeString(dndEndInput.value, state.notifications.dnd.end);
+      dndEndInput.value = state.notifications.dnd.end;
+      saveState();
+      scheduleAllNotifications({ ignoreSnooze: true });
+      updateNotificationsForm();
+    });
+  }
+
+  const soundToggle = document.getElementById('notifications-sound-beep');
+  if (soundToggle) {
+    soundToggle.addEventListener('change', () => {
+      ensureNotificationState();
+      state.notifications.sound.beep = soundToggle.checked;
+      saveState();
+      updateNotificationsForm();
+    });
+  }
+
+  const snoozeBtn = document.getElementById('notifications-snooze-btn');
+  if (snoozeBtn) {
+    snoozeBtn.addEventListener('click', () => {
+      if (!snoozeNextReminder()) {
+        showToast('Aucun rappel à décaler pour le moment.');
+      }
+    });
+  }
+
+  const testBtn = document.getElementById('notifications-test-btn');
+  if (testBtn) {
+    testBtn.addEventListener('click', () => handleNotificationTest());
+  }
+
+  const permissionBtn = document.getElementById('enable-notifications-btn');
+  if (permissionBtn) {
+    permissionBtn.addEventListener('click', () => handleNotificationPermissionRequest());
+  }
+
+  const icsBtn = document.getElementById('notifications-ics-btn');
+  if (icsBtn) {
+    icsBtn.addEventListener('click', () => downloadNotificationsICS());
+  }
+
+  const bannerSnoozeBtn = document.getElementById('next-reminder-snooze-btn');
+  if (bannerSnoozeBtn) {
+    bannerSnoozeBtn.addEventListener('click', () => {
+      if (!snoozeNextReminder()) {
+        showToast('Aucun rappel imminent à snoozer.');
+      }
+    });
+  }
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', event => {
+      const { data } = event;
+      if (data && data.type === 'NOTIFICATION_SNOOZE') {
+        const slotKey = data.slot || getNextScheduledReminder()?.slot;
+        if (slotKey) {
+          const targetDate = notificationRuntime.nextOccurrences.get(slotKey) || new Date();
+          applyNotificationSnooze(slotKey, targetDate);
+        }
+      }
+    });
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      scheduleAllNotifications();
+      refreshNotificationPermissionState();
+    }
+    refreshNotificationIndicators();
+  });
+
+  window.addEventListener('focus', () => {
+    refreshNotificationPermissionState();
+    refreshNotificationIndicators();
+  });
+
+  updateNotificationsForm();
+  scheduleAllNotifications();
+  startUpcomingReminderTicker();
+  refreshNotificationPermissionState();
+}
+
 function checkAllTasksDone() {
   const today = getToday();
   if (!state.tasks[today]) return;
@@ -3144,24 +4166,16 @@ function launchConfetti() {
   animate();
 }
 
-document.getElementById('enable-notifications-btn')?.addEventListener('click', () => {
-  if ('Notification' in window) {
-    Notification.requestPermission().then(permission => {
-      const status = document.getElementById('notification-status');
-      if (permission === 'granted') {
-        status.textContent = '✓ Notifications activées';
-        status.style.color = 'green';
-      } else {
-        status.textContent = '✗ Notifications refusées';
-        status.style.color = 'red';
-      }
-    });
-  } else {
-    alert('Notifications non supportées par ce navigateur.');
-  }
-});
-
 loadState();
+loadState();
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('service-worker.js').catch(error => {
+    console.warn('Enregistrement du service worker impossible', error);
+  });
+}
+
+initNotificationsModule();
 initNavigation();
 initWeeklyTabs();
 showView('aujourdhui');
