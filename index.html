@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ZEYNE - Micro-tâches quotidiennes</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#EAC4AF">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -284,7 +286,24 @@
 
       <section id="view-notifications" class="view">
         <div class="card card-form">
-          <h2>Notifications</h2>
+          <div class="notifications-card-header">
+            <h2>Notifications</h2>
+            <div class="notifications-install-actions">
+              <button class="btn btn-outline" id="pwa-install-btn" type="button" disabled aria-disabled="true">Installer ZEYNE</button>
+              <button class="notifications-ios-help-link" id="pwa-ios-help-link" type="button" aria-controls="pwa-ios-help" aria-expanded="false" hidden>Comment installer sur iPhone/iPad</button>
+            </div>
+          </div>
+          <div class="notifications-install-help" id="pwa-ios-help" hidden tabindex="-1">
+            <div class="notifications-install-help-header">
+              <span>Ajouter ZEYNE à l'écran d'accueil</span>
+              <button type="button" class="notifications-install-help-close" id="pwa-ios-help-close" aria-label="Fermer l'aide">✕</button>
+            </div>
+            <ol>
+              <li>Ouvrez le menu <strong>Partager</strong> dans Safari.</li>
+              <li>Choisissez <strong>Ajouter à l'écran d'accueil</strong>.</li>
+              <li>Confirmez avec <strong>Ajouter</strong>.</li>
+            </ol>
+          </div>
           <p>Configurez vos rappels quotidiens et choisissez comment vous voulez être averti.</p>
 
           <div class="notification-section">
