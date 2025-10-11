@@ -494,6 +494,12 @@ let upcomingReminderIntervalId = null;
 let notificationsInitialized = false;
 let notificationBeepContext = null;
 
+const pwaInstallRuntime = {
+  deferredPrompt: null,
+  initialized: false,
+  displayModeQuery: null
+};
+
 let lastTemplateApplication = null;
 
 function getAudioDB() {
@@ -3440,8 +3446,151 @@ function downloadNotificationsICS() {
 }
 
 function isPWAInstalled() {
-  return window.matchMedia?.('(display-mode: standalone)').matches
-    || window.navigator.standalone === true;
+  const standaloneQuery = window.matchMedia ? window.matchMedia('(display-mode: standalone)') : null;
+  const isStandaloneMatch = !!(standaloneQuery && standaloneQuery.matches);
+  return isStandaloneMatch || window.navigator.standalone === true;
+}
+
+function isIOSDevice() {
+  return /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase());
+}
+
+function updatePWAInstallUI() {
+  const installBtn = document.getElementById('pwa-install-btn');
+  if (!installBtn) return;
+
+  const iosHelpLink = document.getElementById('pwa-ios-help-link');
+  const iosHelp = document.getElementById('pwa-ios-help');
+  const isInstalled = isPWAInstalled();
+  const isIOS = isIOSDevice();
+  const canPromptInstall = !!pwaInstallRuntime.deferredPrompt;
+
+  const setButtonState = (label, disabled) => {
+    installBtn.textContent = label;
+    installBtn.disabled = disabled;
+    installBtn.setAttribute('aria-disabled', String(disabled));
+  };
+
+  if (iosHelpLink) {
+    if (!isIOS || isInstalled) {
+      iosHelpLink.hidden = true;
+      iosHelpLink.setAttribute('aria-expanded', 'false');
+      if (iosHelp) {
+        iosHelp.hidden = true;
+      }
+    } else {
+      iosHelpLink.hidden = false;
+      iosHelpLink.setAttribute('aria-expanded', String(!iosHelp?.hidden));
+    }
+  }
+
+  if (isInstalled) {
+    setButtonState('Déjà installée', true);
+    return;
+  }
+
+  if (isIOS) {
+    setButtonState('Non pris en charge', true);
+    return;
+  }
+
+  if (canPromptInstall) {
+    setButtonState('Installer ZEYNE', false);
+    return;
+  }
+
+  setButtonState('Installer ZEYNE', true);
+}
+
+function initPWAInstallPrompt() {
+  const installBtn = document.getElementById('pwa-install-btn');
+  if (!installBtn) return;
+
+  const iosHelpLink = document.getElementById('pwa-ios-help-link');
+  const iosHelp = document.getElementById('pwa-ios-help');
+  const iosHelpClose = document.getElementById('pwa-ios-help-close');
+
+  const toggleIOSHelp = (show) => {
+    if (!iosHelp || !iosHelpLink) return;
+    iosHelp.hidden = !show;
+    iosHelpLink.setAttribute('aria-expanded', String(show));
+    if (show) {
+      iosHelp.setAttribute('role', 'region');
+      iosHelp.setAttribute('aria-label', "Aide d'installation iOS");
+      iosHelp.focus?.();
+    }
+  };
+
+  if (!pwaInstallRuntime.initialized) {
+    window.addEventListener('beforeinstallprompt', (event) => {
+      event.preventDefault();
+      pwaInstallRuntime.deferredPrompt = event;
+      updatePWAInstallUI();
+    });
+
+    window.addEventListener('appinstalled', () => {
+      pwaInstallRuntime.deferredPrompt = null;
+      updatePWAInstallUI();
+    });
+
+    if (window.matchMedia) {
+      pwaInstallRuntime.displayModeQuery = window.matchMedia('(display-mode: standalone)');
+      const listener = () => updatePWAInstallUI();
+      if (pwaInstallRuntime.displayModeQuery.addEventListener) {
+        pwaInstallRuntime.displayModeQuery.addEventListener('change', listener);
+      } else if (pwaInstallRuntime.displayModeQuery.addListener) {
+        pwaInstallRuntime.displayModeQuery.addListener(listener);
+      }
+    }
+
+    window.addEventListener('focus', () => updatePWAInstallUI());
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        updatePWAInstallUI();
+      }
+    });
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && iosHelp && !iosHelp.hidden) {
+        toggleIOSHelp(false);
+      }
+    });
+
+    pwaInstallRuntime.initialized = true;
+  }
+
+  if (!installBtn.dataset.installBound) {
+    installBtn.addEventListener('click', async () => {
+      if (installBtn.disabled || !pwaInstallRuntime.deferredPrompt) {
+        return;
+      }
+      const promptEvent = pwaInstallRuntime.deferredPrompt;
+      promptEvent.prompt();
+      const choice = await promptEvent.userChoice.catch(() => null);
+      if (choice && choice.outcome === 'accepted') {
+        pwaInstallRuntime.deferredPrompt = null;
+      }
+      updatePWAInstallUI();
+    });
+    installBtn.dataset.installBound = 'true';
+  }
+
+  if (iosHelpLink && !iosHelpLink.dataset.installBound) {
+    iosHelpLink.addEventListener('click', () => {
+      toggleIOSHelp(!(iosHelp && !iosHelp.hidden));
+    });
+    iosHelpLink.dataset.installBound = 'true';
+  }
+
+  if (iosHelpClose && !iosHelpClose.dataset.installBound) {
+    iosHelpClose.addEventListener('click', () => {
+      toggleIOSHelp(false);
+      iosHelpLink?.focus();
+    });
+    iosHelpClose.dataset.installBound = 'true';
+  }
+
+  updatePWAInstallUI();
 }
 
 function startUpcomingReminderTicker() {
@@ -3549,6 +3698,8 @@ function handleNotificationTest() {
 
 function initNotificationsModule() {
   ensureNotificationState();
+
+  initPWAInstallPrompt();
 
   if (notificationsInitialized) {
     updateNotificationsForm();

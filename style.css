@@ -1124,6 +1124,86 @@ body {
   max-width: 600px;
 }
 
+.notifications-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.notifications-install-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+#pwa-install-btn {
+  white-space: nowrap;
+}
+
+.notifications-ios-help-link {
+  background: none;
+  border: none;
+  color: var(--primary);
+  text-decoration: underline;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.notifications-ios-help-link:hover,
+.notifications-ios-help-link:focus {
+  color: var(--primary-dark, #a68076);
+  outline: none;
+}
+
+.notifications-install-help {
+  margin-top: 12px;
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 14px;
+  padding: 14px 16px;
+  box-shadow: 0 10px 26px rgba(234, 196, 175, 0.25);
+}
+
+.notifications-install-help[hidden] {
+  display: none;
+}
+
+.notifications-install-help-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+  font-weight: 600;
+}
+
+.notifications-install-help-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--text);
+}
+
+.notifications-install-help-close:hover,
+.notifications-install-help-close:focus {
+  color: var(--primary);
+  outline: none;
+}
+
+.notifications-install-help ol {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 6px;
+  font-size: 0.95rem;
+}
+
 .form-group {
   margin-bottom: 20px;
 }
