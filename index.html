@@ -6,6 +6,9 @@
   <title>ZEYNE - Micro-tâches quotidiennes</title>
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#EAC4AF">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -105,6 +108,48 @@
           <div class="form-group">
             <label for="deadline-input">Date butoir</label>
             <input type="date" id="deadline-input">
+          </div>
+          <div class="form-group">
+            <label for="programme-category-select">Catégorie</label>
+            <select id="programme-category-select"></select>
+          </div>
+          <div class="form-group programme-mode-group">
+            <span class="programme-mode-label">Mode</span>
+            <div class="programme-mode-toggle" role="group" aria-label="Mode d’organisation">
+              <button type="button" class="programme-mode-btn" data-programme-mode="structure">Organisation seule</button>
+              <button type="button" class="programme-mode-btn" data-programme-mode="content">Organisation + Contenu</button>
+            </div>
+            <p class="programme-mode-hint">Organisation seule : moments + rituels. Organisation + Contenu : moments, rituels et titres.</p>
+          </div>
+          <div class="programme-apply-options">
+            <div class="form-group">
+              <label for="programme-period-select">Appliquer sur</label>
+              <select id="programme-period-select">
+                <option value="this-week">Semaine en cours</option>
+                <option value="next-week">Semaine prochaine</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="programme-conflict-select">En cas de conflit</label>
+              <select id="programme-conflict-select">
+                <option value="replace">Remplacer (hors tâches validées)</option>
+                <option value="fill-empty">Compléter seulement les cases vides</option>
+              </select>
+            </div>
+          </div>
+          <div class="programme-actions">
+            <button class="btn btn-secondary" type="button" id="programme-preview-btn">Prévisualiser</button>
+            <button class="btn btn-primary" type="button" id="programme-apply-btn">Appliquer</button>
+          </div>
+          <div class="programme-preview" id="programme-preview-wrapper" hidden>
+            <div class="programme-preview-head">
+              <div>
+                <h3 id="programme-preview-title"></h3>
+                <p id="programme-preview-description" class="programme-preview-description"></p>
+              </div>
+              <span class="programme-preview-mode" id="programme-preview-mode"></span>
+            </div>
+            <div class="programme-preview-table" id="programme-preview-table"></div>
           </div>
           <button class="btn btn-primary" id="save-programme-btn">Enregistrer</button>
         </div>

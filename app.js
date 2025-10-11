@@ -39,6 +39,584 @@ const DEFAULT_AUDIO_SLOTS = [
   { key: 'evening', label: 'Soir' }
 ];
 
+const PROGRAMME_SLOT_KEYS = ['morning', 'afternoon', 'evening'];
+const PROGRAMME_SLOT_LABELS = {
+  morning: 'Matin',
+  afternoon: 'Après-midi',
+  evening: 'Soir'
+};
+
+const PROGRAMME_DEFAULT_AUDIO = {
+  morning: 'builtin-respiration',
+  afternoon: 'Aucun',
+  evening: 'builtin-etirements'
+};
+
+const PROGRAMME_CATEGORIES = [
+  {
+    id: 'etudes-examens',
+    label: 'Études / Examens',
+    goal: 'But : couvrir le programme + s’entraîner',
+    week: [
+      {
+        morning: { title: 'Diagnostiquer chapitres faibles → {3} priorités', moment: 'Matin' },
+        afternoon: { title: 'Plan semaine + slots', moment: 'Après-midi' },
+        evening: { title: 'Quiz global 20’', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Lecture/fiche Chapitre {X}', moment: 'Matin' },
+        afternoon: { title: 'Exos/annales {X} (20–30’)', moment: 'Après-midi' },
+        evening: { title: 'Quiz rapide + flashcards', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Lecture/fiche Chapitre {X}', moment: 'Matin' },
+        afternoon: { title: 'Exos/annales {X} (20–30’)', moment: 'Après-midi' },
+        evening: { title: 'Quiz rapide + flashcards', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Lecture/fiche Chapitre {X}', moment: 'Matin' },
+        afternoon: { title: 'Exos/annales {X} (20–30’)', moment: 'Après-midi' },
+        evening: { title: 'Quiz rapide + flashcards', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Lecture/fiche Chapitre {X}', moment: 'Matin' },
+        afternoon: { title: 'Exos/annales {X} (20–30’)', moment: 'Après-midi' },
+        evening: { title: 'Quiz rapide + flashcards', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Lecture/fiche Chapitre {X}', moment: 'Matin' },
+        afternoon: { title: 'Exos/annales {X} (20–30’)', moment: 'Après-midi' },
+        evening: { title: 'Quiz rapide + flashcards', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Synthèse fiches', moment: 'Matin' },
+        afternoon: { title: 'Annale complète (1 sujet)', moment: 'Après-midi' },
+        evening: { title: 'Révision des erreurs', moment: 'Soir' }
+      }
+    ]
+  },
+  {
+    id: 'deep-work-pro',
+    label: 'Deep work pro / Projet métier',
+    goal: 'But : livrer un output clair',
+    week: [
+      {
+        morning: { title: 'Cadrage (livrable, “fini quand…”, critères)', moment: 'Matin' },
+        afternoon: { title: 'Plan détaillé', moment: 'Après-midi' },
+        evening: { title: 'Pré-requis/ressources', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Bloc prod A (25–45’)', moment: 'Matin' },
+        afternoon: { title: 'Bloc prod B', moment: 'Après-midi' },
+        evening: { title: 'Revue + “bloqueurs”', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Bloc prod A (25–45’)', moment: 'Matin' },
+        afternoon: { title: 'Bloc prod B', moment: 'Après-midi' },
+        evening: { title: 'Revue + “bloqueurs”', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Bloc prod A (25–45’)', moment: 'Matin' },
+        afternoon: { title: 'Bloc prod B', moment: 'Après-midi' },
+        evening: { title: 'Revue + “bloqueurs”', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Bloc prod A (25–45’)', moment: 'Matin' },
+        afternoon: { title: 'Bloc prod B', moment: 'Après-midi' },
+        evening: { title: 'Revue + “bloqueurs”', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Intégration A+B', moment: 'Matin' },
+        afternoon: { title: 'Qualité (checklist)', moment: 'Après-midi' },
+        evening: { title: 'Pré-livrable', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Finalisation', moment: 'Matin' },
+        afternoon: { title: 'Envoi/démo', moment: 'Après-midi' },
+        evening: { title: 'Rétro + next steps', moment: 'Soir' }
+      }
+    ]
+  },
+  {
+    id: 'creation-contenu',
+    label: 'Création de contenu',
+    goal: 'But : publier 1 pièce',
+    week: [
+      {
+        morning: { title: 'Idées + angle {thème}', moment: 'Matin' },
+        afternoon: { title: 'Plan ou script', moment: 'Après-midi' },
+        evening: { title: 'Hooks & titres', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Tournage/écriture draft', moment: 'Matin' },
+        afternoon: { title: 'B-roll/visuels', moment: 'Après-midi' },
+        evening: { title: 'Sélection', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Montage/édition', moment: 'Matin' },
+        afternoon: { title: 'Sous-titres/visuels', moment: 'Après-midi' },
+        evening: { title: 'Cut final', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Texte d’accompagnement', moment: 'Matin' },
+        afternoon: { title: 'Thumbnail', moment: 'Après-midi' },
+        evening: { title: 'Programmation', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Publication', moment: 'Matin' },
+        afternoon: { title: 'Premier feedback', moment: 'Après-midi' },
+        evening: { title: 'Ajustements', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Extraits/recyclage', moment: 'Matin' },
+        afternoon: { title: 'Cross-post', moment: 'Après-midi' },
+        evening: { title: 'Stats rapides', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Rétro', moment: 'Matin' },
+        afternoon: { title: 'Banque d’idées', moment: 'Après-midi' },
+        evening: { title: 'Template prochain', moment: 'Soir' }
+      }
+    ]
+  },
+  {
+    id: 'business-dev',
+    label: 'Business dev / Prospection / Fournisseurs',
+    goal: 'But : short-list + 1 avancée',
+    week: [
+      {
+        morning: { title: 'Critères + budget', moment: 'Matin' },
+        afternoon: { title: 'Lister {10} pistes', moment: 'Après-midi' },
+        evening: { title: 'Prioriser {5}', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Contacter {3}/jour', moment: 'Matin' },
+        afternoon: { title: 'Relances {3}', moment: 'Après-midi' },
+        evening: { title: 'Notes/CRM', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Contacter {3}/jour', moment: 'Matin' },
+        afternoon: { title: 'Relances {3}', moment: 'Après-midi' },
+        evening: { title: 'Notes/CRM', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Contacter {3}/jour', moment: 'Matin' },
+        afternoon: { title: 'Relances {3}', moment: 'Après-midi' },
+        evening: { title: 'Notes/CRM', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Comparer devis', moment: 'Matin' },
+        afternoon: { title: 'Négocier {2}', moment: 'Après-midi' },
+        evening: { title: 'Décision provisoire', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Test échantillon', moment: 'Matin' },
+        afternoon: { title: 'Évaluation', moment: 'Après-midi' },
+        evening: { title: 'Risques & plan B', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Choix', moment: 'Matin' },
+        afternoon: { title: 'Next steps (contrat/délais)', moment: 'Après-midi' },
+        evening: { title: 'Récap', moment: 'Soir' }
+      }
+    ]
+  },
+  {
+    id: 'recherche-emploi',
+    label: 'Recherche d’emploi / Portfolio',
+    goal: 'But : candidatures de qualité + entretiens prêts',
+    week: [
+      {
+        morning: { title: 'Ciblage {rôles/secteurs}', moment: 'Matin' },
+        afternoon: { title: 'CV & LinkedIn', moment: 'Après-midi' },
+        evening: { title: 'Pitch 30”', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Candidatures ciblées {3}/jour', moment: 'Matin' },
+        afternoon: { title: 'Personnalisation mail', moment: 'Après-midi' },
+        evening: { title: 'Suivi tableau', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Candidatures ciblées {3}/jour', moment: 'Matin' },
+        afternoon: { title: 'Personnalisation mail', moment: 'Après-midi' },
+        evening: { title: 'Suivi tableau', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Candidatures ciblées {3}/jour', moment: 'Matin' },
+        afternoon: { title: 'Personnalisation mail', moment: 'Après-midi' },
+        evening: { title: 'Suivi tableau', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Préparer questions', moment: 'Matin' },
+        afternoon: { title: 'Étude de cas', moment: 'Après-midi' },
+        evening: { title: 'Simulation', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Portfolio/échantillons', moment: 'Matin' },
+        afternoon: { title: 'Références', moment: 'Après-midi' },
+        evening: { title: 'Relances', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Bilan', moment: 'Matin' },
+        afternoon: { title: 'Plan S+1', moment: 'Après-midi' },
+        evening: { title: 'Repos actif', moment: 'Soir' }
+      }
+    ]
+  },
+  {
+    id: 'apprentissage',
+    label: 'Apprentissage (Langue / Tech / Code)',
+    goal: 'But : progression mesurable + mini-projet',
+    week: [
+      {
+        morning: { title: 'Diagnostic (test)', moment: 'Matin' },
+        afternoon: { title: 'Plan micro-objectifs', moment: 'Après-midi' },
+        evening: { title: 'Vocab/Concepts clés', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Leçon {n}', moment: 'Matin' },
+        afternoon: { title: 'Pratique/exos {20–30’}', moment: 'Après-midi' },
+        evening: { title: 'Quiz/flashcards', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Leçon {n}', moment: 'Matin' },
+        afternoon: { title: 'Pratique/exos {20–30’}', moment: 'Après-midi' },
+        evening: { title: 'Quiz/flashcards', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Leçon {n}', moment: 'Matin' },
+        afternoon: { title: 'Pratique/exos {20–30’}', moment: 'Après-midi' },
+        evening: { title: 'Quiz/flashcards', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Leçon {n}', moment: 'Matin' },
+        afternoon: { title: 'Pratique/exos {20–30’}', moment: 'Après-midi' },
+        evening: { title: 'Quiz/flashcards', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Mini-projet {X}', moment: 'Matin' },
+        afternoon: { title: 'Débogage/retours', moment: 'Après-midi' },
+        evening: { title: 'README/récap', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Révision espacée', moment: 'Matin' },
+        afternoon: { title: 'Démo perso', moment: 'Après-midi' },
+        evening: { title: 'Plan semaine suivante', moment: 'Soir' }
+      }
+    ]
+  },
+  {
+    id: 'sante-fitness-leger',
+    label: 'Santé / Fitness léger',
+    goal: 'But : routine douce, régulière',
+    week: [
+      ...Array.from({ length: 7 }).map(() => ({
+        morning: { title: 'Échauffement 8–10’', moment: 'Matin' },
+        afternoon: { title: 'Session {10–20’} (marche/HIIT doux/yoga)', moment: 'Après-midi' },
+        evening: { title: 'Étirements + hydratation + note RPE', moment: 'Soir' }
+      }))
+    ]
+  },
+  {
+    id: 'organisation-maison',
+    label: 'Organisation maison / Désencombrement',
+    goal: 'But : zones visibles + sorties réelles',
+    week: [
+      {
+        morning: { title: 'Zone 1', moment: 'Matin' },
+        afternoon: { title: 'Tri (garder/jeter/donner)', moment: 'Après-midi' },
+        evening: { title: 'Sortie sacs', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Zone 2', moment: 'Matin' },
+        afternoon: { title: 'Tri', moment: 'Après-midi' },
+        evening: { title: 'Sortie', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Zone 3', moment: 'Matin' },
+        afternoon: { title: 'Tri', moment: 'Après-midi' },
+        evening: { title: 'Sortie', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Zone 4', moment: 'Matin' },
+        afternoon: { title: 'Tri', moment: 'Après-midi' },
+        evening: { title: 'Sortie', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Zone 5', moment: 'Matin' },
+        afternoon: { title: 'Tri', moment: 'Après-midi' },
+        evening: { title: 'Sortie', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Zone 6', moment: 'Matin' },
+        afternoon: { title: 'Tri', moment: 'Après-midi' },
+        evening: { title: 'Sortie', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Surfaces/finition', moment: 'Matin' },
+        afternoon: { title: 'Don/vente', moment: 'Après-midi' },
+        evening: { title: 'Système d’entretien 10’/jour', moment: 'Soir' }
+      }
+    ]
+  },
+  {
+    id: 'admin-finances',
+    label: 'Admin & Finances perso',
+    goal: 'But : vision claire + automatisation simple',
+    week: [
+      {
+        morning: { title: 'Collecter docs', moment: 'Matin' },
+        afternoon: { title: 'Catégoriser', moment: 'Après-midi' },
+        evening: { title: 'Liste manques', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Budget mensuel', moment: 'Matin' },
+        afternoon: { title: 'Objectifs {épargne/dette}', moment: 'Après-midi' },
+        evening: { title: 'Règles simples', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Automatisations', moment: 'Matin' },
+        afternoon: { title: 'Négocier {1} facture', moment: 'Après-midi' },
+        evening: { title: 'Vérifs', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Dossiers en retard', moment: 'Matin' },
+        afternoon: { title: 'Soumissions', moment: 'Après-midi' },
+        evening: { title: 'Suivi', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Assurance/review', moment: 'Matin' },
+        afternoon: { title: 'Check impôts', moment: 'Après-midi' },
+        evening: { title: 'Notes', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Consolider fichiers', moment: 'Matin' },
+        afternoon: { title: 'Tableur propre', moment: 'Après-midi' },
+        evening: { title: 'Backup', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Bilan', moment: 'Matin' },
+        afternoon: { title: 'Plan S+1', moment: 'Après-midi' },
+        evening: { title: 'Repos', moment: 'Soir' }
+      }
+    ]
+  },
+  {
+    id: 'ecriture-creatif',
+    label: 'Écriture / Créatif',
+    goal: 'But : 1 texte “diffusable”',
+    week: [
+      {
+        morning: { title: 'Idée + promesse', moment: 'Matin' },
+        afternoon: { title: 'Plan', moment: 'Après-midi' },
+        evening: { title: 'Recherche', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Draft brut', moment: 'Matin' },
+        afternoon: { title: 'Développement', moment: 'Après-midi' },
+        evening: { title: 'Exemples', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Draft brut', moment: 'Matin' },
+        afternoon: { title: 'Développement', moment: 'Après-midi' },
+        evening: { title: 'Exemples', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Réécriture (clarté)', moment: 'Matin' },
+        afternoon: { title: 'Couper 20%', moment: 'Après-midi' },
+        evening: { title: 'Titres/accroches', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Édition fine', moment: 'Matin' },
+        afternoon: { title: 'Beta-lecture', moment: 'Après-midi' },
+        evening: { title: 'Intégrer retours', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Mise en forme', moment: 'Matin' },
+        afternoon: { title: 'Publication/submit', moment: 'Après-midi' },
+        evening: { title: 'Partage', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Rétro + swipe file', moment: 'Matin' },
+        afternoon: { title: 'Idées suivantes', moment: 'Après-midi' },
+        evening: { title: 'Repos', moment: 'Soir' }
+      }
+    ]
+  },
+  {
+    id: 'bien-etre-mindfulness',
+    label: 'Bien-être / Mindfulness',
+    goal: 'But : ancrer une routine mentale courte',
+    week: [
+      ...Array.from({ length: 7 }).map(() => ({
+        morning: { title: 'Respiration {3–5’}', moment: 'Matin' },
+        afternoon: { title: 'Focus 10’ (timer nuage)', moment: 'Après-midi' },
+        evening: { title: 'Journal 3 lignes (humeur, gratitude, micro-pas)', moment: 'Soir' }
+      }))
+    ]
+  },
+  {
+    id: 'lancement-side-project',
+    label: 'Lancement side-project',
+    goal: 'But : 1 MVP testable en 7 jours',
+    week: [
+      {
+        morning: { title: 'Problème & persona', moment: 'Matin' },
+        afternoon: { title: 'Hypothèse', moment: 'Après-midi' },
+        evening: { title: 'Scope MVP', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Maquette ultra simple', moment: 'Matin' },
+        afternoon: { title: 'NRF mini', moment: 'Après-midi' },
+        evening: { title: 'Plan dev', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Dev core', moment: 'Matin' },
+        afternoon: { title: 'Intégrations min', moment: 'Après-midi' },
+        evening: { title: 'Tests manuels', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Dev core', moment: 'Matin' },
+        afternoon: { title: 'Intégrations min', moment: 'Après-midi' },
+        evening: { title: 'Tests manuels', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Landing page', moment: 'Matin' },
+        afternoon: { title: 'FAQ/prix', moment: 'Après-midi' },
+        evening: { title: 'Setup feedback', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Lancement discret {10 personnes}', moment: 'Matin' },
+        afternoon: { title: 'Suivi', moment: 'Après-midi' },
+        evening: { title: 'Fixes rapides', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Bilan métriques', moment: 'Matin' },
+        afternoon: { title: 'Priorités S+1', moment: 'Après-midi' },
+        evening: { title: 'Message annonce', moment: 'Soir' }
+      }
+    ]
+  },
+  {
+    id: 'autres',
+    label: 'Autres',
+    goal: 'Template universel — personnalisez votre objectif',
+    week: [
+      {
+        morning: { title: 'Clarifier (verbe d’action + “fini quand…”)', moment: 'Matin' },
+        afternoon: { title: '', moment: 'Après-midi' },
+        evening: { title: '', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Préparer 5’', moment: 'Matin' },
+        afternoon: { title: 'Action 10–20’', moment: 'Après-midi' },
+        evening: { title: 'Prochain micro-pas', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Préparer 5’', moment: 'Matin' },
+        afternoon: { title: 'Action 10–20’', moment: 'Après-midi' },
+        evening: { title: 'Prochain micro-pas', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Préparer 5’', moment: 'Matin' },
+        afternoon: { title: 'Action 10–20’', moment: 'Après-midi' },
+        evening: { title: 'Prochain micro-pas', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Préparer 5’', moment: 'Matin' },
+        afternoon: { title: 'Action 10–20’', moment: 'Après-midi' },
+        evening: { title: 'Prochain micro-pas', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Préparer 5’', moment: 'Matin' },
+        afternoon: { title: 'Action 10–20’', moment: 'Après-midi' },
+        evening: { title: 'Prochain micro-pas', moment: 'Soir' }
+      },
+      {
+        morning: { title: 'Bilan', moment: 'Matin' },
+        afternoon: { title: 'Plan S+1', moment: 'Après-midi' },
+        evening: { title: 'Repos', moment: 'Soir' }
+      }
+    ]
+  }
+];
+
+function getProgrammeCategoryById(categoryId) {
+  if (!PROGRAMME_CATEGORIES.length) {
+    return null;
+  }
+  return PROGRAMME_CATEGORIES.find(category => category.id === categoryId) || PROGRAMME_CATEGORIES[0];
+}
+
+function getDefaultProgrammeCategoryId() {
+  return PROGRAMME_CATEGORIES[0] ? PROGRAMME_CATEGORIES[0].id : 'autres';
+}
+
+function isAudioAvailable(audioId) {
+  if (!audioId || audioId === 'Aucun') {
+    return true;
+  }
+  return Boolean(getAudioEntryById(audioId));
+}
+
+function resolveDefaultRitualAudio(slotKey) {
+  const preferred = PROGRAMME_DEFAULT_AUDIO[slotKey];
+  if (!preferred || preferred === 'Aucun') {
+    return 'Aucun';
+  }
+  return isAudioAvailable(preferred) ? preferred : 'Aucun';
+}
+
+function normalizeProgrammeMode(mode) {
+  return mode === 'structure' ? 'structure' : 'content';
+}
+
+function formatProgrammeModeLabel(mode) {
+  return normalizeProgrammeMode(mode) === 'structure'
+    ? 'Organisation seule'
+    : 'Organisation + Contenu';
+}
+
+function buildProgrammeDayTasks(dayData, mode) {
+  const normalizedMode = normalizeProgrammeMode(mode);
+  return PROGRAMME_SLOT_KEYS.map(slotKey => {
+    const slot = dayData && dayData[slotKey] ? dayData[slotKey] : {};
+    const momentLabel = slot.moment || PROGRAMME_SLOT_LABELS[slotKey];
+    const audioValue = slot.audio || resolveDefaultRitualAudio(slotKey);
+    return {
+      title: normalizedMode === 'structure' ? '' : (slot.title || ''),
+      moment: momentLabel,
+      audio: audioValue
+    };
+  });
+}
+
+function buildProgrammeTemplate(categoryId, mode) {
+  const category = getProgrammeCategoryById(categoryId) || { id: 'autres', label: 'Autres', goal: '', week: [] };
+  const normalizedMode = normalizeProgrammeMode(mode);
+  const week = Array.isArray(category.week)
+    ? category.week.map(day => ({
+        morning: { ...(day?.morning || {}) },
+        afternoon: { ...(day?.afternoon || {}) },
+        evening: { ...(day?.evening || {}) }
+      }))
+    : [];
+
+  const firstDayTasks = week.length ? buildProgrammeDayTasks(week[0], normalizedMode) : [];
+
+  return {
+    template: {
+      id: `programme-${category.id}`,
+      name: category.label,
+      description: category.goal,
+      week,
+      tasks: firstDayTasks
+    },
+    category,
+    mode: normalizedMode
+  };
+}
+
 const BUILTIN_AUDIOS = [
   {
     id: 'builtin-respiration',
@@ -466,7 +1044,14 @@ const TEMPLATE_LIBRARY = [
 ];
 
 let state = {
-  settings: { email: '', goalTitle: '', deadlineISO: '', startISO: '' },
+  settings: {
+    email: '',
+    goalTitle: '',
+    deadlineISO: '',
+    startISO: '',
+    programmeCategoryId: getDefaultProgrammeCategoryId(),
+    programmeMode: 'content'
+  },
   tasks: {},
   vignettes: ['', '', ''],
   kpiImage: '',
@@ -1310,9 +1895,12 @@ function loadState() {
       if (!state.mood) state.mood = { motivation: 50, emoji: null };
       if (!state.moodHistory) state.moodHistory = {};
       if (!state.tasks) state.tasks = {};
+      if (!state.settings || typeof state.settings !== 'object') state.settings = {};
       if (!state.settings.startISO) state.settings.startISO = '';
       if (!state.reports) state.reports = {};
       if (!state.microReviews) state.microReviews = {};
+      if (!state.settings.programmeCategoryId) state.settings.programmeCategoryId = getDefaultProgrammeCategoryId();
+      if (!state.settings.programmeMode) state.settings.programmeMode = 'content';
     } catch (e) {
       console.error('Error loading state:', e);
     }
@@ -1601,9 +2189,9 @@ function initNavigation() {
     link.addEventListener('click', (e) => {
       e.preventDefault();
       const viewName = link.getAttribute('data-view');
-      showView(viewName);
-      navLinks.forEach(l => l.classList.remove('active'));
-      link.classList.add('active');
+      if (viewName) {
+        showView(viewName);
+      }
     });
   });
 }
@@ -1614,6 +2202,11 @@ function showView(viewName) {
   const targetView = document.getElementById(`view-${viewName}`);
   if (targetView) {
     targetView.classList.add('active');
+    const navLinks = document.querySelectorAll('.nav-menu a[data-view]');
+    navLinks.forEach(link => {
+      const isActive = link.getAttribute('data-view') === viewName;
+      link.classList.toggle('active', isActive);
+    });
     if (viewName === 'aujourdhui') {
       renderDashboard();
     } else if (viewName === 'planifier') {
@@ -1722,30 +2315,235 @@ function renderKPIImage() {
 }
 
 function renderProgramme() {
-  document.getElementById('email-input').value = state.settings.email || '';
-  document.getElementById('goal-input').value = state.settings.goalTitle || '';
-  document.getElementById('deadline-input').value = state.settings.deadlineISO || '';
+  const emailInput = document.getElementById('email-input');
+  const goalInput = document.getElementById('goal-input');
+  const deadlineInput = document.getElementById('deadline-input');
+  const categorySelect = document.getElementById('programme-category-select');
+  const modeButtons = document.querySelectorAll('.programme-mode-btn');
+  const previewBtn = document.getElementById('programme-preview-btn');
+  const applyBtn = document.getElementById('programme-apply-btn');
+  const periodSelect = document.getElementById('programme-period-select');
+  const conflictSelect = document.getElementById('programme-conflict-select');
+  const previewWrapper = document.getElementById('programme-preview-wrapper');
+  const previewTitle = document.getElementById('programme-preview-title');
+  const previewDescription = document.getElementById('programme-preview-description');
+  const previewMode = document.getElementById('programme-preview-mode');
+  const previewTable = document.getElementById('programme-preview-table');
 
-  const saveBtn = document.getElementById('save-programme-btn');
-  saveBtn.onclick = () => {
-    const emailValue = document.getElementById('email-input').value;
-    const goalValue = document.getElementById('goal-input').value;
-    const deadlineValue = document.getElementById('deadline-input').value;
-    const previousGoal = state.settings.goalTitle;
-    const previousDeadline = state.settings.deadlineISO;
+  if (emailInput) emailInput.value = state.settings.email || '';
+  if (goalInput) goalInput.value = state.settings.goalTitle || '';
+  if (deadlineInput) deadlineInput.value = state.settings.deadlineISO || '';
 
-    state.settings.email = emailValue;
-    state.settings.goalTitle = goalValue;
-    state.settings.deadlineISO = deadlineValue;
+  if (periodSelect && !periodSelect.value) {
+    periodSelect.value = 'this-week';
+  }
+  if (conflictSelect && !conflictSelect.value) {
+    conflictSelect.value = 'replace';
+  }
 
-    if (!state.settings.startISO || previousGoal !== goalValue || previousDeadline !== deadlineValue) {
-      state.settings.startISO = getToday();
+  const renderPreview = ({ reveal = false } = {}) => {
+    if (!previewWrapper || !previewTitle || !previewDescription || !previewMode || !previewTable) {
+      return;
     }
 
-    saveState();
-    alert('Programme enregistré !');
-    showView('aujourdhui');
+    const shouldRender = reveal || !previewWrapper.hasAttribute('hidden');
+    if (!shouldRender) {
+      return;
+    }
+
+    const activeCategoryId = categorySelect
+      ? categorySelect.value || state.settings.programmeCategoryId || getDefaultProgrammeCategoryId()
+      : state.settings.programmeCategoryId || getDefaultProgrammeCategoryId();
+    const activeCategory = getProgrammeCategoryById(activeCategoryId);
+    const normalizedMode = normalizeProgrammeMode(state.settings.programmeMode);
+
+    previewTitle.textContent = activeCategory ? activeCategory.label : 'Programme';
+    previewDescription.textContent = activeCategory ? activeCategory.goal : '';
+    previewMode.textContent = `Mode : ${formatProgrammeModeLabel(normalizedMode)}`;
+
+    previewTable.innerHTML = '';
+    const headerRow = document.createElement('div');
+    headerRow.className = 'programme-preview-header-row';
+
+    const dayHeader = document.createElement('div');
+    dayHeader.className = 'programme-preview-cell programme-preview-cell-head';
+    dayHeader.textContent = 'Jour';
+    headerRow.appendChild(dayHeader);
+
+    PROGRAMME_SLOT_KEYS.forEach(slotKey => {
+      const cell = document.createElement('div');
+      cell.className = 'programme-preview-cell programme-preview-cell-head';
+      cell.textContent = PROGRAMME_SLOT_LABELS[slotKey];
+      headerRow.appendChild(cell);
+    });
+
+    previewTable.appendChild(headerRow);
+
+    const week = activeCategory && Array.isArray(activeCategory.week) ? activeCategory.week : [];
+
+    for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+      const row = document.createElement('div');
+      row.className = 'programme-preview-row';
+
+      const dayCell = document.createElement('div');
+      dayCell.className = 'programme-preview-cell';
+      const dayWrapper = document.createElement('div');
+      dayWrapper.className = 'programme-preview-day';
+
+      const dayIndexEl = document.createElement('span');
+      dayIndexEl.className = 'programme-preview-day-index';
+      dayIndexEl.textContent = `Jour ${dayIndex + 1}`;
+      dayWrapper.appendChild(dayIndexEl);
+
+      const dayLabelEl = document.createElement('span');
+      dayLabelEl.className = 'programme-preview-day-label';
+      dayLabelEl.textContent = DAYS[dayIndex % DAYS.length] || `J+${dayIndex}`;
+      dayWrapper.appendChild(dayLabelEl);
+
+      dayCell.appendChild(dayWrapper);
+      row.appendChild(dayCell);
+
+      const tasksForDay = buildProgrammeDayTasks(week[dayIndex], normalizedMode);
+      tasksForDay.forEach(task => {
+        const taskCell = document.createElement('div');
+        taskCell.className = 'programme-preview-cell';
+
+        const titleEl = document.createElement('span');
+        titleEl.className = 'programme-preview-task-title' + (task.title ? '' : ' muted');
+        titleEl.textContent = task.title || 'À compléter';
+        taskCell.appendChild(titleEl);
+
+        const metaEl = document.createElement('span');
+        metaEl.className = 'programme-preview-meta';
+        const audioLabel = formatAudioLabel(task.audio);
+        const metaParts = [];
+        if (task.moment) metaParts.push(task.moment);
+        metaParts.push(audioLabel ? `Rituel : ${audioLabel}` : 'Rituel : Aucun');
+        metaEl.textContent = metaParts.join(' · ');
+        taskCell.appendChild(metaEl);
+
+        row.appendChild(taskCell);
+      });
+
+      previewTable.appendChild(row);
+    }
+
+    previewWrapper.removeAttribute('hidden');
   };
+
+  const ensureCategoryInitialized = () => {
+    if (!categorySelect) return;
+    if (!categorySelect.dataset.initialized) {
+      categorySelect.innerHTML = PROGRAMME_CATEGORIES
+        .map(category => `<option value="${category.id}">${category.label}</option>`)
+        .join('');
+      categorySelect.dataset.initialized = 'true';
+    }
+    const activeValue = state.settings.programmeCategoryId || getDefaultProgrammeCategoryId();
+    categorySelect.value = activeValue;
+  };
+
+  ensureCategoryInitialized();
+
+  if (categorySelect) {
+    categorySelect.onchange = () => {
+      const value = categorySelect.value || getDefaultProgrammeCategoryId();
+      state.settings.programmeCategoryId = value;
+      saveState();
+      renderPreview({ reveal: false });
+    };
+  }
+
+  const updateModeButtons = () => {
+    const normalized = normalizeProgrammeMode(state.settings.programmeMode);
+    modeButtons.forEach(button => {
+      const buttonMode = normalizeProgrammeMode(button.dataset.programmeMode || 'content');
+      const isActive = buttonMode === normalized;
+      button.classList.toggle('active', isActive);
+      button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+    return normalized;
+  };
+
+  modeButtons.forEach(button => {
+    button.onclick = () => {
+      const selectedMode = normalizeProgrammeMode(button.dataset.programmeMode || 'content');
+      if (state.settings.programmeMode !== selectedMode) {
+        state.settings.programmeMode = selectedMode;
+        saveState();
+      }
+      updateModeButtons();
+      renderPreview({ reveal: false });
+    };
+  });
+
+  updateModeButtons();
+
+  if (previewBtn) {
+    previewBtn.onclick = () => {
+      renderPreview({ reveal: true });
+    };
+  }
+
+  if (applyBtn) {
+    applyBtn.onclick = () => {
+      const categoryId = categorySelect
+        ? categorySelect.value || getDefaultProgrammeCategoryId()
+        : state.settings.programmeCategoryId || getDefaultProgrammeCategoryId();
+      const mode = normalizeProgrammeMode(state.settings.programmeMode);
+      const period = periodSelect ? periodSelect.value : 'this-week';
+      const conflict = conflictSelect ? conflictSelect.value : 'replace';
+      const { template } = buildProgrammeTemplate(categoryId, mode);
+      const plan = resolveTemplateApplication(template, period, conflict, {
+        getTasksForDay: (offset) => buildProgrammeDayTasks(template.week[offset], mode)
+      });
+
+      if (!plan || plan.stats.daysUpdated === 0) {
+        showToast('Aucune micro-tâche modifiée : tout était déjà planifié.');
+        return;
+      }
+
+      const previewVisible = previewWrapper && !previewWrapper.hasAttribute('hidden');
+
+      applyTemplatePlan(template, plan, {
+        showModal: false,
+        successMessage: `Programme « ${template.name} » appliqué.`
+      });
+
+      renderPreview({ reveal: previewVisible });
+    };
+  }
+
+  const saveBtn = document.getElementById('save-programme-btn');
+  if (saveBtn) {
+    saveBtn.onclick = () => {
+      const emailValue = emailInput ? emailInput.value : '';
+      const goalValue = goalInput ? goalInput.value : '';
+      const deadlineValue = deadlineInput ? deadlineInput.value : '';
+      const categoryValue = categorySelect
+        ? categorySelect.value || getDefaultProgrammeCategoryId()
+        : state.settings.programmeCategoryId || getDefaultProgrammeCategoryId();
+      const modeValue = normalizeProgrammeMode(state.settings.programmeMode);
+      const previousGoal = state.settings.goalTitle;
+      const previousDeadline = state.settings.deadlineISO;
+
+      state.settings.email = emailValue;
+      state.settings.goalTitle = goalValue;
+      state.settings.deadlineISO = deadlineValue;
+      state.settings.programmeCategoryId = categoryValue;
+      state.settings.programmeMode = modeValue;
+
+      if (!state.settings.startISO || previousGoal !== goalValue || previousDeadline !== deadlineValue) {
+        state.settings.startISO = getToday();
+      }
+
+      saveState();
+      alert('Programme enregistré !');
+      showView('aujourdhui');
+    };
+  }
+
+  renderPreview({ reveal: false });
 }
 
 function renderPlanifier() {
@@ -1869,13 +2667,16 @@ function getTemplateById(templateId) {
   return TEMPLATE_LIBRARY.find(t => t.id === templateId);
 }
 
-function resolveTemplateApplication(template, period, conflict) {
+function resolveTemplateApplication(template, period, conflict, options = {}) {
   const startDate = getStartDateForPeriod(period);
   const dates = [];
   const assignments = [];
   let daysUpdated = 0;
   let replaced = 0;
   let preserved = 0;
+
+  const getTasksForDay = typeof options.getTasksForDay === 'function' ? options.getTasksForDay : null;
+  const fallbackTasks = Array.isArray(template.tasks) ? template.tasks : [];
 
   for (let offset = 0; offset < 7; offset++) {
     const currentDate = new Date(startDate);
@@ -1890,8 +2691,26 @@ function resolveTemplateApplication(template, period, conflict) {
     const slots = [];
     let dayWillChange = false;
 
-    template.tasks.slice(0, 3).forEach((templateTask, taskIdx) => {
+    const dayTasks = getTasksForDay ? getTasksForDay(offset, dateStr) : null;
+    const sourceTasks = Array.isArray(dayTasks) && dayTasks.length ? dayTasks : fallbackTasks;
+
+    for (let taskIdx = 0; taskIdx < 3; taskIdx++) {
+      const baseTemplateTask = sourceTasks[taskIdx] || createEmptyTask();
+      const templateTask = {
+        title: baseTemplateTask.title || '',
+        moment: baseTemplateTask.moment || '',
+        audio: baseTemplateTask.audio || 'Aucun'
+      };
       const existing = existingTasks[taskIdx] || createEmptyTask();
+
+      if (isTaskEmpty(templateTask)) {
+        if (!isTaskEmpty(existing)) {
+          preserved += 1;
+        }
+        slots.push({ apply: false, templateTask, taskIdx });
+        continue;
+      }
+
       let applyTask = false;
 
       if (existing.status === 'done') {
@@ -1918,7 +2737,7 @@ function resolveTemplateApplication(template, period, conflict) {
         templateTask,
         taskIdx
       });
-    });
+    }
 
     if (dayWillChange) {
       daysUpdated += 1;
@@ -2157,7 +2976,7 @@ function showTemplateApply(template) {
   updateSummary();
 }
 
-function applyTemplatePlan(template, plan) {
+function applyTemplatePlan(template, plan, options = {}) {
   const previousState = {};
 
   plan.dates.forEach(dateStr => {
@@ -2190,7 +3009,12 @@ function applyTemplatePlan(template, plan) {
   renderPlanifier();
   renderDashboard();
   refreshWeeklyReviewIfVisible();
-  showTemplateAppliedMessage(template, plan.stats);
+  const showModal = options.showModal !== false;
+  if (showModal) {
+    showTemplateAppliedMessage(template, plan.stats);
+  } else if (options.successMessage) {
+    showToast(options.successMessage);
+  }
 }
 
 function showTemplateAppliedMessage(template, stats) {
@@ -4329,4 +5153,6 @@ if ('serviceWorker' in navigator) {
 initNotificationsModule();
 initNavigation();
 initWeeklyTabs();
-showView('aujourdhui');
+const hasProgramme = Boolean((state.settings.goalTitle || '').trim());
+const initialView = hasProgramme ? 'aujourdhui' : 'programme';
+showView(initialView);
