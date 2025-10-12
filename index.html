@@ -62,7 +62,14 @@
           </div>
 
           <div class="card card-daily3">
-            <h2>Daily 3 d'aujourd'hui</h2>
+            <div class="card-daily3-header">
+              <h2>Daily 3 d'aujourd'hui</h2>
+              <button type="button" id="daily-quick-add-btn" class="quick-add-btn" aria-label="Ajouter une micro-tâche">
+                <svg viewBox="0 0 24 24" aria-hidden="true" class="quick-add-btn-icon">
+                  <path d="M12 4a1 1 0 0 1 1 1v6h6a1 1 0 0 1 0 2h-6v6a1 1 0 0 1-2 0v-6H5a1 1 0 0 1 0-2h6V5a1 1 0 0 1 1-1Z" fill="currentColor" />
+                </svg>
+              </button>
+            </div>
             <div class="tasks-list" id="daily-tasks-list"></div>
             <div class="encouragement-message" id="encouragement-message"></div>
           </div>

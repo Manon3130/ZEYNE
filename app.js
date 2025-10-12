@@ -52,6 +52,18 @@ const PROGRAMME_DEFAULT_AUDIO = {
   evening: 'builtin-etirements'
 };
 
+const QUICK_ADD_SLOT_MOMENTS = ['Matin', 'Après-midi', 'Soir'];
+const QUICK_ADD_MOMENT_DEFAULT_AUDIO = {
+  'Matin': 'builtin-respiration',
+  'Après-midi': 'Aucun',
+  'Soir': 'builtin-etirements'
+};
+const QUICK_ADD_MOMENT_DEFAULT_TIME = {
+  'Matin': '11:45',
+  'Après-midi': '17:45',
+  'Soir': '21:45'
+};
+
 const PROGRAMME_CATEGORIES = [
   {
     id: 'etudes-examens',
@@ -1086,6 +1098,8 @@ const pwaInstallRuntime = {
 };
 
 let lastTemplateApplication = null;
+let releaseFocusTrapCallback = null;
+let lastFocusBeforeModal = null;
 
 function getAudioDB() {
   if (audioDBPromise) {
@@ -1956,7 +1970,7 @@ function getStartDateForPeriod(period) {
 }
 
 function createEmptyTask() {
-  return { title: '', moment: '', audio: 'Aucun', status: 'planned' };
+  return { title: '', moment: '', time: '', audio: 'Aucun', duration: null, status: 'planned' };
 }
 
 function normalizeAudioValue(audioValue) {
@@ -1989,7 +2003,14 @@ function ensureTasksForDate(dateStr) {
       const task = state.tasks[dateStr][i];
       if (task.title === undefined) task.title = '';
       if (task.moment === undefined) task.moment = '';
+      if (task.time === undefined) task.time = '';
       task.audio = normalizeAudioValue(task.audio);
+      if (task.duration !== undefined) {
+        const durationValue = Number(task.duration);
+        task.duration = Number.isFinite(durationValue) && durationValue > 0 ? durationValue : null;
+      } else {
+        task.duration = null;
+      }
       if (!task.status) task.status = 'planned';
     }
   }
@@ -2026,6 +2047,15 @@ function formatTaskAudioLabel(task) {
   return '';
 }
 
+function formatTaskDuration(task) {
+  if (!task) return '';
+  const raw = Number(task.duration);
+  if (!Number.isFinite(raw) || raw <= 0) {
+    return '';
+  }
+  return `${raw} min`;
+}
+
 function formatCount(value, singular, plural) {
   const normalized = Number(value) || 0;
   return `${normalized} ${normalized > 1 ? plural : singular}`;
@@ -2054,7 +2084,148 @@ function formatTaskMeta(task) {
   if (audioLabel) {
     parts.push(audioLabel);
   }
+  const durationLabel = formatTaskDuration(task);
+  if (durationLabel) {
+    parts.push(durationLabel);
+  }
   return parts.join(' • ') || '';
+}
+
+function getDefaultMomentForSlot(slotIdx) {
+  return QUICK_ADD_SLOT_MOMENTS[slotIdx] || 'Matin';
+}
+
+function getMomentSlotIndex(momentLabel) {
+  if (!momentLabel) return -1;
+  return QUICK_ADD_SLOT_MOMENTS.findIndex(label => label.toLowerCase() === momentLabel.toLowerCase());
+}
+
+function getDefaultRitualForMoment(momentLabel) {
+  if (!momentLabel) return 'Aucun';
+  return QUICK_ADD_MOMENT_DEFAULT_AUDIO[momentLabel] || 'Aucun';
+}
+
+function getDefaultTimeForMoment(momentLabel) {
+  if (!momentLabel) return '';
+  return QUICK_ADD_MOMENT_DEFAULT_TIME[momentLabel] || '';
+}
+
+function getNextMomentLabel() {
+  const now = new Date();
+  const hour = now.getHours();
+  if (hour < 12) return 'Matin';
+  if (hour < 18) return 'Après-midi';
+  return 'Soir';
+}
+
+function parseTimeFromString(timeString) {
+  if (!timeString || typeof timeString !== 'string') return null;
+  const trimmed = timeString.trim();
+  if (!trimmed) return null;
+  const match = trimmed.match(/^(\d{1,2})(?:[:hH](\d{2}))?$/);
+  if (!match) return null;
+  const hours = Number.parseInt(match[1], 10);
+  const minutes = match[2] !== undefined ? Number.parseInt(match[2], 10) : 0;
+  if (!Number.isFinite(hours) || hours < 0 || hours > 23) return null;
+  if (!Number.isFinite(minutes) || minutes < 0 || minutes > 59) return null;
+  return { hours, minutes };
+}
+
+function resolveTaskScheduledTime(task) {
+  if (!task) return null;
+  const explicit = parseTimeFromString(task.time || '');
+  if (explicit) {
+    return explicit;
+  }
+  const momentTime = parseTimeFromString(task.moment || '');
+  if (momentTime) {
+    return momentTime;
+  }
+  const slot = categorizeMomentSlot(task.moment);
+  const fallback = getDefaultTimeForMoment(slot);
+  if (!fallback) return null;
+  return parseTimeFromString(fallback);
+}
+
+function isTaskScheduleLate(task) {
+  if (!task || task.status === 'done') return false;
+  const schedule = resolveTaskScheduledTime(task);
+  if (!schedule) return false;
+  const now = new Date();
+  const candidate = new Date(now);
+  candidate.setHours(schedule.hours, schedule.minutes, 0, 0);
+  return candidate.getTime() < now.getTime();
+}
+
+function setupFocusTrap(container, { modalKey = null, initialFocus = null } = {}) {
+  releaseFocusTrap();
+  if (!container) return;
+
+  const modal = document.getElementById('modal-overlay');
+  const selector = [
+    'a[href]',
+    'button:not([disabled])',
+    'input:not([disabled])',
+    'select:not([disabled])',
+    'textarea:not([disabled])',
+    '[tabindex]:not([tabindex="-1"])'
+  ].join(',');
+
+  const getFocusable = () =>
+    Array.from(container.querySelectorAll(selector)).filter(el => el.offsetParent !== null || el === document.activeElement);
+
+  const handleKeydown = (event) => {
+    if (modalKey && modal && modal.dataset.activeModal !== modalKey) {
+      return;
+    }
+
+    if (event.key === 'Escape' && modalKey === 'quick-add') {
+      event.preventDefault();
+      closeModal();
+      return;
+    }
+
+    if (event.key !== 'Tab') {
+      return;
+    }
+
+    const focusable = getFocusable();
+    if (!focusable.length) {
+      return;
+    }
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+
+    if (event.shiftKey) {
+      if (document.activeElement === first || !container.contains(document.activeElement)) {
+        event.preventDefault();
+        last.focus();
+      }
+    } else if (document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
+  document.addEventListener('keydown', handleKeydown);
+
+  releaseFocusTrapCallback = () => {
+    document.removeEventListener('keydown', handleKeydown);
+    releaseFocusTrapCallback = null;
+  };
+
+  const focusable = getFocusable();
+  const targetFocus = initialFocus || focusable[0];
+  if (targetFocus && typeof targetFocus.focus === 'function') {
+    targetFocus.focus();
+  }
+}
+
+function releaseFocusTrap() {
+  if (typeof releaseFocusTrapCallback === 'function') {
+    releaseFocusTrapCallback();
+  }
 }
 
 function categorizeMomentSlot(momentValue) {
@@ -3453,27 +3624,356 @@ function renderDaysRemaining() {
   }
 }
 
+function openQuickAddModal(options = {}) {
+  const { slotIndex = null, mode = 'add' } = options;
+  const modal = document.getElementById('modal-overlay');
+  const content = document.getElementById('modal-content');
+  if (!modal || !content) return;
+
+  const today = getToday();
+  ensureTasksForDate(today);
+  const tasksForToday = state.tasks[today];
+
+  const emptySlots = tasksForToday
+    .map((task, idx) => ({ task, idx }))
+    .filter(entry => isTaskEmpty(entry.task));
+
+  let targetSlot = typeof slotIndex === 'number' && slotIndex >= 0 && slotIndex < 3 ? slotIndex : null;
+  let initialMode = mode;
+
+  if (targetSlot === null) {
+    if (!emptySlots.length) {
+      showToast('Limite 3 tâches/jour');
+      return;
+    }
+    const upcomingMoment = getNextMomentLabel();
+    const upcomingSlotIdx = getMomentSlotIndex(upcomingMoment);
+    const preferredSlot = emptySlots.find(entry => entry.idx === upcomingSlotIdx);
+    targetSlot = (preferredSlot || emptySlots[0]).idx;
+  }
+
+  const currentTask = tasksForToday[targetSlot] ? { ...tasksForToday[targetSlot] } : createEmptyTask();
+  const slotMomentDefault = getDefaultMomentForSlot(targetSlot);
+  const slotIsEmpty = isTaskEmpty(currentTask);
+  const isReplace = initialMode === 'replace' || (!slotIsEmpty && slotIndex !== null);
+  const initialTitle = isReplace ? (currentTask.title || '') : '';
+
+  let initialMoment = isReplace ? (currentTask.moment || slotMomentDefault) : slotMomentDefault;
+  if (!isReplace && slotIndex === null) {
+    const autoMoment = getNextMomentLabel();
+    initialMoment = autoMoment || slotMomentDefault;
+  }
+  if (!initialMoment) {
+    initialMoment = slotMomentDefault;
+  }
+
+  const existingAudio = normalizeAudioValue(currentTask.audio || 'Aucun');
+  const defaultAudio = getDefaultRitualForMoment(initialMoment);
+  const initialAudio = isReplace ? existingAudio : defaultAudio;
+
+  const existingDuration = Number(currentTask.duration);
+  const hasExistingDuration = Number.isFinite(existingDuration) && existingDuration > 0;
+  const initialDurationValue = isReplace ? (hasExistingDuration ? existingDuration : '') : 25;
+
+  const initialSlotMoment = getMomentSlotIndex(initialMoment);
+
+  const escapedTitle = initialTitle
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+  const durationValueAttr = initialDurationValue === '' ? '' : String(initialDurationValue);
+
+  lastFocusBeforeModal = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+  modal.dataset.activeModal = 'quick-add';
+  content.classList.remove('template-wide');
+  content.classList.remove('badge-modal-container');
+  content.classList.add('quick-add-modal');
+
+  const slotSelection = isReplace
+    ? `<input type="hidden" name="quick-slot" value="${targetSlot}">`
+    : `
+      <fieldset class="quick-add-fieldset">
+        <legend>Slot</legend>
+        <div class="quick-add-radio-group">
+          ${QUICK_ADD_SLOT_MOMENTS.map((label, idx) => `
+            <label class="quick-add-chip">
+              <input type="radio" name="quick-slot" value="${idx}" ${idx === targetSlot ? 'checked' : ''}>
+              <span>[${idx + 1}] ${label}</span>
+            </label>
+          `).join('')}
+        </div>
+      </fieldset>
+    `;
+
+  const slotDisplay = isReplace
+    ? `<div class="quick-add-slot-display" aria-live="polite">Slot sélectionné : [${targetSlot + 1}] ${getDefaultMomentForSlot(targetSlot)}</div>`
+    : '';
+
+  content.innerHTML = `
+    <form id="quick-add-form" class="quick-add-form" novalidate>
+      <h3>${isReplace ? 'Remplacer la micro-tâche' : 'Nouvelle micro-tâche'}</h3>
+      ${slotSelection}
+      ${slotDisplay}
+      <div class="quick-add-field">
+        <label for="quick-add-title">Titre</label>
+        <input id="quick-add-title" name="quick-add-title" type="text" maxlength="80" required placeholder="Titre (max 80 caractères)" value="${escapedTitle}">
+      </div>
+      <fieldset class="quick-add-fieldset">
+        <legend>Moment</legend>
+        <div class="quick-add-radio-group">
+          ${QUICK_ADD_SLOT_MOMENTS.map(momentLabel => `
+            <label class="quick-add-chip">
+              <input type="radio" name="quick-moment" value="${momentLabel}" ${momentLabel === initialMoment ? 'checked' : ''}>
+              <span>${momentLabel}</span>
+            </label>
+          `).join('')}
+        </div>
+      </fieldset>
+      <fieldset class="quick-add-fieldset">
+        <legend>Rituel</legend>
+        <div class="quick-add-radio-group">
+          <label class="quick-add-chip">
+            <input type="radio" name="quick-ritual" value="Aucun" ${initialAudio === 'Aucun' ? 'checked' : ''}>
+            <span>Aucun</span>
+          </label>
+          <label class="quick-add-chip">
+            <input type="radio" name="quick-ritual" value="builtin-respiration" ${initialAudio === 'builtin-respiration' ? 'checked' : ''}>
+            <span>Respiration</span>
+          </label>
+          <label class="quick-add-chip">
+            <input type="radio" name="quick-ritual" value="builtin-etirements" ${initialAudio === 'builtin-etirements' ? 'checked' : ''}>
+            <span>Étirements</span>
+          </label>
+        </div>
+      </fieldset>
+      <div class="quick-add-field">
+        <label for="quick-add-duration">Durée (min)</label>
+        <input id="quick-add-duration" name="quick-add-duration" type="number" min="5" max="60" step="5" placeholder="25" value="${durationValueAttr}">
+      </div>
+      <div class="quick-add-actions">
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+        <button type="button" class="btn btn-secondary" id="quick-add-cancel">Annuler</button>
+      </div>
+    </form>
+  `;
+
+  modal.classList.add('show');
+
+  const form = content.querySelector('#quick-add-form');
+  if (!form) return;
+
+  const titleInput = form.querySelector('#quick-add-title');
+  const durationInput = form.querySelector('#quick-add-duration');
+  const slotRadios = Array.from(form.querySelectorAll('input[name="quick-slot"]'));
+  const momentRadios = Array.from(form.querySelectorAll('input[name="quick-moment"]'));
+  const ritualRadios = Array.from(form.querySelectorAll('input[name="quick-ritual"]'));
+  const cancelBtn = form.querySelector('#quick-add-cancel');
+
+  let hasCustomRitualSelection = isReplace && initialAudio !== defaultAudio;
+  let hasCustomMomentSelection = isReplace && initialSlotMoment !== getMomentSlotIndex(slotMomentDefault);
+  let ignoreMomentChange = false;
+
+  const setRitualValue = (value) => {
+    ritualRadios.forEach(radio => {
+      radio.checked = radio.value === value;
+    });
+  };
+
+  ritualRadios.forEach(radio => {
+    radio.addEventListener('change', () => {
+      hasCustomRitualSelection = true;
+    });
+  });
+
+  momentRadios.forEach(radio => {
+    radio.addEventListener('change', () => {
+      if (ignoreMomentChange) {
+        return;
+      }
+      hasCustomMomentSelection = true;
+      if (!hasCustomRitualSelection) {
+        const defaultValue = getDefaultRitualForMoment(radio.value);
+        setRitualValue(defaultValue);
+      }
+    });
+  });
+
+  slotRadios.forEach(radio => {
+    radio.addEventListener('change', () => {
+      if (!radio.checked) return;
+      if (!hasCustomMomentSelection) {
+        const newMoment = getDefaultMomentForSlot(Number.parseInt(radio.value, 10));
+        const targetMoment = momentRadios.find(m => m.value === newMoment);
+        if (targetMoment) {
+          ignoreMomentChange = true;
+          targetMoment.checked = true;
+          ignoreMomentChange = false;
+        }
+        if (!hasCustomRitualSelection) {
+          setRitualValue(getDefaultRitualForMoment(newMoment));
+        }
+      }
+    });
+  });
+
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', () => {
+      closeModal();
+    });
+  }
+
+  if (durationInput) {
+    durationInput.addEventListener('input', () => {
+      durationInput.setCustomValidity('');
+    });
+  }
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+
+    if (!form.reportValidity()) {
+      return;
+    }
+
+    const titleValue = titleInput ? titleInput.value.trim() : '';
+    if (!titleValue) {
+      titleInput?.focus();
+      return;
+    }
+
+    const slotValue = isReplace ? targetSlot : Number.parseInt((form.querySelector('input[name="quick-slot"]:checked')?.value || ''), 10);
+    if (Number.isNaN(slotValue) || slotValue < 0 || slotValue > 2) {
+      showToast('Slot invalide.');
+      return;
+    }
+
+    const selectedMoment = form.querySelector('input[name="quick-moment"]:checked')?.value || getDefaultMomentForSlot(slotValue);
+    const selectedRitual = form.querySelector('input[name="quick-ritual"]:checked')?.value || 'Aucun';
+
+    let durationValue = null;
+    const durationRaw = durationInput ? durationInput.value.trim() : '';
+    if (durationRaw) {
+      const parsed = Number.parseInt(durationRaw, 10);
+      if (!Number.isFinite(parsed) || parsed < 5 || parsed > 60 || parsed % 5 !== 0) {
+        durationInput?.setCustomValidity('Choisis une durée entre 5 et 60 min, par pas de 5.');
+        durationInput?.reportValidity();
+        return;
+      }
+      durationValue = parsed;
+    }
+
+    ensureTasksForDate(today);
+    const tasks = state.tasks[today];
+    const existing = tasks[slotValue] ? { ...tasks[slotValue] } : createEmptyTask();
+
+    const existingTime = typeof existing.time === 'string' ? existing.time : '';
+    const resolvedTime = existing.moment && existing.moment === selectedMoment && existingTime
+      ? existingTime
+      : getDefaultTimeForMoment(selectedMoment) || '';
+
+    const updatedTask = {
+      ...existing,
+      title: titleValue,
+      moment: selectedMoment,
+      audio: normalizeAudioValue(selectedRitual),
+      duration: durationValue,
+      time: resolvedTime,
+      status: 'planned'
+    };
+
+    tasks[slotValue] = updatedTask;
+    saveState();
+    closeModal();
+    renderDailyTasks();
+    renderOtherDays();
+    updateMomentum();
+    refreshWeeklyReviewIfVisible();
+    showToast(isReplace ? 'Tâche remplacée.' : 'Tâche ajoutée.');
+  });
+
+  setupFocusTrap(content, { modalKey: 'quick-add', initialFocus: titleInput });
+}
+
 function renderDailyTasks() {
   const today = getToday();
   ensureTasksForDate(today);
 
   const tasksList = document.getElementById('daily-tasks-list');
   tasksList.innerHTML = '';
+  const plusIconMarkup = '<svg class="task-quick-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a1 1 0 0 1 1 1v6h6a1 1 0 0 1 0 2h-6v6a1 1 0 0 1-2 0v-6H5a1 1 0 0 1 0-2h6V5a1 1 0 0 1 1-1Z" fill="currentColor"/></svg>';
+  const editIconMarkup = '<svg class="task-quick-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0L4.59 15.66a1 1 0 0 0-.25.45l-1.32 4.62a1 1 0 0 0 1.23 1.23l4.62-1.32a1 1 0 0 0 .45-.25Z" fill="currentColor"/></svg>';
 
   state.tasks[today].forEach((task, idx) => {
     const isDone = task.status === 'done';
+    const isEmptySlot = isTaskEmpty(task);
     const taskItem = document.createElement('div');
-    taskItem.className = `task-item${isDone ? ' done' : ''}`;
+    taskItem.className = 'task-item';
+    if (isDone) {
+      taskItem.classList.add('done');
+    }
+    if (isEmptySlot) {
+      taskItem.classList.add('task-empty');
+    }
 
-    taskItem.innerHTML = `
-      <div class="task-header">
-        <div class="task-number">${idx + 1}</div>
-        <div class="task-info">
-          <div class="task-title">${task.title || `Tâche ${idx + 1}`}</div>
-          <div class="task-meta">${formatTaskMeta(task)}</div>
-        </div>
-      </div>
-      <div class="task-actions">
+    const header = document.createElement('div');
+    header.className = 'task-header';
+
+    const numberEl = document.createElement('div');
+    numberEl.className = 'task-number';
+    numberEl.textContent = idx + 1;
+
+    const infoEl = document.createElement('div');
+    infoEl.className = 'task-info';
+
+    const titleEl = document.createElement('div');
+    titleEl.className = 'task-title';
+    titleEl.textContent = isEmptySlot ? `Slot ${idx + 1} libre` : (task.title || `Tâche ${idx + 1}`);
+
+    const metaEl = document.createElement('div');
+    metaEl.className = 'task-meta';
+    metaEl.textContent = isEmptySlot ? 'Ajoute une micro-tâche pour rester dans ton flow.' : formatTaskMeta(task);
+
+    infoEl.appendChild(titleEl);
+    if (metaEl.textContent) {
+      infoEl.appendChild(metaEl);
+    }
+
+    const badgesEl = document.createElement('div');
+    badgesEl.className = 'task-badges';
+    if (!isEmptySlot && !isDone && isTaskScheduleLate(task)) {
+      const lateBadge = document.createElement('span');
+      lateBadge.className = 'task-badge task-badge-late';
+      lateBadge.textContent = 'En retard';
+      badgesEl.appendChild(lateBadge);
+    }
+    if (badgesEl.childElementCount > 0) {
+      infoEl.appendChild(badgesEl);
+    }
+
+    const quickAction = document.createElement('button');
+    quickAction.type = 'button';
+    quickAction.className = `task-quick-action ${isEmptySlot ? 'task-quick-action-add' : 'task-quick-action-edit'}`;
+    quickAction.setAttribute('aria-label', isEmptySlot
+      ? `Ajouter une micro-tâche pour le slot ${idx + 1}`
+      : `Remplacer la micro-tâche du slot ${idx + 1}`
+    );
+    quickAction.innerHTML = isEmptySlot ? plusIconMarkup : editIconMarkup;
+    quickAction.addEventListener('click', () => {
+      openQuickAddModal({ slotIndex: idx, mode: isEmptySlot ? 'add' : 'replace' });
+    });
+
+    header.appendChild(numberEl);
+    header.appendChild(infoEl);
+    header.appendChild(quickAction);
+    taskItem.appendChild(header);
+
+    if (!isEmptySlot) {
+      const actions = document.createElement('div');
+      actions.className = 'task-actions';
+      actions.innerHTML = `
         ${!isDone ? `<button class="btn btn-primary" onclick="startTask(${idx})">Commencer</button>` : ''}
         <button
           class="btn btn-validate${isDone ? ' checked' : ''}"
@@ -3482,13 +3982,29 @@ function renderDailyTasks() {
           onclick="toggleTaskCompletion(${idx})"
         >Valider</button>
         ${!isDone ? `<button class="btn btn-ghost" onclick="reportTask('${today}', ${idx})">Reporter</button>` : ''}
-      </div>
-    `;
+      `;
+      taskItem.appendChild(actions);
+    } else {
+      const emptyHint = document.createElement('div');
+      emptyHint.className = 'task-empty-hint';
+      emptyHint.textContent = 'Planifie ton prochain micro-pas en un clin d’œil.';
+      taskItem.appendChild(emptyHint);
+    }
 
     tasksList.appendChild(taskItem);
   });
 
   checkAllTasksDone();
+}
+
+function initDailyQuickAdd() {
+  const quickAddBtn = document.getElementById('daily-quick-add-btn');
+  if (quickAddBtn && !quickAddBtn.dataset.boundQuickAdd) {
+    quickAddBtn.addEventListener('click', () => {
+      openQuickAddModal();
+    });
+    quickAddBtn.dataset.boundQuickAdd = 'true';
+  }
 }
 
 function renderOtherDays() {
@@ -5061,14 +5577,23 @@ function closeModal() {
   stopModalAudio();
   const modal = document.getElementById('modal-overlay');
   const content = document.getElementById('modal-content');
+  const wasQuickAdd = modal && modal.dataset.activeModal === 'quick-add';
+  releaseFocusTrap();
   if (modal) {
     modal.classList.remove('show');
+    delete modal.dataset.activeModal;
   }
   if (content) {
     content.classList.remove('template-wide');
     content.classList.remove('badge-modal-container');
+    content.classList.remove('quick-add-modal');
+    content.innerHTML = '';
   }
   setPlanifierTabsMode('editor');
+  if (wasQuickAdd && lastFocusBeforeModal && typeof lastFocusBeforeModal.focus === 'function') {
+    lastFocusBeforeModal.focus();
+  }
+  lastFocusBeforeModal = null;
 }
 
 function showBadgeModal(badge) {
@@ -5153,6 +5678,7 @@ if ('serviceWorker' in navigator) {
 initNotificationsModule();
 initNavigation();
 initWeeklyTabs();
+initDailyQuickAdd();
 const hasProgramme = Boolean((state.settings.goalTitle || '').trim());
 const initialView = hasProgramme ? 'aujourdhui' : 'programme';
 showView(initialView);
