@@ -70,6 +70,13 @@ const FOCUS_DEFAULT_DURATION = { morning: 25, afternoon: 25, evening: 25 };
 const FOCUS_SNOOZE_DAYS = 7;
 const FOCUS_MUTE_DAYS = 30;
 
+const MOMENT_SUGGESTION_LOOKBACK_DAYS = 14;
+const MOMENT_SUGGESTION_MAX_EVENTS = 120;
+const MOMENT_SUGGESTION_SNOOZE_DAYS = 7;
+const MOMENT_SUGGESTION_MUTE_DAYS = 30;
+const MOMENT_SUGGESTION_MIN_EXECUTIONS = 5;
+const MOMENT_SUGGESTION_PREFILL_DAYS = 7;
+
 const PROGRAMME_CATEGORIES = [
   {
     id: 'etudes-examens',
@@ -766,6 +773,18 @@ function createDefaultFocusAdaptiveState() {
   };
 }
 
+function createDefaultMomentSuggestionState() {
+  return {
+    events: [],
+    snoozeUntil: { morning: null, afternoon: null, evening: null },
+    muteUntil: { morning: null, afternoon: null, evening: null },
+    lastSuccessfulMoment: null,
+    lastComputedDate: null,
+    cachedSuggestion: null,
+    prefill: null
+  };
+}
+
 function createDefaultStreakState() {
   return {
     current: 0,
@@ -1132,7 +1151,8 @@ let state = {
   badges: createDefaultBadgesState(),
   notifications: createDefaultNotificationsState(),
   micropasSuggestionState: {},
-  focusAdaptive: createDefaultFocusAdaptiveState()
+  focusAdaptive: createDefaultFocusAdaptiveState(),
+  momentSuggestion: createDefaultMomentSuggestionState()
 };
 
 let audioDBPromise = null;
@@ -1906,6 +1926,439 @@ function muteFocusSuggestion(momentKey) {
   resetFocusMomentStreak(momentKey);
 }
 
+function ensureMomentSuggestionState() {
+  if (!state.momentSuggestion || typeof state.momentSuggestion !== 'object') {
+    state.momentSuggestion = createDefaultMomentSuggestionState();
+    return true;
+  }
+
+  let changed = false;
+  const suggestionState = state.momentSuggestion;
+
+  if (!Array.isArray(suggestionState.events)) {
+    suggestionState.events = [];
+    changed = true;
+  } else {
+    suggestionState.events = suggestionState.events.filter(event => event && typeof event === 'object');
+  }
+
+  if (!suggestionState.snoozeUntil || typeof suggestionState.snoozeUntil !== 'object') {
+    suggestionState.snoozeUntil = { morning: null, afternoon: null, evening: null };
+    changed = true;
+  }
+  if (!suggestionState.muteUntil || typeof suggestionState.muteUntil !== 'object') {
+    suggestionState.muteUntil = { morning: null, afternoon: null, evening: null };
+    changed = true;
+  }
+
+  FOCUS_MOMENT_KEYS.forEach(key => {
+    if (suggestionState.snoozeUntil[key] && !isValidISODate(suggestionState.snoozeUntil[key])) {
+      suggestionState.snoozeUntil[key] = null;
+      changed = true;
+    }
+    if (suggestionState.muteUntil[key] && !isValidISODate(suggestionState.muteUntil[key])) {
+      suggestionState.muteUntil[key] = null;
+      changed = true;
+    }
+  });
+
+  if (!FOCUS_MOMENT_KEYS.includes(suggestionState.lastSuccessfulMoment)) {
+    suggestionState.lastSuccessfulMoment = null;
+    changed = true;
+  }
+
+  if (!suggestionState.prefill || typeof suggestionState.prefill !== 'object') {
+    suggestionState.prefill = null;
+  } else {
+    const { momentKey, expires } = suggestionState.prefill;
+    if (!FOCUS_MOMENT_KEYS.includes(momentKey) || !isValidISODate(expires)) {
+      suggestionState.prefill = null;
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+
+function cleanupMomentSuggestionHistory() {
+  ensureMomentSuggestionState();
+  const suggestionState = state.momentSuggestion;
+  const events = Array.isArray(suggestionState.events) ? suggestionState.events : [];
+  const cutoff = getTodayDateObj();
+  cutoff.setDate(cutoff.getDate() - (MOMENT_SUGGESTION_LOOKBACK_DAYS - 1));
+  cutoff.setHours(0, 0, 0, 0);
+
+  const filtered = events.filter(event => {
+    if (!event || typeof event !== 'object') return false;
+    if (!event.date || !event.type) return false;
+    if (!FOCUS_MOMENT_KEYS.includes(event.moment)) return false;
+    const eventDate = parseISODate(event.date);
+    if (!eventDate) return false;
+    eventDate.setHours(0, 0, 0, 0);
+    return eventDate >= cutoff;
+  });
+
+  filtered.sort((a, b) => {
+    const timeA = new Date(a.recordedAt || `${a.date || ''}T00:00:00Z`).getTime();
+    const timeB = new Date(b.recordedAt || `${b.date || ''}T00:00:00Z`).getTime();
+    return timeA - timeB;
+  });
+
+  let changed = filtered.length !== events.length;
+
+  if (filtered.length > MOMENT_SUGGESTION_MAX_EVENTS) {
+    filtered.splice(0, filtered.length - MOMENT_SUGGESTION_MAX_EVENTS);
+    changed = true;
+  }
+
+  suggestionState.events = filtered;
+  return changed;
+}
+
+function cleanupMomentSuggestionState() {
+  let changed = ensureMomentSuggestionState();
+  if (cleanupMomentSuggestionHistory()) {
+    changed = true;
+  }
+
+  const suggestionState = state.momentSuggestion;
+  const today = getToday();
+
+  FOCUS_MOMENT_KEYS.forEach(key => {
+    const muteUntil = suggestionState.muteUntil[key];
+    if (muteUntil && (!isValidISODate(muteUntil) || today > muteUntil)) {
+      suggestionState.muteUntil[key] = null;
+      changed = true;
+    }
+    const snoozeUntil = suggestionState.snoozeUntil[key];
+    if (snoozeUntil && (!isValidISODate(snoozeUntil) || today > snoozeUntil)) {
+      suggestionState.snoozeUntil[key] = null;
+      changed = true;
+    }
+  });
+
+  if (suggestionState.prefill) {
+    const { momentKey, expires } = suggestionState.prefill;
+    if (!FOCUS_MOMENT_KEYS.includes(momentKey) || !isValidISODate(expires) || today > expires) {
+      suggestionState.prefill = null;
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+
+function isMomentSuggestionSuppressed(momentKey) {
+  ensureMomentSuggestionState();
+  if (!momentKey || !FOCUS_MOMENT_KEYS.includes(momentKey)) {
+    return true;
+  }
+  const today = getToday();
+  const suggestionState = state.momentSuggestion;
+  const muteUntil = suggestionState.muteUntil[momentKey];
+  if (muteUntil && today <= muteUntil) {
+    return true;
+  }
+  const snoozeUntil = suggestionState.snoozeUntil[momentKey];
+  if (snoozeUntil && today <= snoozeUntil) {
+    return true;
+  }
+  return false;
+}
+
+function ensureMomentStartEvent(dateStr, task, momentKey, recordedAt) {
+  const suggestionState = state.momentSuggestion;
+  const events = suggestionState.events;
+  const idx = events.findIndex(event => event && event.date === dateStr && event.taskId === task.id && event.type === 'start');
+  if (idx === -1) {
+    events.push({
+      date: dateStr,
+      taskId: task.id,
+      moment: momentKey,
+      type: 'start',
+      recordedAt: recordedAt || new Date().toISOString()
+    });
+    suggestionState.lastComputedDate = null;
+    return true;
+  }
+
+  const existing = events[idx];
+  if (existing.moment !== momentKey) {
+    existing.moment = momentKey;
+    existing.recordedAt = recordedAt || new Date().toISOString();
+    suggestionState.lastComputedDate = null;
+    return true;
+  }
+
+  return false;
+}
+
+function recordMomentExecutionEvent(dateStr, task, type, options = {}) {
+  ensureMomentSuggestionState();
+  if (!dateStr || !task || !type) {
+    return false;
+  }
+
+  if (!['start', 'success', 'defer'].includes(type)) {
+    return false;
+  }
+
+  const momentKey = getMomentKeyFromLabel(task.moment);
+  if (!momentKey || !FOCUS_MOMENT_KEYS.includes(momentKey)) {
+    return false;
+  }
+
+  if (!task.id) {
+    task.id = generateTaskId();
+  }
+
+  const suggestionState = state.momentSuggestion;
+  const events = suggestionState.events;
+  const idx = events.findIndex(event => event && event.date === dateStr && event.taskId === task.id && event.type === type);
+  const nowISO = new Date().toISOString();
+  let changed = false;
+
+  if (idx !== -1) {
+    const existing = events[idx];
+    if (existing.moment !== momentKey) {
+      existing.moment = momentKey;
+      existing.recordedAt = nowISO;
+      changed = true;
+    }
+  } else {
+    events.push({
+      date: dateStr,
+      taskId: task.id,
+      moment: momentKey,
+      type,
+      recordedAt: nowISO
+    });
+    changed = true;
+  }
+
+  if (type === 'success') {
+    suggestionState.lastSuccessfulMoment = momentKey;
+    if (!options.skipStartCheck) {
+      if (ensureMomentStartEvent(dateStr, task, momentKey, nowISO)) {
+        changed = true;
+      }
+    }
+  }
+
+  if (changed) {
+    suggestionState.lastComputedDate = null;
+    cleanupMomentSuggestionHistory();
+  }
+
+  return changed;
+}
+
+function removeMomentExecutionEvent(dateStr, task, type) {
+  ensureMomentSuggestionState();
+  if (!dateStr || !task || !task.id || !['start', 'success', 'defer'].includes(type)) {
+    return false;
+  }
+
+  const events = state.momentSuggestion.events;
+  const idx = events.findIndex(event => event && event.date === dateStr && event.taskId === task.id && event.type === type);
+  if (idx === -1) {
+    return false;
+  }
+
+  events.splice(idx, 1);
+  state.momentSuggestion.lastComputedDate = null;
+  cleanupMomentSuggestionHistory();
+  return true;
+}
+
+function computeMomentSuggestion() {
+  ensureMomentSuggestionState();
+  const suggestionState = state.momentSuggestion;
+  const events = Array.isArray(suggestionState.events) ? suggestionState.events.slice() : [];
+  if (!events.length) {
+    return null;
+  }
+
+  const cutoff = getTodayDateObj();
+  cutoff.setDate(cutoff.getDate() - (MOMENT_SUGGESTION_LOOKBACK_DAYS - 1));
+  cutoff.setHours(0, 0, 0, 0);
+
+  const filtered = events.filter(event => {
+    if (!event || !FOCUS_MOMENT_KEYS.includes(event.moment)) return false;
+    if (!['start', 'success', 'defer'].includes(event.type)) return false;
+    const eventDate = parseISODate(event.date);
+    if (!eventDate) return false;
+    eventDate.setHours(0, 0, 0, 0);
+    return eventDate >= cutoff;
+  });
+
+  if (!filtered.length) {
+    return null;
+  }
+
+  filtered.sort((a, b) => {
+    const timeA = new Date(a.recordedAt || `${a.date || ''}T00:00:00Z`).getTime();
+    const timeB = new Date(b.recordedAt || `${b.date || ''}T00:00:00Z`).getTime();
+    return timeA - timeB;
+  });
+
+  const stats = {
+    morning: { start: 0, success: 0, defer: 0 },
+    afternoon: { start: 0, success: 0, defer: 0 },
+    evening: { start: 0, success: 0, defer: 0 }
+  };
+  const streaks = { morning: 0, afternoon: 0, evening: 0 };
+
+  filtered.forEach(event => {
+    const bucket = stats[event.moment];
+    if (!bucket) {
+      return;
+    }
+    if (event.type === 'start') {
+      bucket.start += 1;
+    } else if (event.type === 'success') {
+      bucket.success += 1;
+      streaks[event.moment] = (streaks[event.moment] || 0) + 1;
+    } else if (event.type === 'defer') {
+      bucket.defer += 1;
+      streaks[event.moment] = 0;
+    }
+  });
+
+  const candidates = [];
+  let totalExecutions = 0;
+
+  FOCUS_MOMENT_KEYS.forEach(momentKey => {
+    const bucket = stats[momentKey];
+    const attempts = Math.max(bucket.start, bucket.success + bucket.defer);
+    if (attempts === 0) {
+      return;
+    }
+    totalExecutions += attempts;
+    const denominator = Math.max(attempts, 1);
+    const abandonCount = Math.max(0, attempts - bucket.success - bucket.defer);
+    const successRate = bucket.success / denominator;
+    const reportRate = bucket.defer / denominator;
+    const abandonRate = abandonCount / denominator;
+    let score = successRate - 0.5 * reportRate - 0.2 * abandonRate;
+    if (streaks[momentKey] >= 3) {
+      score += 0.1;
+    }
+    candidates.push({
+      momentKey,
+      score,
+      start: bucket.start,
+      success: bucket.success,
+      defer: bucket.defer,
+      streak: streaks[momentKey],
+      attempts
+    });
+  });
+
+  if (!candidates.length) {
+    return null;
+  }
+
+  if (totalExecutions < MOMENT_SUGGESTION_MIN_EXECUTIONS) {
+    return null;
+  }
+
+  candidates.sort((a, b) => {
+    if (Math.abs(b.score - a.score) > 1e-6) {
+      return b.score - a.score;
+    }
+    return 0;
+  });
+
+  const bestScore = candidates[0].score;
+  const topCandidates = candidates.filter(candidate => Math.abs(candidate.score - bestScore) < 1e-6);
+
+  let chosen = topCandidates.find(candidate => candidate.momentKey === suggestionState.lastSuccessfulMoment)
+    || topCandidates.find(candidate => candidate.momentKey === 'afternoon')
+    || topCandidates[0];
+
+  const unsuppressed = candidates.filter(candidate => !isMomentSuggestionSuppressed(candidate.momentKey));
+  if (!unsuppressed.length) {
+    return null;
+  }
+
+  if (!chosen || isMomentSuggestionSuppressed(chosen.momentKey)) {
+    const bestUnsuppressedScore = unsuppressed[0].score;
+    const bestUnsuppressed = unsuppressed.filter(candidate => Math.abs(candidate.score - bestUnsuppressedScore) < 1e-6);
+    chosen = bestUnsuppressed.find(candidate => candidate.momentKey === suggestionState.lastSuccessfulMoment)
+      || bestUnsuppressed.find(candidate => candidate.momentKey === 'afternoon')
+      || unsuppressed[0];
+  }
+
+  if (!chosen || isMomentSuggestionSuppressed(chosen.momentKey)) {
+    return null;
+  }
+
+  return {
+    momentKey: chosen.momentKey,
+    momentLabel: getMomentLabelFromKey(chosen.momentKey) || 'Après-midi',
+    score: chosen.score,
+    stats: {
+      start: stats[chosen.momentKey].start,
+      success: stats[chosen.momentKey].success,
+      defer: stats[chosen.momentKey].defer,
+      streak: streaks[chosen.momentKey],
+      attempts: chosen.attempts
+    },
+    totalExecutions
+  };
+}
+
+function refreshMomentSuggestionIfNeeded(force = false) {
+  const changed = cleanupMomentSuggestionState();
+  const today = getToday();
+  if (!force && state.momentSuggestion.lastComputedDate === today && state.momentSuggestion.cachedSuggestion && !changed) {
+    return state.momentSuggestion.cachedSuggestion;
+  }
+
+  const suggestion = computeMomentSuggestion();
+  state.momentSuggestion.cachedSuggestion = suggestion;
+  state.momentSuggestion.lastComputedDate = today;
+  return suggestion;
+}
+
+function getMomentSuggestion() {
+  return refreshMomentSuggestionIfNeeded();
+}
+
+function setMomentSuggestionPrefill(momentKey) {
+  ensureMomentSuggestionState();
+  if (!momentKey || !FOCUS_MOMENT_KEYS.includes(momentKey)) {
+    return;
+  }
+  state.momentSuggestion.prefill = {
+    momentKey,
+    expires: getDateString(MOMENT_SUGGESTION_PREFILL_DAYS)
+  };
+}
+
+function maybeApplyMomentPrefillToTask(task, dateStr) {
+  ensureMomentSuggestionState();
+  if (!task || typeof task !== 'object' || (task.moment || '').trim()) {
+    return;
+  }
+  if (!isValidISODate(dateStr)) {
+    return;
+  }
+  const prefill = state.momentSuggestion.prefill;
+  if (!prefill || !FOCUS_MOMENT_KEYS.includes(prefill.momentKey)) {
+    return;
+  }
+  if (!isValidISODate(prefill.expires) || dateStr > prefill.expires) {
+    return;
+  }
+  const label = getMomentLabelFromKey(prefill.momentKey);
+  if (!label) {
+    return;
+  }
+  task.moment = label;
+}
+
 function reconcileFocusAdaptiveOutcomes() {
   ensureFocusAdaptiveState();
   let changed = false;
@@ -2480,13 +2933,15 @@ function loadState() {
   ensureAudioLibraryState();
   const notificationsNormalized = ensureNotificationState();
   const focusNormalized = ensureFocusAdaptiveState();
+  const momentCleaned = cleanupMomentSuggestionState();
   const outcomesCleaned = cleanupFocusOutcomeHistory();
   recomputeFocusMomentStreaks();
+  refreshMomentSuggestionIfNeeded(true);
   sanitizeStreakData();
   cleanupReportHistory();
   cleanupMicropasSuggestionState();
 
-  if (notificationsNormalized || focusNormalized || outcomesCleaned) {
+  if (notificationsNormalized || focusNormalized || outcomesCleaned || momentCleaned) {
     saveState();
   }
 }
@@ -2584,12 +3039,14 @@ function normalizeAudioValue(audioValue) {
 function ensureTasksForDate(dateStr) {
   if (!state.tasks[dateStr]) {
     state.tasks[dateStr] = [createEmptyTask(), createEmptyTask(), createEmptyTask()];
+    state.tasks[dateStr].forEach(task => maybeApplyMomentPrefillToTask(task, dateStr));
     return;
   }
 
   for (let i = 0; i < 3; i++) {
     if (!state.tasks[dateStr][i]) {
       state.tasks[dateStr][i] = createEmptyTask();
+      maybeApplyMomentPrefillToTask(state.tasks[dateStr][i], dateStr);
     } else {
       const task = state.tasks[dateStr][i];
       if (task.id === undefined) {
@@ -3839,6 +4296,9 @@ function renderPlanifier() {
 
   setPlanifierTabsMode('editor');
 
+  const momentSuggestion = getMomentSuggestion();
+  let momentSuggestionInjected = false;
+
   const templateTabBtn = document.getElementById('planifier-template-tab');
   if (templateTabBtn) {
     templateTabBtn.onclick = () => {
@@ -3883,8 +4343,44 @@ function renderPlanifier() {
       const audioSelect = taskForm.querySelector('select[data-field="audio"]');
 
       titleInput.value = taskData.title || '';
-      momentInput.value = taskData.moment || '';
+      if ((taskData.moment || '').trim()) {
+        momentInput.value = taskData.moment;
+      } else if (momentSuggestion) {
+        momentInput.value = momentSuggestion.momentLabel;
+      } else {
+        momentInput.value = '';
+      }
       populateAudioSelectOptions(audioSelect, normalizeAudioValue(taskData.audio || 'Aucun'));
+
+      if (!momentSuggestionInjected && momentSuggestion && (!isTaskEmpty(taskData) || i === 1)) {
+        const suggestionEl = createMomentSuggestionElement({
+          suggestion: momentSuggestion,
+          onApply: () => {
+            momentInput.value = momentSuggestion.momentLabel;
+            const applied = applyMomentSuggestionToTask(dateStr, i - 1, momentSuggestion, { setPrefill: true });
+            if (applied) {
+              showToast('Moment appliqué.');
+            }
+          },
+          onLater: () => {
+            if (snoozeMomentSuggestion(momentSuggestion.momentKey)) {
+              saveState();
+              showToast('Suggestion snoozée 7 jours.');
+            }
+          },
+          onNever: () => {
+            if (muteMomentSuggestion(momentSuggestion.momentKey)) {
+              saveState();
+              showToast('Suggestion masquée 30 jours.');
+            }
+          }
+        });
+        if (suggestionEl) {
+          suggestionEl.classList.add('moment-suggestion-inline');
+          taskForm.appendChild(suggestionEl);
+          momentSuggestionInjected = true;
+        }
+      }
 
       content.appendChild(taskForm);
     }
@@ -5116,6 +5612,128 @@ function createFocusNudgeElement({ momentKey, suggestion }) {
   return container;
 }
 
+function shouldDisplayMomentSuggestionForTask(task) {
+  if (!task || isTaskEmpty(task)) {
+    return false;
+  }
+  if (task.status === 'done') {
+    return false;
+  }
+  return true;
+}
+
+function createMomentSuggestionElement({ suggestion, onApply, onLater, onNever }) {
+  if (!suggestion) {
+    return null;
+  }
+
+  const container = document.createElement('div');
+  container.className = 'moment-suggestion';
+
+  const labelEl = document.createElement('span');
+  labelEl.className = 'moment-suggestion-label';
+  labelEl.innerHTML = `Meilleur moment : <strong>${suggestion.momentLabel}</strong>`;
+  container.appendChild(labelEl);
+
+  const actionsEl = document.createElement('div');
+  actionsEl.className = 'moment-suggestion-actions';
+
+  const applyBtn = document.createElement('button');
+  applyBtn.type = 'button';
+  applyBtn.className = 'btn btn-primary btn-compact';
+  applyBtn.textContent = 'Appliquer';
+  applyBtn.addEventListener('click', () => {
+    const result = typeof onApply === 'function' ? onApply() : true;
+    if (result !== false) {
+      container.remove();
+    }
+  });
+  actionsEl.appendChild(applyBtn);
+
+  if (typeof onLater === 'function') {
+    const laterBtn = document.createElement('button');
+    laterBtn.type = 'button';
+    laterBtn.className = 'btn btn-secondary btn-compact';
+    laterBtn.textContent = 'Plus tard';
+    laterBtn.addEventListener('click', () => {
+      const result = onLater();
+      if (result !== false) {
+        container.remove();
+      }
+    });
+    actionsEl.appendChild(laterBtn);
+  }
+
+  if (typeof onNever === 'function') {
+    const neverBtn = document.createElement('button');
+    neverBtn.type = 'button';
+    neverBtn.className = 'btn btn-ghost btn-compact';
+    neverBtn.textContent = 'Jamais';
+    neverBtn.addEventListener('click', () => {
+      const result = onNever();
+      if (result !== false) {
+        container.remove();
+      }
+    });
+    actionsEl.appendChild(neverBtn);
+  }
+
+  container.appendChild(actionsEl);
+  return container;
+}
+
+function applyMomentSuggestionToTask(dateStr, taskIdx, suggestion, options = {}) {
+  if (!dateStr || typeof taskIdx !== 'number' || !suggestion) {
+    return false;
+  }
+  ensureTasksForDate(dateStr);
+  const tasks = state.tasks[dateStr];
+  if (!Array.isArray(tasks) || !tasks[taskIdx]) {
+    return false;
+  }
+  const task = tasks[taskIdx];
+  if (!task || isTaskEmpty(task) || task.status === 'done') {
+    return false;
+  }
+
+  const label = (suggestion.momentLabel || '').trim();
+  if (!label) {
+    return false;
+  }
+
+  task.moment = label;
+  if (options.setPrefill) {
+    setMomentSuggestionPrefill(suggestion.momentKey);
+  }
+
+  state.momentSuggestion.lastComputedDate = null;
+  refreshMomentSuggestionIfNeeded(true);
+  saveState();
+  return true;
+}
+
+function snoozeMomentSuggestion(momentKey) {
+  ensureMomentSuggestionState();
+  if (!momentKey || !FOCUS_MOMENT_KEYS.includes(momentKey)) {
+    return false;
+  }
+  state.momentSuggestion.snoozeUntil[momentKey] = getDateString(MOMENT_SUGGESTION_SNOOZE_DAYS);
+  state.momentSuggestion.lastComputedDate = null;
+  refreshMomentSuggestionIfNeeded(true);
+  return true;
+}
+
+function muteMomentSuggestion(momentKey) {
+  ensureMomentSuggestionState();
+  if (!momentKey || !FOCUS_MOMENT_KEYS.includes(momentKey)) {
+    return false;
+  }
+  state.momentSuggestion.muteUntil[momentKey] = getDateString(MOMENT_SUGGESTION_MUTE_DAYS);
+  state.momentSuggestion.lastComputedDate = null;
+  refreshMomentSuggestionIfNeeded(true);
+  return true;
+}
+
 function renderDailyTasks() {
   const today = getToday();
   ensureTasksForDate(today);
@@ -5125,6 +5743,8 @@ function renderDailyTasks() {
   tasksList.innerHTML = '';
   const plusIconMarkup = '<svg class="task-quick-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a1 1 0 0 1 1 1v6h6a1 1 0 0 1 0 2h-6v6a1 1 0 0 1-2 0v-6H5a1 1 0 0 1 0-2h6V5a1 1 0 0 1 1-1Z" fill="currentColor"/></svg>';
   const editIconMarkup = '<svg class="task-quick-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.71 7.04a1 1 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0L4.59 15.66a1 1 0 0 0-.25.45l-1.32 4.62a1 1 0 0 0 1.23 1.23l4.62-1.32a1 1 0 0 0 .45-.25Z" fill="currentColor"/></svg>';
+  const momentSuggestion = getMomentSuggestion();
+  let momentSuggestionInjected = false;
 
   const focusSuggestions = {};
   const displayedNudges = new Set();
@@ -5211,6 +5831,38 @@ function renderDailyTasks() {
     let inlineMicropasCard = null;
 
     if (!isEmptySlot) {
+      if (!momentSuggestionInjected && momentSuggestion && shouldDisplayMomentSuggestionForTask(task)) {
+        const suggestionEl = createMomentSuggestionElement({
+          suggestion: momentSuggestion,
+          onApply: () => {
+            const applied = applyMomentSuggestionToTask(today, idx, momentSuggestion);
+            if (applied) {
+              showToast('Moment appliqué.');
+              renderDailyTasks();
+              renderOtherDays();
+              updateMomentum();
+            }
+          },
+          onLater: () => {
+            if (snoozeMomentSuggestion(momentSuggestion.momentKey)) {
+              saveState();
+              renderDailyTasks();
+              showToast('Suggestion snoozée 7 jours.');
+            }
+          },
+          onNever: () => {
+            if (muteMomentSuggestion(momentSuggestion.momentKey)) {
+              saveState();
+              renderDailyTasks();
+              showToast('Suggestion masquée 30 jours.');
+            }
+          }
+        });
+        if (suggestionEl) {
+          infoEl.appendChild(suggestionEl);
+          momentSuggestionInjected = true;
+        }
+      }
       const suggestion = getDashboardSuggestionForTask(task, today);
       if (suggestion) {
         const banner = document.createElement('div');
@@ -6720,8 +7372,10 @@ window.toggleTaskCompletion = function(taskIdx) {
 
   if (toggledToDone) {
     recordFocusOutcomeForTask(today, task, 'done');
+    recordMomentExecutionEvent(today, task, 'success');
   } else {
     clearFocusOutcomeForTask(today, task);
+    removeMomentExecutionEvent(today, task, 'success');
   }
 
   const isNowComplete = tasksForToday.every(t => t.status === 'done');
@@ -6800,6 +7454,7 @@ async function postponeTaskByOneDay(dateStr, taskIdx) {
   tasksForDate[taskIdx] = createEmptyTask();
 
   recordFocusOutcomeForTask(dateStr, task, 'reported');
+  recordMomentExecutionEvent(dateStr, task, 'defer');
   saveState();
   renderDailyTasks();
   renderOtherDays();
@@ -6923,12 +7578,17 @@ function showTimerModal(taskIdx, options = {}) {
   const modal = document.getElementById('modal-overlay');
   const content = document.getElementById('modal-content');
 
+  const today = getToday();
+  ensureTasksForDate(today);
+  const task = state.tasks[today]?.[taskIdx] || null;
+
   const initialDuration = Number(options.initialDurationSeconds);
   const autoStart = Boolean(options.autoStart);
 
   let timerSeconds = 0;
   let timerInterval = null;
   let timerRunning = false;
+  let startEventRecorded = false;
   let totalDuration = Number.isFinite(initialDuration) ? initialDuration : 25 * 60;
   if (totalDuration < 60) {
     totalDuration = 60;
@@ -6997,6 +7657,12 @@ function showTimerModal(taskIdx, options = {}) {
   function startTimer() {
     if (timerRunning) return;
     if (timerInterval) clearInterval(timerInterval);
+    if (!startEventRecorded && task) {
+      if (recordMomentExecutionEvent(today, task, 'start')) {
+        saveState();
+      }
+      startEventRecorded = true;
+    }
     timerRunning = true;
     focusSessionRuntime.activeTimer = true;
     timerSeconds = 0;
@@ -7285,6 +7951,7 @@ function showReportModal(dateStr, taskIdx, options = {}) {
       }
 
       recordFocusOutcomeForTask(dateStr, task, 'reported');
+      recordMomentExecutionEvent(dateStr, task, 'defer');
       finalizeReportModalContext({ taskForLogging: movedTask });
       recordReportForDate(newDate, reasonValue, movedTask, dateStr);
       saveState();
