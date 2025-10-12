@@ -747,6 +747,20 @@ const DAY_LABELS_SHORT = ['di', 'lu', 'ma', 'me', 'je', 've', 'sa'];
 
 const DAYS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
 
+const HEATMAP_DAY_LABELS = [
+  { short: 'Lun', long: 'Lundi' },
+  { short: 'Mar', long: 'Mardi' },
+  { short: 'Mer', long: 'Mercredi' },
+  { short: 'Jeu', long: 'Jeudi' },
+  { short: 'Ven', long: 'Vendredi' },
+  { short: 'Sam', long: 'Samedi' },
+  { short: 'Dim', long: 'Dimanche' }
+];
+
+const HEATMAP_MOMENTS = ['Matin', 'Après-midi', 'Soir'];
+const HEATMAP_SUCCESS_THRESHOLD = 70;
+const HEATMAP_MEDIUM_THRESHOLD = 40;
+
 const NOTIFICATION_SLOT_DETAILS = {
   morning: { label: 'Matin', defaultTime: '09:00' },
   afternoon: { label: 'Après-midi', defaultTime: '14:00' },
@@ -1427,6 +1441,7 @@ let socialOverviewCache = null;
 const socialChallengeStatusCache = new Map();
 let activeNotificationsTab = 'alerts';
 let openSocialMenuUid = null;
+let weeklyHeatmapRange = 'current';
 
 const pwaInstallRuntime = {
   deferredPrompt: null,
@@ -6710,9 +6725,32 @@ function renderWeeklyReview() {
   const insightTextEl = document.getElementById('insight-textual');
   const insightsContentEl = document.getElementById('weekly-insights-content');
   const insightsEmptyEl = document.getElementById('weekly-insights-empty');
+  const heatmapGridEl = document.getElementById('weekly-heatmap-grid');
+  const heatmapCaptionEl = document.getElementById('heatmap-caption');
+  const heatmapToggleBtn = document.getElementById('heatmap-range-toggle');
+  const heatmapBadgeTopEl = document.getElementById('heatmap-badge-top');
+  const heatmapBadgeAvoidEl = document.getElementById('heatmap-badge-avoid');
+  const heatmapBadgeRegularEl = document.getElementById('heatmap-badge-regular');
+  const heatmapWarningEl = document.getElementById('heatmap-warning-banner');
+  const heatmapAutoBtn = document.getElementById('heatmap-auto-suggest-btn');
 
   if (!weeklyFullDaysEl || !weeklySuccessRateEl || !weeklyReportsEl || !weeklyRegularityCurrentEl || !weeklyRegularityBestEl || !weeklyRegularityBadgeTextEl || !weeklyRegularityBadgeIconEl || !weeklyGraphEl || !weeklyRecommendationEl) {
     return;
+  }
+
+  if (heatmapToggleBtn && !heatmapToggleBtn.dataset.bound) {
+    heatmapToggleBtn.addEventListener('click', () => {
+      weeklyHeatmapRange = weeklyHeatmapRange === 'current' ? 'four-weeks' : 'current';
+      renderWeeklyReview();
+    });
+    heatmapToggleBtn.dataset.bound = 'true';
+  }
+
+  if (heatmapAutoBtn && !heatmapAutoBtn.dataset.bound) {
+    heatmapAutoBtn.addEventListener('click', () => {
+      handleHeatmapAutoSuggest();
+    });
+    heatmapAutoBtn.dataset.bound = 'true';
   }
 
   const lastSevenDates = getLastSevenDates();
@@ -6903,8 +6941,32 @@ function renderWeeklyReview() {
   const hasMoodData = Boolean(dominantMoodKey);
   const shouldShowInsights = hasCompletionData || hasMotivationData || hasReportData || hasBestSlot || hasMoodData;
 
+  const currentHeatmapData = computeWeeklyHeatmap('current');
+  const fourWeekHeatmapData = computeWeeklyHeatmap('four-weeks');
+  const displayedHeatmapData = weeklyHeatmapRange === 'current' ? currentHeatmapData : fourWeekHeatmapData;
+
+  if (heatmapGridEl) {
+    updateWeeklyHeatmap({
+      displayedData: displayedHeatmapData,
+      currentData: currentHeatmapData,
+      fourWeekData: fourWeekHeatmapData,
+      elements: {
+        grid: heatmapGridEl,
+        caption: heatmapCaptionEl,
+        toggle: heatmapToggleBtn,
+        badgeTop: heatmapBadgeTopEl,
+        badgeAvoid: heatmapBadgeAvoidEl,
+        badgeRegular: heatmapBadgeRegularEl,
+        warning: heatmapWarningEl,
+        autoButton: heatmapAutoBtn
+      }
+    });
+  }
+
+  const displayInsightsContent = shouldShowInsights || Boolean(heatmapGridEl);
+
   if (insightsContentEl && insightsEmptyEl) {
-    if (shouldShowInsights) {
+    if (displayInsightsContent) {
       insightsContentEl.removeAttribute('hidden');
       insightsEmptyEl.setAttribute('hidden', '');
     } else {
@@ -7017,6 +7079,875 @@ function renderWeeklyReview() {
 
     insightTextEl.textContent = insightSentence;
   }
+}
+
+function escapeHtml(value) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  return value.toString()
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function getHeatmapDayIndexFromDate(date) {
+  if (!(date instanceof Date)) {
+    return 0;
+  }
+  const day = date.getDay();
+  return (day + 6) % 7;
+}
+
+function getHeatmapWeekDates() {
+  const today = getTodayDateObj();
+  const diffToMonday = (today.getDay() + 6) % 7;
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - diffToMonday);
+  monday.setHours(0, 0, 0, 0);
+
+  const dates = [];
+  for (let offset = 0; offset < 7; offset++) {
+    const date = new Date(monday);
+    date.setDate(monday.getDate() + offset);
+    date.setHours(0, 0, 0, 0);
+    dates.push({
+      date,
+      dayIndex: offset,
+      dateStr: date.toISOString().split('T')[0]
+    });
+  }
+  return dates;
+}
+
+function getHeatmapPastFourWeekDates(weekDates) {
+  const reference = Array.isArray(weekDates) && weekDates.length && weekDates[0]?.date
+    ? new Date(weekDates[0].date)
+    : getTodayDateObj();
+  reference.setHours(0, 0, 0, 0);
+
+  const start = new Date(reference);
+  start.setDate(reference.getDate() - 21);
+  start.setHours(0, 0, 0, 0);
+
+  const dates = [];
+  for (let offset = 0; offset < 28; offset++) {
+    const date = new Date(start);
+    date.setDate(start.getDate() + offset);
+    date.setHours(0, 0, 0, 0);
+    dates.push({
+      date,
+      dateStr: date.toISOString().split('T')[0],
+      dayIndex: getHeatmapDayIndexFromDate(date)
+    });
+  }
+  return dates;
+}
+
+function getHeatmapDayLabel(dayIndex, variant = 'short') {
+  const entry = HEATMAP_DAY_LABELS[dayIndex];
+  if (!entry) {
+    return '';
+  }
+  return variant === 'long' ? entry.long : entry.short;
+}
+
+function computeStandardDeviation(values) {
+  if (!Array.isArray(values) || values.length === 0) {
+    return null;
+  }
+  if (values.length === 1) {
+    return 0;
+  }
+  const mean = values.reduce((acc, value) => acc + value, 0) / values.length;
+  const variance = values.reduce((acc, value) => acc + Math.pow(value - mean, 2), 0) / values.length;
+  return Math.sqrt(variance);
+}
+
+function getHeatmapIntensity(score) {
+  if (!Number.isFinite(score)) {
+    return null;
+  }
+  if (score >= HEATMAP_SUCCESS_THRESHOLD) {
+    return 'strong';
+  }
+  if (score >= HEATMAP_MEDIUM_THRESHOLD) {
+    return 'medium';
+  }
+  return 'low';
+}
+
+function computeWeeklyHeatmap(rangeMode = 'current') {
+  const weekDates = getHeatmapWeekDates();
+  const rangeDates = rangeMode === 'four-weeks'
+    ? getHeatmapPastFourWeekDates(weekDates)
+    : weekDates;
+
+  const matrix = Array.from({ length: 7 }, () => {
+    const row = {};
+    HEATMAP_MOMENTS.forEach(moment => {
+      row[moment] = { planned: 0, done: 0, occurrences: 0 };
+    });
+    return row;
+  });
+
+  const cells = [];
+  const momentScores = {};
+  HEATMAP_MOMENTS.forEach(moment => {
+    momentScores[moment] = [];
+  });
+
+  let totalPlanned = 0;
+  let totalDone = 0;
+
+  rangeDates.forEach(({ dateStr, dayIndex }) => {
+    const tasks = Array.isArray(state.tasks?.[dateStr]) ? state.tasks[dateStr] : [];
+    const seenForMoment = {
+      'Matin': false,
+      'Après-midi': false,
+      'Soir': false
+    };
+
+    tasks.forEach(task => {
+      if (!task || isTaskEmpty(task)) {
+        return;
+      }
+      const slot = categorizeMomentSlot(task.moment);
+      if (!slot || !HEATMAP_MOMENTS.includes(slot)) {
+        return;
+      }
+      const cell = matrix[dayIndex][slot];
+      cell.planned += 1;
+      totalPlanned += 1;
+      if (task.status === 'done') {
+        cell.done += 1;
+        totalDone += 1;
+      }
+      if (rangeMode === 'current') {
+        cell.dateStr = dateStr;
+      } else {
+        if (!cell.dateList) {
+          cell.dateList = new Set();
+        }
+        cell.dateList.add(dateStr);
+      }
+      if (!seenForMoment[slot]) {
+        cell.occurrences += 1;
+        seenForMoment[slot] = true;
+      }
+    });
+  });
+
+  matrix.forEach((dayRow, dayIndex) => {
+    HEATMAP_MOMENTS.forEach(moment => {
+      const cell = dayRow[moment];
+      if (cell.dateList instanceof Set) {
+        cell.occurrences = cell.dateList.size;
+        cell.dateList = Array.from(cell.dateList);
+      } else if (rangeMode === 'current' && cell.planned > 0) {
+        cell.occurrences = 1;
+      }
+
+      if (cell.planned > 0) {
+        const ratio = cell.done / cell.planned;
+        cell.ratio = ratio;
+        cell.score = Math.round(ratio * 100);
+        cells.push({
+          dayIndex,
+          moment,
+          planned: cell.planned,
+          done: cell.done,
+          score: cell.score
+        });
+        momentScores[moment].push(cell.score);
+      } else {
+        cell.ratio = null;
+        cell.score = null;
+      }
+    });
+  });
+
+  const momentStats = {};
+  HEATMAP_MOMENTS.forEach(moment => {
+    const scores = momentScores[moment];
+    const stdDev = computeStandardDeviation(scores);
+    const average = scores.length ? scores.reduce((acc, value) => acc + value, 0) / scores.length : null;
+    momentStats[moment] = { scores, stdDev, average };
+  });
+
+  return {
+    range: rangeMode,
+    matrix,
+    cells,
+    momentStats,
+    totals: { planned: totalPlanned, done: totalDone },
+    weekDates
+  };
+}
+
+function findHeatmapCell(cells, direction = 'max') {
+  if (!Array.isArray(cells) || !cells.length) {
+    return null;
+  }
+  return cells.reduce((best, cell) => {
+    if (!best) {
+      return cell;
+    }
+    if (direction === 'max') {
+      if (cell.score > best.score) {
+        return cell;
+      }
+      if (cell.score === best.score && cell.done > best.done) {
+        return cell;
+      }
+      return best;
+    }
+    if (cell.score < best.score) {
+      return cell;
+    }
+    if (cell.score === best.score && cell.planned > best.planned) {
+      return cell;
+    }
+    return best;
+  }, null);
+}
+
+function formatHeatmapBadgeLabel(cell) {
+  if (!cell) {
+    return '—';
+  }
+  const dayLabel = getHeatmapDayLabel(cell.dayIndex, 'short');
+  const scoreLabel = Number.isFinite(cell.score) ? `${cell.score}%` : '—';
+  return `${dayLabel} · ${cell.moment} (${scoreLabel})`;
+}
+
+function getHeatmapCellTooltip(dayIndex, momentLabel, cell, rangeMode) {
+  if (!cell || !cell.planned) {
+    const dayLabel = getHeatmapDayLabel(dayIndex, 'short');
+    return `${dayLabel} ${momentLabel.toLowerCase()} · Sans données`;
+  }
+  const dayLabel = getHeatmapDayLabel(dayIndex, 'short');
+  const successLabel = `${cell.done}/${cell.planned} validées`;
+  const scoreLabel = Number.isFinite(cell.score) ? `${cell.score}%` : '—';
+  if (rangeMode === 'four-weeks' && cell.occurrences > 1) {
+    return `${dayLabel} ${momentLabel.toLowerCase()} · ${successLabel} (${scoreLabel}) · ${cell.occurrences} sem.`;
+  }
+  return `${dayLabel} ${momentLabel.toLowerCase()} · ${successLabel} (${scoreLabel})`;
+}
+
+function updateWeeklyHeatmap({ displayedData, currentData, fourWeekData, elements }) {
+  if (!displayedData || !elements || !elements.grid) {
+    return;
+  }
+
+  const { grid, caption, toggle, badgeTop, badgeAvoid, badgeRegular, warning, autoButton } = elements;
+  const range = displayedData.range;
+
+  if (caption) {
+    caption.textContent = range === 'four-weeks'
+      ? 'Moyenne des 4 dernières semaines'
+      : 'Semaine en cours (Lun → Dim)';
+  }
+
+  if (toggle) {
+    toggle.textContent = range === 'current' ? '4 dernières semaines' : 'Semaine en cours';
+    toggle.setAttribute('aria-pressed', range === 'four-weeks' ? 'true' : 'false');
+  }
+
+  if (warning) {
+    if (currentData && currentData.totals.done < 5) {
+      warning.removeAttribute('hidden');
+    } else {
+      warning.setAttribute('hidden', '');
+    }
+  }
+
+  const topCell = findHeatmapCell(displayedData.cells, 'max');
+  const avoidCell = findHeatmapCell(displayedData.cells, 'min');
+
+  if (badgeTop) {
+    if (topCell) {
+      badgeTop.textContent = `Top créneau · ${formatHeatmapBadgeLabel(topCell)}`;
+      badgeTop.removeAttribute('hidden');
+    } else {
+      badgeTop.setAttribute('hidden', '');
+    }
+  }
+
+  if (badgeAvoid) {
+    if (avoidCell) {
+      badgeAvoid.textContent = `À éviter · ${formatHeatmapBadgeLabel(avoidCell)}`;
+      badgeAvoid.removeAttribute('hidden');
+    } else {
+      badgeAvoid.setAttribute('hidden', '');
+    }
+  }
+
+  if (badgeRegular) {
+    const regularMoment = HEATMAP_MOMENTS.reduce((best, moment) => {
+      const stats = displayedData.momentStats[moment];
+      if (!stats || !stats.scores.length) {
+        return best;
+      }
+      const stdDev = typeof stats.stdDev === 'number' ? stats.stdDev : 0;
+      const average = typeof stats.average === 'number' ? stats.average : 0;
+      if (!best) {
+        return { moment, stdDev, average };
+      }
+      if (stdDev < best.stdDev - 0.05) {
+        return { moment, stdDev, average };
+      }
+      if (Math.abs(stdDev - best.stdDev) <= 0.05 && average > best.average) {
+        return { moment, stdDev, average };
+      }
+      return best;
+    }, null);
+
+    if (regularMoment) {
+      const sigmaText = regularMoment.stdDev < 1 ? '<1 pt' : `${Math.round(regularMoment.stdDev)} pts`;
+      badgeRegular.textContent = `Régulier · ${regularMoment.moment} (σ ${sigmaText})`;
+      badgeRegular.removeAttribute('hidden');
+    } else {
+      badgeRegular.setAttribute('hidden', '');
+    }
+  }
+
+  grid.innerHTML = '';
+  const headerRow = document.createElement('div');
+  headerRow.className = 'heatmap-header-row';
+  const corner = document.createElement('span');
+  corner.className = 'heatmap-corner';
+  corner.textContent = 'Moment';
+  headerRow.appendChild(corner);
+  HEATMAP_DAY_LABELS.forEach(day => {
+    const dayEl = document.createElement('span');
+    dayEl.className = 'heatmap-day-label';
+    dayEl.textContent = day.short;
+    headerRow.appendChild(dayEl);
+  });
+  grid.appendChild(headerRow);
+
+  HEATMAP_MOMENTS.forEach(momentLabel => {
+    const row = document.createElement('div');
+    row.className = 'heatmap-row';
+
+    const labelEl = document.createElement('span');
+    labelEl.className = 'heatmap-row-label';
+    labelEl.textContent = momentLabel;
+    row.appendChild(labelEl);
+
+    for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+      const cellData = displayedData.matrix[dayIndex][momentLabel];
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'heatmap-cell';
+      button.dataset.dayIndex = String(dayIndex);
+      button.dataset.moment = momentLabel;
+
+      let tooltip = `${getHeatmapDayLabel(dayIndex)} ${momentLabel.toLowerCase()} · Sans données`;
+
+      if (!cellData || !cellData.planned) {
+        button.textContent = '—';
+        button.classList.add('heatmap-cell-empty');
+        button.disabled = true;
+        button.setAttribute('aria-disabled', 'true');
+      } else {
+        const score = Number.isFinite(cellData.score)
+          ? cellData.score
+          : Math.round((cellData.done / cellData.planned) * 100);
+        button.textContent = `${score}%`;
+        const intensity = getHeatmapIntensity(score);
+        if (intensity) {
+          button.dataset.intensity = intensity;
+        }
+        tooltip = getHeatmapCellTooltip(dayIndex, momentLabel, cellData, displayedData.range);
+        button.addEventListener('click', () => {
+          openHeatmapReplanModal({ targetDayIndex: dayIndex, targetMoment: momentLabel, currentWeekData: currentData });
+        });
+      }
+
+      button.title = tooltip;
+      button.setAttribute('aria-label', tooltip);
+      row.appendChild(button);
+    }
+
+    grid.appendChild(row);
+  });
+
+  if (autoButton) {
+    const preview = buildHeatmapAutoSuggestions(currentData, fourWeekData);
+    autoButton.disabled = preview.length === 0;
+    autoButton.setAttribute('aria-disabled', autoButton.disabled ? 'true' : 'false');
+    autoButton.dataset.suggestionsCount = String(preview.length);
+    if (autoButton.disabled) {
+      autoButton.title = 'Aucune suggestion pour le moment.';
+    } else {
+      const label = preview.length > 1 ? `${preview.length} déplacements` : `${preview.length} déplacement`;
+      autoButton.title = `Proposer ${label}`;
+    }
+  }
+}
+
+function getOpenTasksForWeek(weekDates) {
+  if (!Array.isArray(weekDates)) {
+    return [];
+  }
+  const items = [];
+  weekDates.forEach(({ dateStr, dayIndex }) => {
+    if (!dateStr) {
+      return;
+    }
+    const tasks = Array.isArray(state.tasks?.[dateStr]) ? state.tasks[dateStr] : [];
+    tasks.forEach((task, idx) => {
+      if (!task || isTaskEmpty(task) || task.status === 'done') {
+        return;
+      }
+      const title = (task.title || '').trim() || `Micro-tâche ${idx + 1}`;
+      const moment = categorizeMomentSlot(task.moment) || '';
+      const time = (task.time || '').trim();
+      items.push({
+        dateStr,
+        dayIndex,
+        taskIdx: idx,
+        title,
+        moment,
+        time
+      });
+    });
+  });
+  return items;
+}
+
+function applyMomentToTask(task, targetMoment) {
+  if (!task || !targetMoment) {
+    return;
+  }
+  task.moment = targetMoment;
+  const defaultTime = getDefaultTimeForMoment(targetMoment);
+  const currentSlot = categorizeMomentSlot(task.time);
+  if (!task.time || currentSlot !== targetMoment) {
+    task.time = defaultTime;
+  }
+  if (task.status !== 'done') {
+    task.status = 'planned';
+  }
+  task.statusChangedAt = new Date().toISOString();
+}
+
+function applyHeatmapReplanUpdates({ selections, targetMoment, targetDayIndex, currentWeekData }) {
+  if (!Array.isArray(selections) || !selections.length || !currentWeekData) {
+    return { moved: 0, skipped: selections ? selections.length : 0 };
+  }
+
+  const weekDates = currentWeekData.weekDates || [];
+  const targetInfo = weekDates[targetDayIndex];
+  if (!targetInfo) {
+    return { moved: 0, skipped: selections.length };
+  }
+
+  const targetDateStr = targetInfo.dateStr;
+  ensureTasksForDate(targetDateStr);
+
+  let moved = 0;
+  let skipped = 0;
+
+  selections.forEach(selection => {
+    const fromDateStr = selection.dateStr;
+    const taskIdx = Number(selection.taskIdx);
+    const tasksForDate = Array.isArray(state.tasks?.[fromDateStr]) ? state.tasks[fromDateStr] : null;
+    if (!tasksForDate || !tasksForDate[taskIdx]) {
+      skipped += 1;
+      return;
+    }
+    const task = tasksForDate[taskIdx];
+    if (!task || isTaskEmpty(task) || task.status === 'done') {
+      skipped += 1;
+      return;
+    }
+
+    if (fromDateStr === targetDateStr) {
+      applyMomentToTask(task, targetMoment);
+      moved += 1;
+      return;
+    }
+
+    const cloned = cloneTask(task);
+    applyMomentToTask(cloned, targetMoment);
+    cloned.status = 'planned';
+
+    ensureTasksForDate(targetDateStr);
+    const targetTasks = state.tasks[targetDateStr];
+    let preferredSlot = getMomentSlotIndex(targetMoment);
+    if (preferredSlot < 0) {
+      preferredSlot = targetTasks.findIndex(entry => !entry || isTaskEmpty(entry));
+    }
+
+    const slotCandidates = [preferredSlot, 0, 1, 2]
+      .filter((slot, index, array) => slot >= 0 && slot < targetTasks.length && array.indexOf(slot) === index);
+
+    let placed = false;
+    for (const slot of slotCandidates) {
+      const existing = targetTasks[slot];
+      if (!existing || isTaskEmpty(existing)) {
+        targetTasks[slot] = cloned;
+        placed = true;
+        break;
+      }
+    }
+
+    if (placed) {
+      tasksForDate[taskIdx] = createEmptyTask();
+      moved += 1;
+    } else {
+      skipped += 1;
+    }
+  });
+
+  return { moved, skipped };
+}
+
+function openHeatmapReplanModal({ targetDayIndex, targetMoment, currentWeekData }) {
+  if (!currentWeekData) {
+    return;
+  }
+  const modal = document.getElementById('modal-overlay');
+  const content = document.getElementById('modal-content');
+  if (!modal || !content) {
+    return;
+  }
+
+  const weekDates = currentWeekData.weekDates || [];
+  const targetInfo = weekDates[targetDayIndex];
+  if (!targetInfo) {
+    showToast('Créneau indisponible.');
+    return;
+  }
+
+  const dayLabelLong = getHeatmapDayLabel(targetDayIndex, 'long') || 'Jour';
+  const openTasks = getOpenTasksForWeek(weekDates);
+
+  content.classList.remove('template-wide', 'badge-modal-container', 'quick-add-modal', 'social-modal', 'challenge-details-modal', 'challenge-setup-modal', 'challenge-completion-modal');
+  content.classList.add('heatmap-modal');
+
+  const listMarkup = openTasks.length
+    ? openTasks.map((taskInfo, index) => {
+        const dayShort = getHeatmapDayLabel(taskInfo.dayIndex, 'short');
+        const currentMoment = taskInfo.moment || '—';
+        const timeLabel = taskInfo.time ? ` · ${taskInfo.time}` : '';
+        const isSameDay = taskInfo.dayIndex === targetDayIndex;
+        const alreadyTarget = isSameDay && currentMoment === targetMoment;
+        const checkedAttr = isSameDay && !alreadyTarget ? 'checked' : '';
+        const disabledAttr = alreadyTarget ? 'disabled' : '';
+        return `
+          <label class="heatmap-modal-task">
+            <input type="checkbox" name="heatmap-task" data-index="${index}" data-date="${taskInfo.dateStr}" data-task-idx="${taskInfo.taskIdx}" ${checkedAttr} ${disabledAttr}>
+            <div class="heatmap-modal-task-body">
+              <span class="heatmap-modal-task-title">${escapeHtml(taskInfo.title)}</span>
+              <span class="heatmap-modal-task-subtitle">Actuel : ${dayShort} · ${currentMoment}${timeLabel}</span>
+            </div>
+          </label>
+        `;
+      }).join('')
+    : '<div class="heatmap-modal-empty">Toutes les micro-tâches de la semaine sont terminées.</div>';
+
+  content.innerHTML = `
+    <div class="heatmap-modal" role="dialog" aria-labelledby="heatmap-replan-title">
+      <h3 id="heatmap-replan-title">Replanifier vers ${dayLabelLong} · ${targetMoment}</h3>
+      <p>Sélectionnez les tâches à déplacer vers ce créneau fort.</p>
+      <form id="heatmap-replan-form">
+        <div class="heatmap-modal-list" role="group" aria-label="Tâches ouvertes">
+          ${listMarkup}
+        </div>
+        <div class="modal-buttons">
+          <button type="button" class="btn btn-secondary" id="heatmap-replan-cancel">Annuler</button>
+          <button type="submit" class="btn btn-primary" id="heatmap-replan-apply">Replanifier</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  modal.dataset.activeModal = 'heatmap-replan';
+  modal.classList.add('show');
+
+  const form = content.querySelector('#heatmap-replan-form');
+  const applyBtn = content.querySelector('#heatmap-replan-apply');
+  const cancelBtn = content.querySelector('#heatmap-replan-cancel');
+  const checkboxes = Array.from(content.querySelectorAll('input[name="heatmap-task"]'));
+
+  const updateApplyState = () => {
+    const hasSelection = checkboxes.some(cb => cb.checked && !cb.disabled);
+    if (applyBtn) {
+      applyBtn.disabled = !hasSelection;
+    }
+  };
+
+  checkboxes.forEach(cb => {
+    cb.addEventListener('change', updateApplyState);
+  });
+
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', () => closeModal());
+  }
+
+  if (form) {
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const selections = checkboxes
+        .filter(cb => cb.checked && !cb.disabled)
+        .map(cb => ({
+          dateStr: cb.getAttribute('data-date'),
+          taskIdx: cb.getAttribute('data-task-idx')
+        }));
+
+      if (!selections.length) {
+        closeModal();
+        return;
+      }
+
+      const result = applyHeatmapReplanUpdates({ selections, targetMoment, targetDayIndex, currentWeekData });
+
+      if (result.moved > 0) {
+        saveState();
+        renderDashboard();
+        renderPlanifier();
+        refreshWeeklyReviewIfVisible();
+      }
+
+      closeModal();
+
+      if (result.moved > 0 && result.skipped > 0) {
+        showToast(`${formatCount(result.moved, 'tâche déplacée', 'tâches déplacées')} · ${formatCount(result.skipped, 'non modifiée', 'non modifiées (slots pleins)')}`);
+      } else if (result.moved > 0) {
+        showToast(`${formatCount(result.moved, 'tâche déplacée', 'tâches déplacées')}.`);
+      } else {
+        showToast('Aucun déplacement possible pour ce créneau.');
+      }
+    });
+  }
+
+  updateApplyState();
+  const initialFocus = checkboxes.find(cb => !cb.disabled) || applyBtn || cancelBtn;
+  setupFocusTrap(content, { modalKey: 'heatmap-replan', initialFocus });
+}
+
+function buildHeatmapAutoSuggestions(currentData, fourWeekData) {
+  if (!currentData || !fourWeekData) {
+    return [];
+  }
+
+  const weekDates = currentData.weekDates || [];
+  const bestByDay = new Map();
+
+  for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+    const dayRow = fourWeekData.matrix?.[dayIndex];
+    if (!dayRow) {
+      continue;
+    }
+    let bestCell = null;
+    HEATMAP_MOMENTS.forEach(moment => {
+      const cell = dayRow[moment];
+      if (!cell || !cell.planned || !Number.isFinite(cell.score)) {
+        return;
+      }
+      if (!bestCell || cell.score > bestCell.score || (cell.score === bestCell.score && cell.done > bestCell.done)) {
+        bestCell = { moment, score: cell.score };
+      }
+    });
+    if (bestCell) {
+      bestByDay.set(dayIndex, bestCell);
+    }
+  }
+
+  const openTasks = getOpenTasksForWeek(weekDates);
+  if (!openTasks.length) {
+    return [];
+  }
+
+  const suggestions = [];
+  openTasks.forEach(taskInfo => {
+    const currentMoment = taskInfo.moment;
+    if (!currentMoment) {
+      return;
+    }
+    const currentCell = currentData.matrix?.[taskInfo.dayIndex]?.[currentMoment];
+    const currentScore = currentCell && Number.isFinite(currentCell.score) ? currentCell.score : null;
+    if (currentScore !== null && currentScore >= HEATMAP_MEDIUM_THRESHOLD) {
+      return;
+    }
+    const bestForDay = bestByDay.get(taskInfo.dayIndex);
+    if (!bestForDay || bestForDay.moment === currentMoment || !Number.isFinite(bestForDay.score)) {
+      return;
+    }
+    if (currentScore !== null && bestForDay.score <= currentScore) {
+      return;
+    }
+    if (bestForDay.score < HEATMAP_MEDIUM_THRESHOLD) {
+      return;
+    }
+    const momentKey = getMomentKeyFromLabel(bestForDay.moment);
+    if (momentKey && isMomentSuggestionSuppressed(momentKey)) {
+      return;
+    }
+    suggestions.push({
+      dateStr: taskInfo.dateStr,
+      dayIndex: taskInfo.dayIndex,
+      taskIdx: taskInfo.taskIdx,
+      taskTitle: taskInfo.title,
+      fromMoment: currentMoment,
+      toMoment: bestForDay.moment,
+      fromScore: currentScore,
+      toScore: bestForDay.score
+    });
+  });
+
+  return suggestions;
+}
+
+function applyHeatmapAutoSelections(selections) {
+  if (!Array.isArray(selections) || !selections.length) {
+    return { moved: 0, skipped: 0 };
+  }
+  let moved = 0;
+  let skipped = 0;
+
+  selections.forEach(selection => {
+    const tasksForDate = Array.isArray(state.tasks?.[selection.dateStr]) ? state.tasks[selection.dateStr] : null;
+    if (!tasksForDate || !tasksForDate[selection.taskIdx]) {
+      skipped += 1;
+      return;
+    }
+    const task = tasksForDate[selection.taskIdx];
+    if (!task || isTaskEmpty(task) || task.status === 'done') {
+      skipped += 1;
+      return;
+    }
+    applyMomentToTask(task, selection.toMoment);
+    moved += 1;
+  });
+
+  return { moved, skipped };
+}
+
+function openHeatmapAutoModal({ suggestions }) {
+  if (!Array.isArray(suggestions) || !suggestions.length) {
+    showToast('Aucune suggestion pour le moment.');
+    return;
+  }
+
+  const modal = document.getElementById('modal-overlay');
+  const content = document.getElementById('modal-content');
+  if (!modal || !content) {
+    return;
+  }
+
+  content.classList.remove('template-wide', 'badge-modal-container', 'quick-add-modal', 'social-modal', 'challenge-details-modal', 'challenge-setup-modal', 'challenge-completion-modal');
+  content.classList.add('heatmap-modal');
+
+  const listMarkup = suggestions.map((suggestion, index) => {
+    const dayShort = getHeatmapDayLabel(suggestion.dayIndex, 'short');
+    const fromScore = Number.isFinite(suggestion.fromScore) ? `${suggestion.fromScore}%` : '—';
+    const toScore = Number.isFinite(suggestion.toScore) ? `${suggestion.toScore}%` : '—';
+    return `
+      <label class="heatmap-modal-task">
+        <input type="checkbox" name="heatmap-auto-task" data-index="${index}" checked>
+        <div class="heatmap-modal-task-body">
+          <span class="heatmap-modal-task-title">${escapeHtml(suggestion.taskTitle)}</span>
+          <span class="heatmap-modal-task-subtitle">${dayShort} · ${suggestion.fromMoment || '—'} → ${suggestion.toMoment} (${fromScore} → ${toScore})</span>
+        </div>
+      </label>
+    `;
+  }).join('');
+
+  content.innerHTML = `
+    <div class="heatmap-modal" role="dialog" aria-labelledby="heatmap-auto-title">
+      <h3 id="heatmap-auto-title">Suggérer automatiquement les meilleurs créneaux</h3>
+      <p>${formatCount(suggestions.length, 'tâche identifiée', 'tâches identifiées')} sous 40&nbsp;%.</p>
+      <form id="heatmap-auto-form">
+        <div class="heatmap-modal-list" role="group" aria-label="Suggestions de déplacement">
+          ${listMarkup}
+        </div>
+        <div class="modal-buttons">
+          <button type="button" class="btn btn-secondary" id="heatmap-auto-cancel">Annuler</button>
+          <button type="submit" class="btn btn-primary" id="heatmap-auto-apply">Appliquer les déplacements</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  modal.dataset.activeModal = 'heatmap-auto';
+  modal.classList.add('show');
+
+  const form = content.querySelector('#heatmap-auto-form');
+  const applyBtn = content.querySelector('#heatmap-auto-apply');
+  const cancelBtn = content.querySelector('#heatmap-auto-cancel');
+  const checkboxes = Array.from(content.querySelectorAll('input[name="heatmap-auto-task"]'));
+
+  const updateApplyState = () => {
+    const hasSelection = checkboxes.some(cb => cb.checked);
+    if (applyBtn) {
+      applyBtn.disabled = !hasSelection;
+    }
+  };
+
+  checkboxes.forEach(cb => cb.addEventListener('change', updateApplyState));
+
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', () => closeModal());
+  }
+
+  if (form) {
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const selections = checkboxes
+        .filter(cb => cb.checked)
+        .map(cb => {
+          const index = Number(cb.getAttribute('data-index'));
+          return suggestions[index];
+        })
+        .filter(Boolean);
+
+      if (!selections.length) {
+        closeModal();
+        return;
+      }
+
+      const result = applyHeatmapAutoSelections(selections);
+
+      if (result.moved > 0) {
+        saveState();
+        renderDashboard();
+        renderPlanifier();
+        refreshWeeklyReviewIfVisible();
+      }
+
+      closeModal();
+
+      if (result.moved > 0 && result.skipped > 0) {
+        showToast(`${formatCount(result.moved, 'tâche déplacée', 'tâches déplacées')} · ${formatCount(result.skipped, 'non modifiée', 'non modifiées')}`);
+      } else if (result.moved > 0) {
+        showToast(`${formatCount(result.moved, 'tâche déplacée', 'tâches déplacées')}.`);
+      } else {
+        showToast('Aucune tâche déplacée.');
+      }
+    });
+  }
+
+  updateApplyState();
+  const initialFocus = checkboxes[0] || applyBtn || cancelBtn;
+  setupFocusTrap(content, { modalKey: 'heatmap-auto', initialFocus });
+}
+
+function handleHeatmapAutoSuggest() {
+  const currentData = computeWeeklyHeatmap('current');
+  const fourWeekData = computeWeeklyHeatmap('four-weeks');
+  const suggestions = buildHeatmapAutoSuggestions(currentData, fourWeekData);
+  if (!suggestions.length) {
+    showToast('Aucune suggestion pour le moment.');
+    return;
+  }
+  openHeatmapAutoModal({ suggestions });
 }
 
 function renderDaysRemaining() {
@@ -10982,6 +11913,7 @@ function closeModal() {
     content.classList.remove('challenge-details-modal');
     content.classList.remove('challenge-setup-modal');
     content.classList.remove('challenge-completion-modal');
+    content.classList.remove('heatmap-modal');
     content.innerHTML = '';
   }
   setPlanifierTabsMode('editor');
