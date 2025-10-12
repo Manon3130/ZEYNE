@@ -651,25 +651,55 @@ const BUILTIN_AUDIOS = [
 ];
 
 const REPORT_REASON_DETAILS = {
-  'trop-gros': {
+  trop_gros: {
     label: 'Trop gros',
-    recommendation: 'Découpe en micro-blocs de 10 min + première micro-action obligatoire.'
+    recommendation: 'Scinde ton objectif : prépare, fais 10 min, puis note la suite.'
   },
-  'pas-clair': {
+  pas_clair: {
     label: 'Pas clair',
-    recommendation: 'Reformule avec un verbe d’action + critère “fini quand…”.'
+    recommendation: 'Clarifie le “fini quand…” avec 3 critères concrets.'
   },
-  'pas-temps': {
+  pas_le_temps: {
     label: 'Pas le temps',
-    recommendation: 'Protège un créneau du matin (20 min) sur 48 h.'
+    recommendation: 'Passe en version 10 min et décale doucement au prochain créneau.'
   },
-  distraction: {
-    label: 'Distraction',
-    recommendation: 'Mode avion + casque 15 min avant d’ouvrir la tâche.'
+  faible_energie: {
+    label: 'Faible énergie',
+    recommendation: 'Choisis une variante low-energy pour garder la dynamique.'
+  }
+};
+
+const MICROPAS_STOPWORDS = new Set([
+  'le', 'la', 'les', 'un', 'une', 'des', 'de', 'du', 'dans', 'pour', 'avec', 'sur', 'en', 'et', 'ou', 'au', 'aux', 'ce', 'ces',
+  'cet', 'cette', 'mon', 'ma', 'mes', 'ton', 'ta', 'tes', 'son', 'sa', 'ses', 'nos', 'notre', 'vos', 'votre', 'leurs', 'leur',
+  'plus', 'moins', 'que', 'qui', 'quoi', 'quand', 'comment', 'est', 'suis', 'sont', 'etre', 'être', 'par', 'une', 'deux', 'trois'
+]);
+
+const MICROPAS_SUGGESTIONS = {
+  trop_gros: {
+    id: 'scinder-mini-blocs',
+    label: 'Scinder en mini-blocs',
+    micropasText: "Préparer 5’ (rassembler ce qu’il faut)\nFaire 10’ la partie 1/3\nClore 5’ (note prochaine étape)",
+    durationSingleSlot: 10,
+    defaultDuration: 25
   },
-  peur: {
-    label: 'Peur / perfectionnisme',
-    recommendation: 'Autorise un brouillon “moche” de 10 min, puis itère.'
+  pas_clair: {
+    id: 'clarifier-fini-quand',
+    label: 'Clarifier le fini-quand',
+    micropasText: 'Clarifier “fini quand…” → lister 3 critères précis',
+    duration: 15
+  },
+  pas_le_temps: {
+    id: 'version-10-min',
+    label: 'Version 10 minutes + décalage doux',
+    micropasText: 'Passer en sprint de 10 minutes et replanifier sur le prochain créneau libre',
+    duration: 10
+  },
+  faible_energie: {
+    id: 'low-energy-alternatif',
+    label: 'Low-energy alternatif',
+    micropasText: 'Variante douce : lecture légère, tri ou préparation pendant 10 minutes',
+    duration: 10
   }
 };
 
@@ -1070,12 +1100,14 @@ let state = {
   mood: { motivation: 50, emoji: null },
   moodHistory: {},
   reports: {},
+  reportHistory: [],
   microReviews: {},
   audioLibrary: [],
   defaultAudioAssignments: { morning: null, afternoon: null, evening: null },
   streak: createDefaultStreakState(),
   badges: createDefaultBadgesState(),
-  notifications: createDefaultNotificationsState()
+  notifications: createDefaultNotificationsState(),
+  micropasSuggestionState: {}
 };
 
 let audioDBPromise = null;
@@ -1100,6 +1132,8 @@ const pwaInstallRuntime = {
 let lastTemplateApplication = null;
 let releaseFocusTrapCallback = null;
 let lastFocusBeforeModal = null;
+let taskIdCounter = 0;
+let currentReportModalContext = null;
 
 function getAudioDB() {
   if (audioDBPromise) {
@@ -1912,9 +1946,14 @@ function loadState() {
       if (!state.settings || typeof state.settings !== 'object') state.settings = {};
       if (!state.settings.startISO) state.settings.startISO = '';
       if (!state.reports) state.reports = {};
+      normalizeLegacyReportReasons();
+      if (!Array.isArray(state.reportHistory)) state.reportHistory = [];
       if (!state.microReviews) state.microReviews = {};
       if (!state.settings.programmeCategoryId) state.settings.programmeCategoryId = getDefaultProgrammeCategoryId();
       if (!state.settings.programmeMode) state.settings.programmeMode = 'content';
+      if (!state.micropasSuggestionState || typeof state.micropasSuggestionState !== 'object') {
+        state.micropasSuggestionState = {};
+      }
     } catch (e) {
       console.error('Error loading state:', e);
     }
@@ -1923,6 +1962,8 @@ function loadState() {
   ensureAudioLibraryState();
   const notificationsNormalized = ensureNotificationState();
   sanitizeStreakData();
+  cleanupReportHistory();
+  cleanupMicropasSuggestionState();
 
   if (notificationsNormalized) {
     saveState();
@@ -1982,8 +2023,14 @@ function getStartDateForPeriod(period) {
   return today;
 }
 
+function generateTaskId() {
+  taskIdCounter += 1;
+  const now = Date.now();
+  return `tsk-${now}-${taskIdCounter}`;
+}
+
 function createEmptyTask() {
-  return { title: '', moment: '', time: '', audio: 'Aucun', duration: null, status: 'planned' };
+  return { id: null, title: '', moment: '', time: '', audio: 'Aucun', duration: null, status: 'planned', micropas: '' };
 }
 
 function normalizeAudioValue(audioValue) {
@@ -2014,6 +2061,9 @@ function ensureTasksForDate(dateStr) {
       state.tasks[dateStr][i] = createEmptyTask();
     } else {
       const task = state.tasks[dateStr][i];
+      if (task.id === undefined) {
+        task.id = null;
+      }
       if (task.title === undefined) task.title = '';
       if (task.moment === undefined) task.moment = '';
       if (task.time === undefined) task.time = '';
@@ -2025,6 +2075,14 @@ function ensureTasksForDate(dateStr) {
         task.duration = null;
       }
       if (!task.status) task.status = 'planned';
+      if (task.micropas === undefined) task.micropas = '';
+      if (!task.id) {
+        const hasContent = Boolean((task.title || '').trim()) || Boolean((task.moment || '').trim());
+        const audioValue = normalizeAudioValue(task.audio);
+        if (hasContent || (audioValue && audioValue !== 'Aucun')) {
+          task.id = generateTaskId();
+        }
+      }
     }
   }
 }
@@ -2324,20 +2382,18 @@ function ensureReportEntry(dateStr) {
     state.reports[dateStr] = {
       total: 0,
       reasons: {
-        'trop-gros': 0,
-        'pas-clair': 0,
-        'pas-temps': 0,
-        distraction: 0,
-        peur: 0
+        trop_gros: 0,
+        pas_clair: 0,
+        pas_le_temps: 0,
+        faible_energie: 0
       }
     };
   } else if (!state.reports[dateStr].reasons) {
     state.reports[dateStr].reasons = {
-      'trop-gros': 0,
-      'pas-clair': 0,
-      'pas-temps': 0,
-      distraction: 0,
-      peur: 0
+      trop_gros: 0,
+      pas_clair: 0,
+      pas_le_temps: 0,
+      faible_energie: 0
     };
   }
   if (typeof state.reports[dateStr].total !== 'number') {
@@ -2345,7 +2401,7 @@ function ensureReportEntry(dateStr) {
   }
 }
 
-function recordReportForDate(dateStr, reasonKey) {
+function recordReportForDate(dateStr, reasonKey, task, sourceDate) {
   if (!reasonKey) return;
   ensureReportEntry(dateStr);
   state.reports[dateStr].total = (state.reports[dateStr].total || 0) + 1;
@@ -2353,6 +2409,515 @@ function recordReportForDate(dateStr, reasonKey) {
     state.reports[dateStr].reasons[reasonKey] = 0;
   }
   state.reports[dateStr].reasons[reasonKey] += 1;
+  logTaskReportEntry(task, sourceDate || dateStr, reasonKey);
+}
+
+function normalizeLegacyReportReasons() {
+  if (!state.reports || typeof state.reports !== 'object') {
+    return;
+  }
+  Object.values(state.reports).forEach(entry => {
+    if (!entry || typeof entry !== 'object') return;
+    if (!entry.reasons || typeof entry.reasons !== 'object') return;
+    const reasons = entry.reasons;
+    if (reasons['trop-gros']) {
+      reasons.trop_gros = (reasons.trop_gros || 0) + reasons['trop-gros'];
+      delete reasons['trop-gros'];
+    }
+    if (reasons['pas-clair']) {
+      reasons.pas_clair = (reasons.pas_clair || 0) + reasons['pas-clair'];
+      delete reasons['pas-clair'];
+    }
+    if (reasons['pas-temps']) {
+      reasons.pas_le_temps = (reasons.pas_le_temps || 0) + reasons['pas-temps'];
+      delete reasons['pas-temps'];
+    }
+    if (reasons.distraction) {
+      delete reasons.distraction;
+    }
+    if (reasons.peur) {
+      delete reasons.peur;
+    }
+  });
+}
+
+function logTaskReportEntry(task, sourceDate, reasonKey) {
+  if (!state.reportHistory) {
+    state.reportHistory = [];
+  }
+  const entry = {
+    taskId: task?.id || null,
+    title: task?.title || '',
+    normalizedTitle: normalizeTaskTitleForGrouping(task?.title || ''),
+    sourceDate: sourceDate || null,
+    reason: reasonKey,
+    reportedAt: new Date().toISOString()
+  };
+  state.reportHistory.push(entry);
+  cleanupReportHistory();
+}
+
+function cleanupReportHistory() {
+  if (!Array.isArray(state.reportHistory)) {
+    state.reportHistory = [];
+    return;
+  }
+  const today = getTodayDateObj();
+  const cutoff = new Date(today);
+  cutoff.setDate(today.getDate() - 13);
+  state.reportHistory = state.reportHistory.filter(entry => {
+    if (!entry || !entry.reason) {
+      return false;
+    }
+    const reportedAt = entry.reportedAt ? new Date(entry.reportedAt) : null;
+    if (!reportedAt || Number.isNaN(reportedAt.getTime())) {
+      return false;
+    }
+    return reportedAt >= cutoff;
+  });
+}
+
+function stripAccents(text) {
+  if (!text) return '';
+  try {
+    return text.normalize('NFD').replace(/\p{Diacritic}/gu, '');
+  } catch (error) {
+    return text;
+  }
+}
+
+function normalizeTaskTitleForGrouping(title) {
+  if (!title) return '';
+  const withoutAccents = stripAccents(title.toLowerCase());
+  const sanitized = withoutAccents.replace(/[^a-z0-9\s]/g, ' ');
+  const words = sanitized
+    .split(/\s+/)
+    .map(word => word.trim())
+    .filter(word => word && !MICROPAS_STOPWORDS.has(word));
+  return words.join('-');
+}
+
+function getTaskSuggestionGroupKey(task, dateStr) {
+  if (!task) return null;
+  if (task.id) {
+    return `id:${task.id}`;
+  }
+  const normalizedTitle = normalizeTaskTitleForGrouping(task.title || '');
+  if (!normalizedTitle) {
+    return null;
+  }
+  const dateComponent = dateStr || '';
+  return `title:${dateComponent}:${normalizedTitle}`;
+}
+
+function getReportEntriesForTask(task, dateStr, windowDays = 14) {
+  if (!task) return [];
+  if (!Array.isArray(state.reportHistory)) return [];
+  const normalizedTitle = normalizeTaskTitleForGrouping(task.title || '');
+  const today = getTodayDateObj();
+  const cutoff = new Date(today);
+  cutoff.setDate(today.getDate() - (windowDays - 1));
+  return state.reportHistory.filter(entry => {
+    if (!entry || !entry.reason) return false;
+    const reportedAt = entry.reportedAt ? new Date(entry.reportedAt) : null;
+    if (!reportedAt || Number.isNaN(reportedAt.getTime()) || reportedAt < cutoff) {
+      return false;
+    }
+    if (task.id && entry.taskId === task.id) {
+      return true;
+    }
+    if (!normalizedTitle) {
+      return false;
+    }
+    return entry.sourceDate === dateStr && entry.normalizedTitle === normalizedTitle;
+  });
+}
+
+function getDominantReasonForTask(task, dateStr, { windowDays = 14, minOccurrences = 2 } = {}) {
+  const entries = getReportEntriesForTask(task, dateStr, windowDays);
+  if (!entries.length) {
+    return null;
+  }
+  const counts = {};
+  let bestReason = null;
+  let bestCount = 0;
+  entries.forEach(entry => {
+    if (!MICROPAS_SUGGESTIONS[entry.reason]) {
+      return;
+    }
+    counts[entry.reason] = (counts[entry.reason] || 0) + 1;
+    if (counts[entry.reason] > bestCount) {
+      bestCount = counts[entry.reason];
+      bestReason = entry.reason;
+    }
+  });
+  if (!bestReason || bestCount < minOccurrences) {
+    return null;
+  }
+  return { reason: bestReason, count: bestCount };
+}
+
+function getMicropasSuggestionDetails(reason, task) {
+  if (!reason || !MICROPAS_SUGGESTIONS[reason]) {
+    return null;
+  }
+  const base = MICROPAS_SUGGESTIONS[reason];
+  const cleanTitle = (task?.title || '').trim();
+  const details = {
+    ...base,
+    description: '',
+    micropasText: base.micropasText,
+    showSoftReschedule: reason === 'pas_le_temps'
+  };
+  switch (reason) {
+    case 'trop_gros':
+      details.description = 'Prépare 5’, exécute 10’, puis note la suite.';
+      break;
+    case 'pas_clair': {
+      const target = cleanTitle || 'objectif';
+      details.description = 'Clarifie 3 critères “fini quand…”.';
+      details.micropasText = `Clarifier “fini quand…” → ${target} (3 critères)`;
+      break;
+    }
+    case 'pas_le_temps':
+      details.description = 'Version 10 min + replanification douce.';
+      break;
+    case 'faible_energie': {
+      const resource = cleanTitle || 'ressource';
+      details.description = 'Variante faible charge pour rester dans le flow.';
+      details.micropasText = `Lire/Parcourir 10’ : ${resource}`;
+      break;
+    }
+    default:
+      break;
+  }
+  return details;
+}
+
+function getDashboardSuggestionForTask(task, dateStr) {
+  if (!task) return null;
+  const groupKey = getTaskSuggestionGroupKey(task, dateStr);
+  if (!groupKey || isSuggestionSuppressed(groupKey)) {
+    return null;
+  }
+  const entry = state.micropasSuggestionState?.[groupKey];
+  if (entry && Array.isArray(entry.pendingSuccesses) && task.id) {
+    const hasPending = entry.pendingSuccesses.some(item => item && item.taskId === task.id);
+    if (hasPending) {
+      return null;
+    }
+  }
+  const dominant = getDominantReasonForTask(task, dateStr, { windowDays: 5, minOccurrences: 2 });
+  if (!dominant) {
+    return null;
+  }
+  const details = getMicropasSuggestionDetails(dominant.reason, task);
+  if (!details) {
+    return null;
+  }
+  return {
+    reason: dominant.reason,
+    count: dominant.count,
+    details,
+    groupKey
+  };
+}
+
+function applyMicropasSuggestion({ reason, task, dateStr, taskIdx, micropasText, softReschedule = false }) {
+  if (!task || !reason) {
+    return { applied: false };
+  }
+  ensureTasksForDate(dateStr);
+  const details = getMicropasSuggestionDetails(reason, task);
+  if (!details) {
+    return { applied: false };
+  }
+  const tasksForDate = state.tasks[dateStr];
+  if (!Array.isArray(tasksForDate)) {
+    return { applied: false };
+  }
+  if (reason === 'trop_gros') {
+    const filledSlots = tasksForDate.filter(t => t && !isTaskEmpty(t)).length;
+    if (filledSlots <= 1) {
+      task.duration = details.durationSingleSlot || 10;
+    } else {
+      const baseTitle = (task.title || '').trim();
+      task.title = baseTitle ? `Partie 1/3 : ${baseTitle}` : 'Partie 1/3';
+      task.duration = task.duration || details.defaultDuration || 25;
+    }
+  } else if (reason === 'pas_clair') {
+    const baseTitle = (task.title || '').trim();
+    task.title = baseTitle ? `Clarifier “fini quand…” → ${baseTitle}` : 'Clarifier “fini quand…” (3 critères)';
+    task.duration = MICROPAS_SUGGESTIONS[reason].duration;
+  } else if (reason === 'pas_le_temps') {
+    task.duration = MICROPAS_SUGGESTIONS[reason].duration;
+  } else if (reason === 'faible_energie') {
+    const baseTitle = (task.title || '').trim();
+    task.title = baseTitle ? `Lire/Parcourir 10’ : ${baseTitle}` : 'Lire/Parcourir 10’';
+    task.duration = MICROPAS_SUGGESTIONS[reason].duration;
+  }
+
+  const resolvedMicropas = micropasText && micropasText.trim() ? micropasText.trim() : (details.micropasText || '');
+  task.micropas = resolvedMicropas;
+
+  let rescheduleTarget = null;
+  if (reason === 'pas_le_temps' && softReschedule) {
+    rescheduleTarget = findSoftRescheduleTarget(dateStr, taskIdx);
+  }
+
+  return { applied: true, rescheduleTarget, details };
+}
+
+function createInlineMicropasCard({ dateStr, taskIdx, suggestion }) {
+  const card = document.createElement('div');
+  card.className = 'micropas-inline-card';
+  card.setAttribute('hidden', '');
+
+  const header = document.createElement('div');
+  header.className = 'micropas-inline-header';
+  header.textContent = suggestion.details.label;
+
+  const description = document.createElement('p');
+  description.className = 'micropas-inline-desc';
+  description.textContent = suggestion.details.description || '';
+
+  const textarea = document.createElement('textarea');
+  textarea.rows = 3;
+  textarea.className = 'micropas-inline-text';
+  textarea.value = suggestion.details.micropasText || '';
+  textarea.setAttribute('aria-label', 'Micropas suggéré');
+
+  const actions = document.createElement('div');
+  actions.className = 'micropas-inline-actions';
+
+  const applyBtn = document.createElement('button');
+  applyBtn.type = 'button';
+  applyBtn.className = 'btn btn-primary';
+  applyBtn.textContent = 'Appliquer cette version';
+
+  applyBtn.addEventListener('click', () => {
+    ensureTasksForDate(dateStr);
+    const task = state.tasks[dateStr]?.[taskIdx];
+    if (!task || isTaskEmpty(task)) {
+      showToast('Tâche introuvable.');
+      return;
+    }
+    const result = applyMicropasSuggestion({
+      reason: suggestion.reason,
+      task,
+      dateStr,
+      taskIdx,
+      micropasText: textarea.value,
+      softReschedule: suggestion.reason === 'pas_le_temps'
+    });
+    if (!result.applied) {
+      showToast('Impossible d’appliquer la suggestion.');
+      return;
+    }
+    registerSuggestionApplied(suggestion.groupKey, task, suggestion.reason);
+    saveState();
+    renderDailyTasks();
+    renderOtherDays();
+    updateMomentum();
+    refreshWeeklyReviewIfVisible();
+    showToast('Suggestion appliquée.');
+  });
+
+  actions.appendChild(applyBtn);
+
+  card.appendChild(header);
+  if (description.textContent) {
+    card.appendChild(description);
+  }
+  card.appendChild(textarea);
+  card.appendChild(actions);
+
+  return card;
+}
+
+function ensureMicropasSuggestionEntry(groupKey) {
+  if (!groupKey) return null;
+  if (!state.micropasSuggestionState || typeof state.micropasSuggestionState !== 'object') {
+    state.micropasSuggestionState = {};
+  }
+  const existing = state.micropasSuggestionState[groupKey];
+  if (!existing || typeof existing !== 'object') {
+    state.micropasSuggestionState[groupKey] = { ignoredCount: 0, successCount: 0, pendingSuccesses: [] };
+  }
+  const entry = state.micropasSuggestionState[groupKey];
+  if (typeof entry.ignoredCount !== 'number' || entry.ignoredCount < 0) {
+    entry.ignoredCount = 0;
+  }
+  if (typeof entry.successCount !== 'number' || entry.successCount < 0) {
+    entry.successCount = 0;
+  }
+  if (!Array.isArray(entry.pendingSuccesses)) {
+    entry.pendingSuccesses = [];
+  }
+  return entry;
+}
+
+function cleanupMicropasSuggestionState() {
+  if (!state.micropasSuggestionState || typeof state.micropasSuggestionState !== 'object') {
+    state.micropasSuggestionState = {};
+    return;
+  }
+  const now = new Date();
+  Object.keys(state.micropasSuggestionState).forEach(key => {
+    const entry = state.micropasSuggestionState[key];
+    if (!entry || typeof entry !== 'object') {
+      delete state.micropasSuggestionState[key];
+      return;
+    }
+    if (!Array.isArray(entry.pendingSuccesses)) {
+      entry.pendingSuccesses = [];
+    }
+    entry.pendingSuccesses = entry.pendingSuccesses.filter(item => {
+      if (!item || !item.dueAt) return false;
+      const due = new Date(item.dueAt);
+      return due && !Number.isNaN(due.getTime()) && due >= now;
+    });
+    if (entry.suppressedUntil) {
+      const until = new Date(entry.suppressedUntil);
+      if (!until || Number.isNaN(until.getTime()) || until < now) {
+        delete entry.suppressedUntil;
+      }
+    }
+    if (typeof entry.ignoredCount !== 'number' || entry.ignoredCount < 0) {
+      entry.ignoredCount = 0;
+    }
+    if (typeof entry.successCount !== 'number' || entry.successCount < 0) {
+      entry.successCount = 0;
+    }
+    if (!entry.pendingSuccesses.length && !entry.ignoredCount && !entry.successCount && !entry.suppressedUntil) {
+      // Keep entry for history? leave as is to preserve counters.
+    }
+  });
+}
+
+function isSuggestionSuppressed(groupKey) {
+  if (!groupKey) return false;
+  const entry = state.micropasSuggestionState?.[groupKey];
+  if (!entry || !entry.suppressedUntil) return false;
+  const until = new Date(entry.suppressedUntil);
+  if (!until || Number.isNaN(until.getTime())) {
+    return false;
+  }
+  const now = new Date();
+  return until >= now;
+}
+
+function registerSuggestionIgnored(groupKey) {
+  if (!groupKey) return false;
+  const entry = ensureMicropasSuggestionEntry(groupKey);
+  if (!entry) return false;
+  entry.ignoredCount += 1;
+  if (entry.ignoredCount >= 2) {
+    const until = new Date();
+    until.setDate(until.getDate() + 7);
+    entry.suppressedUntil = until.toISOString();
+    entry.ignoredCount = 0;
+  }
+  return true;
+}
+
+function registerSuggestionApplied(groupKey, task, reason) {
+  if (!groupKey) return false;
+  const entry = ensureMicropasSuggestionEntry(groupKey);
+  if (!entry) return false;
+  entry.ignoredCount = 0;
+  const now = new Date();
+  const due = new Date(now);
+  due.setHours(due.getHours() + 48);
+  const taskId = task?.id || null;
+  entry.pendingSuccesses = entry.pendingSuccesses.filter(item => item?.taskId && item.taskId !== taskId);
+  entry.pendingSuccesses.push({
+    taskId,
+    reason,
+    appliedAt: now.toISOString(),
+    dueAt: due.toISOString()
+  });
+  return true;
+}
+
+function registerMicropasCompletion(task) {
+  if (!task || !task.id) return false;
+  if (!state.micropasSuggestionState || typeof state.micropasSuggestionState !== 'object') {
+    return false;
+  }
+  const now = new Date();
+  let updated = false;
+  Object.values(state.micropasSuggestionState).forEach(entry => {
+    if (!entry || !Array.isArray(entry.pendingSuccesses)) return;
+    const remaining = [];
+    entry.pendingSuccesses.forEach(item => {
+      if (!item || item.taskId !== task.id) {
+        remaining.push(item);
+        return;
+      }
+      const due = item.dueAt ? new Date(item.dueAt) : null;
+      if (due && !Number.isNaN(due.getTime()) && due >= now) {
+        entry.successCount = (entry.successCount || 0) + 1;
+      }
+      updated = true;
+    });
+    entry.pendingSuccesses = remaining;
+  });
+  return updated;
+}
+
+function finalizeReportModalContext({ taskForLogging } = {}) {
+  if (!currentReportModalContext) {
+    return false;
+  }
+  const context = currentReportModalContext;
+  currentReportModalContext = null;
+  if (!context.groupKey || !context.recommendedReason) {
+    return false;
+  }
+  if (isSuggestionSuppressed(context.groupKey)) {
+    return false;
+  }
+  if (context.appliedReasons && context.appliedReasons.has(context.recommendedReason)) {
+    const targetTask = taskForLogging || context.taskRef || null;
+    if (!targetTask) {
+      return false;
+    }
+    return registerSuggestionApplied(context.groupKey, targetTask, context.recommendedReason);
+  }
+  return registerSuggestionIgnored(context.groupKey);
+}
+
+function findSoftRescheduleTarget(dateStr, taskIdx) {
+  const sourceDate = parseISODate(dateStr);
+  if (!sourceDate) {
+    return null;
+  }
+  ensureTasksForDate(dateStr);
+  const currentDayTasks = state.tasks[dateStr];
+  for (let idx = taskIdx + 1; idx < currentDayTasks.length; idx++) {
+    if (isTaskEmpty(currentDayTasks[idx])) {
+      return { dateStr, slotIdx: idx };
+    }
+  }
+  for (let idx = 0; idx < currentDayTasks.length; idx++) {
+    if (idx === taskIdx) continue;
+    if (isTaskEmpty(currentDayTasks[idx])) {
+      return { dateStr, slotIdx: idx };
+    }
+  }
+  for (let offset = 1; offset <= 7; offset++) {
+    const nextDate = new Date(sourceDate);
+    nextDate.setDate(nextDate.getDate() + offset);
+    nextDate.setHours(0, 0, 0, 0);
+    const nextStr = nextDate.toISOString().split('T')[0];
+    ensureTasksForDate(nextStr);
+    const emptyIdx = state.tasks[nextStr].findIndex(task => isTaskEmpty(task));
+    if (emptyIdx !== -1) {
+      return { dateStr: nextStr, slotIdx: emptyIdx };
+    }
+  }
+  return null;
 }
 
 function getTasksDoneCount(dateStr) {
@@ -4002,6 +4567,43 @@ function renderDailyTasks() {
     header.appendChild(quickAction);
     taskItem.appendChild(header);
 
+    let inlineMicropasCard = null;
+
+    if (!isEmptySlot) {
+      const suggestion = getDashboardSuggestionForTask(task, today);
+      if (suggestion) {
+        const banner = document.createElement('div');
+        banner.className = 'micropas-banner';
+
+        const bannerLabel = document.createElement('span');
+        bannerLabel.textContent = 'Suggestion Micropas disponible';
+        banner.appendChild(bannerLabel);
+
+        const bannerBtn = document.createElement('button');
+        bannerBtn.type = 'button';
+        bannerBtn.className = 'micropas-banner-btn';
+        bannerBtn.textContent = 'Voir / Appliquer';
+        banner.appendChild(bannerBtn);
+
+        infoEl.appendChild(banner);
+
+        inlineMicropasCard = createInlineMicropasCard({ dateStr: today, taskIdx: idx, suggestion });
+        taskItem.appendChild(inlineMicropasCard);
+
+        bannerBtn.addEventListener('click', () => {
+          if (!inlineMicropasCard) return;
+          const isHidden = inlineMicropasCard.hasAttribute('hidden');
+          if (isHidden) {
+            inlineMicropasCard.removeAttribute('hidden');
+            bannerBtn.textContent = 'Masquer';
+          } else {
+            inlineMicropasCard.setAttribute('hidden', '');
+            bannerBtn.textContent = 'Voir / Appliquer';
+          }
+        });
+      }
+    }
+
     if (!isEmptySlot) {
       const actions = document.createElement('div');
       actions.className = 'task-actions';
@@ -5457,12 +6059,17 @@ window.toggleTaskCompletion = function(taskIdx) {
   const wasComplete = tasksForToday.every(t => t.status === 'done');
 
   task.status = task.status === 'done' ? 'planned' : 'done';
+  const toggledToDone = task.status === 'done';
 
   const isNowComplete = tasksForToday.every(t => t.status === 'done');
   const streakResult = updateDayCompletionRecord(today, isNowComplete);
   let newlyUnlockedBadge = null;
   if (isNowComplete) {
     newlyUnlockedBadge = unlockBadgesForCurrentStreak(state.streak.current);
+  }
+
+  if (toggledToDone) {
+    registerMicropasCompletion(task);
   }
 
   saveState();
@@ -5786,23 +6393,44 @@ function showTimerModal(taskIdx, options = {}) {
   }
 }
 
-function showReportModal(dateStr, taskIdx) {
+function showReportModal(dateStr, taskIdx, options = {}) {
   const modal = document.getElementById('modal-overlay');
   const content = document.getElementById('modal-content');
+  if (!modal || !content) return;
 
-  const task = state.tasks[dateStr][taskIdx];
-  const nextDay = new Date();
-  nextDay.setDate(nextDay.getDate() + 1);
-  const nextDayStr = nextDay.toISOString().split('T')[0];
+  ensureTasksForDate(dateStr);
+  const tasksForDate = state.tasks[dateStr];
+  if (!Array.isArray(tasksForDate)) return;
+
+  const task = tasksForDate[taskIdx];
+  if (!task || isTaskEmpty(task) || task.status === 'done') {
+    return;
+  }
 
   const reasons = [
-    { value: 'trop-gros', label: 'Trop gros', micropas: 'Découper en 10 min' },
-    { value: 'pas-clair', label: 'Pas clair', micropas: 'Écrire le titre précis' },
-    { value: 'pas-temps', label: 'Pas le temps', micropas: 'Bloquer 5 min demain matin' },
-    { value: 'distraction', label: 'Distraction', micropas: 'Ouvrir uniquement le document' },
-    { value: 'peur', label: 'Peur/Perfectionnisme', micropas: 'Faire une version brouillon' }
+    { value: 'trop_gros', label: 'Trop gros' },
+    { value: 'pas_clair', label: 'Pas clair' },
+    { value: 'pas_le_temps', label: 'Pas le temps' },
+    { value: 'faible_energie', label: 'Faible énergie' }
   ];
 
+  const groupKey = getTaskSuggestionGroupKey(task, dateStr);
+  const dominant = groupKey && !isSuggestionSuppressed(groupKey)
+    ? getDominantReasonForTask(task, dateStr, { windowDays: 14, minOccurrences: 2 })
+    : null;
+  const recommendedReason = dominant?.reason || null;
+
+  const providedReason = options?.reason;
+  const defaultReason = (providedReason && MICROPAS_SUGGESTIONS[providedReason])
+    ? providedReason
+    : (recommendedReason || reasons[0].value);
+
+  const nextDay = new Date();
+  nextDay.setDate(nextDay.getDate() + 1);
+  nextDay.setHours(0, 0, 0, 0);
+  const nextDayStr = nextDay.toISOString().split('T')[0];
+
+  modal.dataset.activeModal = 'report';
   content.innerHTML = `
     <div class="reporter-form">
       <h3>Reporter la tâche</h3>
@@ -5811,78 +6439,208 @@ function showReportModal(dateStr, taskIdx) {
         <div class="radio-group" id="reason-group">
           ${reasons.map(r => `
             <div class="radio-option">
-              <input type="radio" name="reason" value="${r.value}" id="reason-${r.value}" data-micropas="${r.micropas}">
+              <input type="radio" name="reason" value="${r.value}" id="reason-${r.value}">
               <label for="reason-${r.value}">${r.label}</label>
             </div>
           `).join('')}
         </div>
       </div>
-      <div class="form-group">
-        <label>Micropas suggéré</label>
-        <input type="text" id="micropas-input" value="${reasons[0].micropas}">
+      <div class="micropas-card" id="micropas-card">
+        <div class="micropas-card-header">
+          <div class="micropas-card-infos">
+            <span class="micropas-chip">Suggestion Micropas</span>
+            <span class="micropas-card-title" id="micropas-card-title"></span>
+          </div>
+          <button type="button" class="btn btn-primary" id="micropas-apply-btn">Appliquer cette version</button>
+        </div>
+        <p class="micropas-card-desc" id="micropas-card-desc"></p>
+        <label class="visually-hidden" for="micropas-note">Micropas suggéré</label>
+        <textarea id="micropas-note" rows="3"></textarea>
+        <div class="micropas-option" id="micropas-option-container">
+          <label><input type="checkbox" id="micropas-soft-reschedule" checked> Décaler au prochain créneau disponible aujourd’hui</label>
+        </div>
       </div>
       <div class="form-group">
-        <label>Reporter à</label>
+        <label for="report-date-input">Reporter à</label>
         <input type="date" id="report-date-input" value="${nextDayStr}">
+        <input type="hidden" id="report-target-slot" value="">
       </div>
       <div class="modal-buttons">
-        <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
-        <button class="btn btn-primary" id="save-report-btn">Enregistrer</button>
+        <button class="btn btn-secondary" id="cancel-report-btn" type="button">Annuler</button>
+        <button class="btn btn-primary" id="save-report-btn" type="button">Enregistrer</button>
       </div>
     </div>
   `;
 
   modal.classList.add('show');
 
-  const reasonInputs = document.querySelectorAll('input[name="reason"]');
-  const micropasInput = document.getElementById('micropas-input');
+  const reasonInputs = Array.from(content.querySelectorAll('input[name="reason"]'));
+  const micropasCard = content.querySelector('#micropas-card');
+  const micropasTitleEl = content.querySelector('#micropas-card-title');
+  const micropasDescEl = content.querySelector('#micropas-card-desc');
+  const micropasNoteEl = content.querySelector('#micropas-note');
+  const micropasApplyBtn = content.querySelector('#micropas-apply-btn');
+  const softRescheduleContainer = content.querySelector('#micropas-option-container');
+  const softRescheduleInput = content.querySelector('#micropas-soft-reschedule');
+  const reportDateInput = content.querySelector('#report-date-input');
+  const reportTargetSlotInput = content.querySelector('#report-target-slot');
+  const cancelBtn = content.querySelector('#cancel-report-btn');
+  const saveBtn = content.querySelector('#save-report-btn');
 
-  const defaultReasonInput = document.getElementById(`reason-${reasons[0].value}`);
-  if (defaultReasonInput) {
-    defaultReasonInput.checked = true;
+  const context = {
+    dateStr,
+    taskIdx,
+    groupKey,
+    recommendedReason,
+    appliedReasons: new Set(),
+    taskRef: task,
+    selectedReason: defaultReason
+  };
+  currentReportModalContext = context;
+
+  function updateMicropasCard(reason) {
+    const details = getMicropasSuggestionDetails(reason, task);
+    if (!details) {
+      micropasCard.setAttribute('hidden', '');
+      return;
+    }
+    micropasCard.removeAttribute('hidden');
+    micropasCard.dataset.recommended = reason === recommendedReason ? 'true' : 'false';
+    if (micropasTitleEl) {
+      micropasTitleEl.textContent = details.label;
+    }
+    if (micropasDescEl) {
+      micropasDescEl.textContent = details.description || '';
+    }
+    if (micropasNoteEl) {
+      micropasNoteEl.value = details.micropasText || '';
+    }
+    if (softRescheduleContainer) {
+      if (details.showSoftReschedule) {
+        softRescheduleContainer.removeAttribute('hidden');
+        if (softRescheduleInput) {
+          softRescheduleInput.checked = true;
+        }
+      } else {
+        softRescheduleContainer.setAttribute('hidden', '');
+        reportTargetSlotInput.value = '';
+      }
+    }
+    context.selectedReason = reason;
+  }
+
+  function applyMicropas(reason) {
+    const micropasValue = micropasNoteEl?.value || '';
+    const result = applyMicropasSuggestion({
+      reason,
+      task,
+      dateStr,
+      taskIdx,
+      micropasText: micropasValue,
+      softReschedule: Boolean(softRescheduleInput?.checked)
+    });
+    if (!result.applied) {
+      return;
+    }
+
+    if (reason === 'pas_le_temps') {
+      if (softRescheduleInput && softRescheduleInput.checked && result.rescheduleTarget) {
+        reportDateInput.value = result.rescheduleTarget.dateStr;
+        reportTargetSlotInput.value = `${result.rescheduleTarget.slotIdx}`;
+      } else {
+        reportTargetSlotInput.value = '';
+      }
+    } else {
+      reportTargetSlotInput.value = '';
+    }
+
+    context.appliedReasons.add(reason);
+    saveState();
+    renderDailyTasks();
+    renderOtherDays();
+    updateMomentum();
+    refreshWeeklyReviewIfVisible();
+    showToast('Suggestion appliquée.');
   }
 
   reasonInputs.forEach(input => {
-    input.onchange = () => {
-      micropasInput.value = input.getAttribute('data-micropas');
-    };
+    input.addEventListener('change', () => {
+      if (input.checked) {
+        updateMicropasCard(input.value);
+      }
+    });
+    input.checked = input.value === defaultReason;
   });
 
-  document.getElementById('save-report-btn').onclick = () => {
-    const newDate = document.getElementById('report-date-input').value;
-    const selectedReason = document.querySelector('input[name="reason"]:checked');
-    const reasonValue = selectedReason ? selectedReason.value : reasons[0].value;
+  updateMicropasCard(defaultReason);
 
-    ensureTasksForDate(newDate);
+  if (micropasApplyBtn) {
+    micropasApplyBtn.addEventListener('click', () => {
+      const selected = context.selectedReason || defaultReason;
+      applyMicropas(selected);
+    });
+  }
 
-    const emptySlot = state.tasks[newDate].findIndex(t => isTaskEmpty(t));
-    if (emptySlot !== -1) {
-      state.tasks[newDate][emptySlot] = {
-        ...task,
-        status: 'planned'
-      };
-    }
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', () => {
+      closeModal();
+    });
+  }
 
-    if (dateStr === getToday()) {
-      state.tasks[dateStr][taskIdx] = createEmptyTask();
-    }
+  if (saveBtn) {
+    saveBtn.addEventListener('click', () => {
+      const selectedReasonInput = content.querySelector('input[name="reason"]:checked');
+      const reasonValue = selectedReasonInput ? selectedReasonInput.value : defaultReason;
+      const newDate = reportDateInput?.value || nextDayStr;
 
-    recordReportForDate(newDate, reasonValue);
-    saveState();
-    closeModal();
-    renderDashboard();
-    refreshWeeklyReviewIfVisible();
-    alert('Tâche reportée !');
-  };
+      ensureTasksForDate(newDate);
+      const targetTasks = state.tasks[newDate];
+
+      let targetSlot = Number.parseInt(reportTargetSlotInput.value, 10);
+      if (!Number.isInteger(targetSlot) || targetSlot < 0 || targetSlot > 2) {
+        targetSlot = targetTasks.findIndex(t => isTaskEmpty(t));
+      } else if (targetTasks[targetSlot] && !isTaskEmpty(targetTasks[targetSlot]) && !(newDate === dateStr && targetSlot === taskIdx)) {
+        targetSlot = targetTasks.findIndex(t => isTaskEmpty(t));
+      }
+
+      if (targetSlot === -1) {
+        showToast('Aucun créneau libre pour cette date.');
+        return;
+      }
+
+      const movedTask = cloneTask(task);
+      movedTask.status = 'planned';
+      targetTasks[targetSlot] = movedTask;
+      if (!(newDate === dateStr && targetSlot === taskIdx)) {
+        state.tasks[dateStr][taskIdx] = createEmptyTask();
+      }
+
+      finalizeReportModalContext({ taskForLogging: movedTask });
+      recordReportForDate(newDate, reasonValue, movedTask, dateStr);
+      saveState();
+      closeModal();
+      renderDashboard();
+      refreshWeeklyReviewIfVisible();
+      alert('Tâche reportée !');
+    });
+  }
 }
 
 function closeModal() {
   stopModalAudio();
   const modal = document.getElementById('modal-overlay');
   const content = document.getElementById('modal-content');
-  const wasQuickAdd = modal && modal.dataset.activeModal === 'quick-add';
+  const activeModalType = modal?.dataset.activeModal || null;
+  const wasQuickAdd = activeModalType === 'quick-add';
+  const wasReportModal = activeModalType === 'report';
   releaseFocusTrap();
   if (modal) {
+    if (wasReportModal && currentReportModalContext) {
+      const changed = finalizeReportModalContext();
+      if (changed) {
+        saveState();
+      }
+    }
     modal.classList.remove('show');
     delete modal.dataset.activeModal;
   }
