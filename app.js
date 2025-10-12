@@ -64,6 +64,16 @@ const QUICK_ADD_MOMENT_DEFAULT_TIME = {
   'Soir': '21:45'
 };
 
+const ENABLE_SOCIAL_LIVE = false;
+
+const FIREBASE_CONFIG = {
+  // TODO: à remplir quand on activera Firestore
+};
+
+const SOCIAL_LOCAL_STORAGE_KEY = 'ZEYNE_SOCIAL_V1';
+const SOCIAL_DEFAULT_CHALLENGE_TYPE = 'streak3';
+const SOCIAL_MIN_STREAK_FOR_CHALLENGE = 3;
+
 const FOCUS_MOMENT_KEYS = ['morning', 'afternoon', 'evening'];
 const FOCUS_DURATION_LIMITS = { min: 5, max: 45, step: 5 };
 const FOCUS_DEFAULT_DURATION = { morning: 25, afternoon: 25, evening: 25 };
@@ -1171,6 +1181,12 @@ let notificationBeepContext = null;
 const focusSessionRuntime = {
   activeTimer: false
 };
+
+let socialProvider = null;
+let socialOverviewCache = null;
+const socialChallengeStatusCache = new Map();
+let activeNotificationsTab = 'alerts';
+let openSocialMenuUid = null;
 
 const pwaInstallRuntime = {
   deferredPrompt: null,
@@ -3966,11 +3982,54 @@ function showView(viewName) {
     } else if (viewName === 'notifications') {
       updateNotificationsForm();
       refreshNotificationPermissionState();
+      if (activeNotificationsTab === 'social') {
+        refreshSocialOverview({ silent: true });
+      }
     }
 
     if (viewName !== 'bibliotheque') {
       stopPreviewAudio();
     }
+  }
+}
+
+function initNotificationsTabs() {
+  const tabs = document.querySelectorAll('.notifications-tab');
+  const panels = document.querySelectorAll('.notifications-panel');
+
+  const activate = (target) => {
+    if (!target) return;
+    activeNotificationsTab = target;
+    tabs.forEach(tab => {
+      const isActive = tab.dataset.tab === target;
+      tab.classList.toggle('notifications-tab-active', isActive);
+      tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      tab.setAttribute('tabindex', isActive ? '0' : '-1');
+    });
+
+    panels.forEach(panel => {
+      const isActive = panel.dataset.panel === target;
+      panel.classList.toggle('notifications-panel-active', isActive);
+      panel.toggleAttribute('hidden', !isActive);
+    });
+
+    if (target === 'social') {
+      refreshSocialOverview();
+    }
+  };
+
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const target = tab.dataset.tab;
+      activate(target);
+    });
+  });
+
+  const initialTab = Array.from(tabs).find(tab => tab.classList.contains('notifications-tab-active'))?.dataset.tab
+    || activeNotificationsTab
+    || tabs[0]?.dataset.tab;
+  if (initialTab) {
+    activate(initialTab);
   }
 }
 
@@ -7963,6 +8022,1135 @@ function showReportModal(dateStr, taskIdx, options = {}) {
   }
 }
 
+function createSocialProvider() {
+  if (ENABLE_SOCIAL_LIVE) {
+    return createLiveSocialProvider();
+  }
+  return createLocalSocialProvider();
+}
+
+function createLiveSocialProvider() {
+  console.warn('Mode Firestore désactivé. Configurez FIREBASE_CONFIG pour activer le live.');
+  return {
+    async getFriends() {
+      throw new Error('Backend social non configuré.');
+    },
+    async invite() {
+      throw new Error('Backend social non configuré.');
+    },
+    async accept() {
+      throw new Error('Backend social non configuré.');
+    },
+    async acceptInvitation() {
+      throw new Error('Backend social non configuré.');
+    },
+    async declineInvitation() {
+      throw new Error('Backend social non configuré.');
+    },
+    async cheer() {
+      throw new Error('Backend social non configuré.');
+    },
+    async createChallenge() {
+      throw new Error('Backend social non configuré.');
+    },
+    async hideFriend() {
+      throw new Error('Backend social non configuré.');
+    },
+    async removeFriend() {
+      throw new Error('Backend social non configuré.');
+    },
+    async updatePublicStats() {
+      throw new Error('Backend social non configuré.');
+    }
+  };
+}
+
+function createLocalSocialProvider() {
+  const storageAvailable = typeof window !== 'undefined' && window.localStorage;
+  let memoryState = null;
+
+  const ensureState = () => {
+    const state = loadState();
+    return normalizeSocialState(state);
+  };
+
+  const loadState = () => {
+    try {
+      if (!storageAvailable) {
+        if (!memoryState) {
+          memoryState = createDefaultSocialState();
+        }
+        return JSON.parse(JSON.stringify(memoryState));
+      }
+      const raw = window.localStorage.getItem(SOCIAL_LOCAL_STORAGE_KEY);
+      if (!raw) {
+        return createDefaultSocialState();
+      }
+      const parsed = JSON.parse(raw);
+      return normalizeSocialState(parsed);
+    } catch (error) {
+      console.warn('État social local corrompu, réinitialisation.', error);
+      return createDefaultSocialState();
+    }
+  };
+
+  const saveState = (state) => {
+    const clone = JSON.stringify(state);
+    if (!storageAvailable) {
+      memoryState = JSON.parse(clone);
+      return;
+    }
+    window.localStorage.setItem(SOCIAL_LOCAL_STORAGE_KEY, clone);
+  };
+
+  const randomNamePool = ['Jamie', 'Lina', 'Noah', 'Maya', 'Robin', 'Inès', 'Leo', 'Sami', 'Mila', 'Nora'];
+
+  const ensureInviteList = (state) => {
+    if (!Array.isArray(state.outgoingInvites)) {
+      state.outgoingInvites = [];
+    }
+    if (!Array.isArray(state.incomingInvites)) {
+      state.incomingInvites = [];
+    }
+  };
+
+  const buildOverview = (state) => {
+    ensureInviteList(state);
+    const friends = (state.friends || [])
+      .filter(friend => friend && friend.status === 'accepted' && !friend.hidden)
+      .map(friend => {
+        const normalizedStats = friend.sharing === false ? null : sanitizeStats(friend.publicStats);
+        const challenge = evaluateChallenge(friend, normalizedStats);
+        const displayName = friend.displayName || 'Ami';
+        const lastActivity = normalizedStats?.lastActivityAt || friend.lastActivityAt || null;
+        if (challenge && challenge.__shouldPersist) {
+          friend.challenge = challenge.store;
+        }
+        return {
+          uid: friend.uid,
+          displayName,
+          initials: computeInitials(displayName),
+          sharing: friend.sharing !== false,
+          publicStats: normalizedStats,
+          lastActivityAt: lastActivity,
+          lastActivityLabel: formatRelativeTimeFromNow(lastActivity),
+          challenge: challenge ? challenge.view : null
+        };
+      });
+
+    return {
+      profile: {
+        uid: state.profile.uid,
+        displayName: state.profile.displayName || 'Vous',
+        sharing: state.profile.sharing !== false,
+        publicStats: sanitizeStats(state.profile.publicStats)
+      },
+      friends,
+      incomingInvitations: state.incomingInvites.map(invite => ({
+        id: invite.id,
+        displayName: invite.displayName || 'Invité·e',
+        createdAt: invite.createdAt || new Date().toISOString()
+      })),
+      outgoingInvites: state.outgoingInvites.slice(0, 5)
+    };
+  };
+
+  const evaluateChallenge = (friend, stats) => {
+    if (!friend.challenge) {
+      return null;
+    }
+    const normalized = normalizeChallenge(friend.challenge);
+    const result = { store: normalized, view: null, __shouldPersist: false };
+    let progress = typeof normalized.progress === 'number' ? normalized.progress : 0;
+    if (stats && typeof stats.streakDays === 'number') {
+      progress = Math.min(stats.streakDays / SOCIAL_MIN_STREAK_FOR_CHALLENGE, 1);
+    }
+    let status = normalized.status;
+    if (progress >= 1 && status !== 'success') {
+      status = 'success';
+      result.__shouldPersist = true;
+    } else if (progress > 0 && status === 'pending') {
+      status = 'in_progress';
+      result.__shouldPersist = true;
+    }
+    result.store = { ...normalized, status, progress };
+    result.view = {
+      id: normalized.id,
+      type: normalized.type,
+      status,
+      progress
+    };
+    return result;
+  };
+
+  const sanitizeStats = (stats) => {
+    if (!stats || typeof stats !== 'object') {
+      return null;
+    }
+    const score = Number.isFinite(stats.scoreWeek) ? Math.round(stats.scoreWeek) : 0;
+    const streak = Number.isFinite(stats.streakDays) ? Math.max(0, Math.round(stats.streakDays)) : 0;
+    const lastActivityAt = typeof stats.lastActivityAt === 'string' ? stats.lastActivityAt : new Date().toISOString();
+    return {
+      scoreWeek: Math.min(100, Math.max(0, score)),
+      streakDays: streak,
+      lastActivityAt
+    };
+  };
+
+  const normalizeChallenge = (challenge) => {
+    const allowed = ['pending', 'in_progress', 'success', 'expired'];
+    const status = allowed.includes(challenge?.status) ? challenge.status : 'pending';
+    const progress = typeof challenge?.progress === 'number' ? Math.min(1, Math.max(0, challenge.progress)) : 0;
+    return {
+      id: challenge?.id || `local-challenge-${Math.random().toString(36).slice(2, 9)}`,
+      type: challenge?.type || SOCIAL_DEFAULT_CHALLENGE_TYPE,
+      status,
+      progress,
+      createdAt: challenge?.createdAt || new Date().toISOString()
+    };
+  };
+
+  const generateInviteDetails = (state) => {
+    const code = `ZEYNE-AMI-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+    const invite = {
+      code,
+      createdAt: new Date().toISOString()
+    };
+    state.outgoingInvites.unshift(invite);
+    state.outgoingInvites = state.outgoingInvites.slice(0, 5);
+    const origin = typeof window !== 'undefined' && window.location ? window.location.origin : 'https://zeyne.app';
+    const url = `${origin}/?code=${encodeURIComponent(code)}`;
+    return { invite, details: { code, url } };
+  };
+
+  const createDemoFriend = (code) => {
+    const name = randomNamePool[Math.floor(Math.random() * randomNamePool.length)];
+    const suffix = code ? ` ${code.slice(-3)}` : '';
+    const now = Date.now();
+    const lastActivity = new Date(now - Math.floor(Math.random() * 12) * 3600000).toISOString();
+    return {
+      uid: `local-friend-${now}-${Math.random().toString(36).slice(2, 6)}`,
+      displayName: `${name}${suffix}`,
+      sharing: Math.random() > 0.3,
+      publicStats: {
+        scoreWeek: Math.min(100, Math.max(35, Math.round(45 + Math.random() * 45))),
+        streakDays: Math.max(0, Math.round(Math.random() * 4)),
+        lastActivityAt: lastActivity
+      },
+      status: 'accepted',
+      hidden: false,
+      challenge: null
+    };
+  };
+
+  return {
+    async getFriends() {
+      const state = ensureState();
+      const overview = buildOverview(state);
+      saveState(state);
+      return overview;
+    },
+    async invite() {
+      const state = ensureState();
+      ensureInviteList(state);
+      const { invite, details } = generateInviteDetails(state);
+      saveState(state);
+      return { ...details, createdAt: invite.createdAt };
+    },
+    async accept(code) {
+      const trimmed = (code || '').toString().trim().toUpperCase();
+      if (!trimmed) {
+        throw new Error('Code invalide.');
+      }
+      const state = ensureState();
+      const friend = createDemoFriend(trimmed);
+      state.friends.push(friend);
+      saveState(state);
+      return friend;
+    },
+    async acceptInvitation(inviteId) {
+      const state = ensureState();
+      ensureInviteList(state);
+      const index = state.incomingInvites.findIndex(invite => invite.id === inviteId);
+      if (index === -1) {
+        throw new Error('Invitation introuvable.');
+      }
+      const invite = state.incomingInvites.splice(index, 1)[0];
+      const friend = {
+        uid: `local-friend-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        displayName: invite.displayName || 'Nouvel ami',
+        sharing: true,
+        publicStats: {
+          scoreWeek: 68,
+          streakDays: 1,
+          lastActivityAt: new Date().toISOString()
+        },
+        status: 'accepted',
+        hidden: false,
+        challenge: null
+      };
+      state.friends.push(friend);
+      saveState(state);
+      return friend;
+    },
+    async declineInvitation(inviteId) {
+      const state = ensureState();
+      ensureInviteList(state);
+      state.incomingInvites = state.incomingInvites.filter(invite => invite.id !== inviteId);
+      saveState(state);
+    },
+    async cheer(uid) {
+      const state = ensureState();
+      ensureInviteList(state);
+      if (!Array.isArray(state.cheers)) {
+        state.cheers = [];
+      }
+      state.cheers.push({ toUid: uid, createdAt: new Date().toISOString() });
+      saveState(state);
+    },
+    async createChallenge(uid) {
+      const state = ensureState();
+      const friend = state.friends.find(entry => entry.uid === uid);
+      if (!friend) {
+        throw new Error('Profil introuvable.');
+      }
+      friend.challenge = {
+        id: `challenge-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        type: SOCIAL_DEFAULT_CHALLENGE_TYPE,
+        status: 'pending',
+        progress: 0,
+        createdAt: new Date().toISOString()
+      };
+      saveState(state);
+      return friend.challenge;
+    },
+    async hideFriend(uid) {
+      const state = ensureState();
+      const friend = state.friends.find(entry => entry.uid === uid);
+      if (friend) {
+        friend.hidden = true;
+        saveState(state);
+      }
+    },
+    async removeFriend(uid) {
+      const state = ensureState();
+      state.friends = state.friends.filter(entry => entry.uid !== uid);
+      saveState(state);
+    },
+    async updatePublicStats({ sharing }) {
+      const state = ensureState();
+      state.profile.sharing = sharing !== false;
+      if (!state.profile.publicStats) {
+        state.profile.publicStats = {
+          scoreWeek: 72,
+          streakDays: 5,
+          lastActivityAt: new Date().toISOString()
+        };
+      } else {
+        state.profile.publicStats.lastActivityAt = new Date().toISOString();
+      }
+      saveState(state);
+    }
+  };
+}
+
+function normalizeSocialState(state) {
+  const defaults = createDefaultSocialState();
+  const profileStats = state?.profile?.publicStats
+    ? { ...state.profile.publicStats }
+    : { ...defaults.profile.publicStats };
+
+  const friends = Array.isArray(state?.friends)
+    ? state.friends.map(friend => ({
+      uid: friend?.uid || `friend-${Math.random().toString(36).slice(2, 8)}`,
+      displayName: friend?.displayName || 'Ami',
+      sharing: friend?.sharing !== false,
+      publicStats: friend?.publicStats ? { ...friend.publicStats } : { ...defaults.profile.publicStats },
+      status: friend?.status === 'pending' ? 'pending' : 'accepted',
+      hidden: friend?.hidden === true,
+      challenge: friend?.challenge ? { ...friend.challenge } : null
+    }))
+    : defaults.friends.map(friend => ({
+      ...friend,
+      publicStats: friend.publicStats ? { ...friend.publicStats } : null,
+      challenge: friend.challenge ? { ...friend.challenge } : null
+    }));
+
+  return {
+    profile: { ...defaults.profile, ...(state?.profile || {}), publicStats: profileStats },
+    friends,
+    incomingInvites: Array.isArray(state?.incomingInvites)
+      ? state.incomingInvites.map(invite => ({ ...invite }))
+      : defaults.incomingInvites.map(invite => ({ ...invite })),
+    outgoingInvites: Array.isArray(state?.outgoingInvites)
+      ? state.outgoingInvites.map(invite => ({ ...invite }))
+      : defaults.outgoingInvites.map(invite => ({ ...invite })),
+    cheers: Array.isArray(state?.cheers) ? state.cheers.map(entry => ({ ...entry })) : []
+  };
+}
+
+function createDefaultSocialState() {
+  const now = new Date();
+  const friendActivity = new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString();
+  return {
+    profile: {
+      uid: 'local-user',
+      displayName: 'Vous',
+      sharing: true,
+      publicStats: {
+        scoreWeek: 74,
+        streakDays: 5,
+        lastActivityAt: now.toISOString()
+      }
+    },
+    friends: [
+      {
+        uid: 'friend-alex',
+        displayName: 'Alex M.',
+        sharing: true,
+        publicStats: {
+          scoreWeek: 88,
+          streakDays: 2,
+          lastActivityAt: friendActivity
+        },
+        status: 'accepted',
+        hidden: false,
+        challenge: null
+      },
+      {
+        uid: 'friend-chris',
+        displayName: 'Chris L.',
+        sharing: false,
+        publicStats: {
+          scoreWeek: 66,
+          streakDays: 1,
+          lastActivityAt: new Date(now.getTime() - 26 * 60 * 60 * 1000).toISOString()
+        },
+        status: 'accepted',
+        hidden: false,
+        challenge: {
+          id: 'challenge-demo',
+          type: SOCIAL_DEFAULT_CHALLENGE_TYPE,
+          status: 'in_progress',
+          progress: 0.33,
+          createdAt: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString()
+        }
+      }
+    ],
+    incomingInvites: [
+      {
+        id: 'invite-sami',
+        displayName: 'Sami veut se connecter',
+        createdAt: new Date(now.getTime() - 6 * 60 * 60 * 1000).toISOString()
+      }
+    ],
+    outgoingInvites: [],
+    cheers: []
+  };
+}
+
+function computeInitials(displayName) {
+  if (!displayName) return '??';
+  const parts = displayName.trim().split(/\s+/);
+  const first = parts[0]?.charAt(0) || '';
+  const last = parts.length > 1 ? parts[parts.length - 1].charAt(0) : '';
+  return `${first}${last}`.toUpperCase() || displayName.charAt(0).toUpperCase();
+}
+
+function formatRelativeTimeFromNow(isoString) {
+  if (!isoString) {
+    return '—';
+  }
+  const date = new Date(isoString);
+  if (Number.isNaN(date.getTime())) {
+    return '—';
+  }
+  const now = new Date();
+  let diff = now.getTime() - date.getTime();
+  if (diff < 0) {
+    return "à l'instant";
+  }
+  const seconds = Math.floor(diff / 1000);
+  if (seconds < 60) {
+    return `il y a ${seconds} s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) {
+    return `il y a ${minutes} min`;
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return `il y a ${hours} h`;
+  }
+  const days = Math.floor(hours / 24);
+  if (days < 7) {
+    return `il y a ${days} j`;
+  }
+  const weeks = Math.floor(days / 7);
+  if (weeks < 4) {
+    return `il y a ${weeks} sem.`;
+  }
+  const months = Math.floor(days / 30);
+  if (months < 12) {
+    return `il y a ${months} mois`;
+  }
+  const years = Math.floor(days / 365);
+  return `il y a ${years} an${years > 1 ? 's' : ''}`;
+}
+
+async function refreshSocialOverview(options = {}) {
+  if (!socialProvider) {
+    return;
+  }
+  const { silent } = options;
+  const wasFirstLoad = !socialOverviewCache;
+  closeSocialMenu();
+  const offlineCard = document.getElementById('social-offline-card');
+  if (offlineCard) {
+    offlineCard.hidden = true;
+  }
+  try {
+    const overview = await socialProvider.getFriends();
+    socialOverviewCache = overview;
+    const toggle = document.getElementById('social-sharing-toggle');
+    if (toggle && overview?.profile) {
+      toggle.checked = overview.profile.sharing !== false;
+    }
+    renderSocialFriends(overview);
+    renderSocialInvitations(overview);
+    updateSocialEmptyState(overview);
+    const shouldBeSilent = typeof silent === 'boolean' ? silent : wasFirstLoad;
+    updateChallengeStatusFeedback(overview, { silent: shouldBeSilent });
+  } catch (error) {
+    console.warn('Impossible de charger la zone sociale.', error);
+    if (offlineCard) {
+      offlineCard.hidden = false;
+    }
+  }
+}
+
+function updateChallengeStatusFeedback(overview, { silent = false } = {}) {
+  const visible = new Set();
+  (overview?.friends || []).forEach(friend => {
+    visible.add(friend.uid);
+    if (!friend.challenge) {
+      socialChallengeStatusCache.delete(friend.uid);
+      return;
+    }
+    const previous = socialChallengeStatusCache.get(friend.uid);
+    socialChallengeStatusCache.set(friend.uid, friend.challenge.status);
+    if (!silent && friend.challenge.status === 'success' && previous !== 'success') {
+      showToast(`Défi réussi avec ${friend.displayName} 🎉`);
+    }
+  });
+
+  Array.from(socialChallengeStatusCache.keys()).forEach(uid => {
+    if (!visible.has(uid)) {
+      socialChallengeStatusCache.delete(uid);
+    }
+  });
+}
+
+function renderSocialFriends(overview) {
+  const grid = document.getElementById('social-friends-grid');
+  if (!grid) {
+    return;
+  }
+  grid.innerHTML = '';
+  (overview?.friends || []).forEach(friend => {
+    const card = document.createElement('article');
+    card.className = 'social-friend-card';
+    card.dataset.uid = friend.uid;
+
+    const header = document.createElement('div');
+    header.className = 'social-friend-header';
+
+    const avatar = document.createElement('div');
+    avatar.className = 'social-friend-avatar';
+    avatar.textContent = friend.initials;
+
+    const info = document.createElement('div');
+    info.className = 'social-friend-info';
+    const nameEl = document.createElement('span');
+    nameEl.className = 'social-friend-name';
+    nameEl.textContent = friend.displayName;
+    const meta = document.createElement('span');
+    meta.className = 'social-friend-meta';
+    meta.textContent = friend.sharing === false ? 'Stats masquées' : 'Stats partagées';
+    info.appendChild(nameEl);
+    info.appendChild(meta);
+
+    const menuWrapper = document.createElement('div');
+    menuWrapper.className = 'social-friend-menu';
+
+    const menuTrigger = document.createElement('button');
+    menuTrigger.type = 'button';
+    menuTrigger.className = 'social-menu-trigger';
+    menuTrigger.setAttribute('aria-haspopup', 'true');
+    menuTrigger.setAttribute('aria-expanded', 'false');
+    menuTrigger.dataset.action = 'menu-toggle';
+    menuTrigger.dataset.uid = friend.uid;
+    menuTrigger.textContent = '⋯';
+    menuTrigger.setAttribute('aria-label', `Actions pour ${friend.displayName}`);
+
+    const menu = document.createElement('div');
+    menu.className = 'social-menu';
+    menu.innerHTML = `
+      <button type="button" data-action="challenge" data-uid="${friend.uid}">Proposer un défi</button>
+      <button type="button" data-action="hide" data-uid="${friend.uid}">Masquer</button>
+      <button type="button" data-action="remove" data-uid="${friend.uid}">Supprimer</button>
+    `;
+
+    menuWrapper.appendChild(menuTrigger);
+    menuWrapper.appendChild(menu);
+
+    header.appendChild(avatar);
+    header.appendChild(info);
+    header.appendChild(menuWrapper);
+
+    card.appendChild(header);
+
+    if (friend.publicStats) {
+      const stats = document.createElement('div');
+      stats.className = 'social-friend-stats';
+
+      const score = document.createElement('div');
+      score.className = 'social-friend-stat';
+      score.innerHTML = `<span>Score semaine</span><strong>${friend.publicStats.scoreWeek}%</strong>`;
+
+      const streak = document.createElement('div');
+      streak.className = 'social-friend-stat';
+      streak.innerHTML = `<span>Streak</span><strong>${formatDayCount(friend.publicStats.streakDays)}</strong>`;
+
+      const lastActivity = document.createElement('div');
+      lastActivity.className = 'social-friend-stat';
+      lastActivity.innerHTML = `<span>Dernière activité</span><strong>${friend.lastActivityLabel || '—'}</strong>`;
+
+      stats.appendChild(score);
+      stats.appendChild(streak);
+      stats.appendChild(lastActivity);
+      card.appendChild(stats);
+    } else {
+      const warning = document.createElement('p');
+      warning.className = 'social-friend-meta';
+      warning.textContent = `${friend.displayName} garde ses stats privées.`;
+      card.appendChild(warning);
+    }
+
+    if (friend.challenge) {
+      const challengeCard = document.createElement('div');
+      challengeCard.className = 'social-challenge-card';
+      const headerChallenge = document.createElement('div');
+      headerChallenge.className = 'social-challenge-header';
+      const label = document.createElement('span');
+      label.textContent = 'Défi : 3 jours d’affilée validés';
+      const status = document.createElement('span');
+      status.className = 'social-challenge-status';
+      const statusMap = {
+        pending: 'En attente',
+        in_progress: 'En cours',
+        success: 'Réussi',
+        expired: 'Expiré'
+      };
+      status.textContent = statusMap[friend.challenge.status] || 'En cours';
+      headerChallenge.appendChild(label);
+      headerChallenge.appendChild(status);
+
+      const progress = document.createElement('div');
+      progress.className = 'social-challenge-progress';
+      const bar = document.createElement('div');
+      bar.className = 'social-challenge-progress-bar';
+      bar.style.width = `${Math.round((friend.challenge.progress || 0) * 100)}%`;
+      progress.appendChild(bar);
+
+      challengeCard.appendChild(headerChallenge);
+      challengeCard.appendChild(progress);
+      card.appendChild(challengeCard);
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'social-friend-actions';
+
+    const cheerBtn = document.createElement('button');
+    cheerBtn.type = 'button';
+    cheerBtn.className = 'social-cheer-btn';
+    cheerBtn.dataset.action = 'cheer';
+    cheerBtn.dataset.uid = friend.uid;
+    cheerBtn.innerHTML = '👏<span>Encourager</span>';
+    cheerBtn.setAttribute('aria-label', `Envoyer un encouragement à ${friend.displayName}`);
+
+    actions.appendChild(cheerBtn);
+    card.appendChild(actions);
+
+    grid.appendChild(card);
+  });
+}
+
+function renderSocialInvitations(overview) {
+  const section = document.getElementById('social-invitations-section');
+  const list = document.getElementById('social-invitations-list');
+  if (!section || !list) {
+    return;
+  }
+  list.innerHTML = '';
+  const invitations = overview?.incomingInvitations || [];
+  if (!invitations.length) {
+    section.hidden = true;
+    return;
+  }
+  invitations.forEach(invite => {
+    const card = document.createElement('article');
+    card.className = 'social-invitation-card';
+    const title = document.createElement('p');
+    title.textContent = invite.displayName || 'Nouvelle invitation';
+    const time = document.createElement('span');
+    time.className = 'social-friend-meta';
+    time.textContent = formatRelativeTimeFromNow(invite.createdAt);
+    const actions = document.createElement('div');
+    actions.className = 'social-invitation-actions';
+
+    const acceptBtn = document.createElement('button');
+    acceptBtn.type = 'button';
+    acceptBtn.className = 'btn btn-primary';
+    acceptBtn.textContent = 'Accepter';
+    acceptBtn.dataset.action = 'accept-invite';
+    acceptBtn.dataset.inviteId = invite.id;
+
+    const declineBtn = document.createElement('button');
+    declineBtn.type = 'button';
+    declineBtn.className = 'btn btn-outline';
+    declineBtn.textContent = 'Refuser';
+    declineBtn.dataset.action = 'decline-invite';
+    declineBtn.dataset.inviteId = invite.id;
+
+    actions.appendChild(acceptBtn);
+    actions.appendChild(declineBtn);
+
+    card.appendChild(title);
+    card.appendChild(time);
+    card.appendChild(actions);
+    list.appendChild(card);
+  });
+  section.hidden = false;
+}
+
+function updateSocialEmptyState(overview) {
+  const empty = document.getElementById('social-empty-state');
+  const grid = document.getElementById('social-friends-grid');
+  if (!empty || !grid) {
+    return;
+  }
+  const hasFriends = (overview?.friends || []).length > 0;
+  empty.hidden = hasFriends;
+  grid.hidden = !hasFriends;
+  grid.style.display = hasFriends ? 'grid' : 'none';
+}
+
+async function handleSocialGridClick(event) {
+  const button = event.target.closest('button');
+  if (!button) {
+    return;
+  }
+  const action = button.dataset.action;
+  if (!action) {
+    return;
+  }
+  const uid = button.dataset.uid;
+
+  if (action === 'menu-toggle') {
+    event.preventDefault();
+    event.stopPropagation();
+    if (openSocialMenuUid === uid) {
+      closeSocialMenu();
+    } else {
+      toggleSocialMenu(uid);
+    }
+    return;
+  }
+
+  if (!socialProvider || !uid) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  const friend = getFriendFromCache(uid);
+
+  try {
+    if (action === 'cheer') {
+      await socialProvider.cheer(uid);
+      showToast('Encouragement envoyé !');
+    } else if (action === 'challenge') {
+      await socialProvider.createChallenge(uid);
+      showToast(friend ? `Défi lancé avec ${friend.displayName} !` : 'Défi lancé !');
+    } else if (action === 'hide') {
+      await socialProvider.hideFriend(uid);
+      showToast(friend ? `${friend.displayName} masqué·e.` : 'Profil masqué.');
+    } else if (action === 'remove') {
+      const confirmed = await showConfirmationToast(`Supprimer ${friend ? friend.displayName : 'cet ami'} ?`, {
+        confirmLabel: 'Supprimer',
+        cancelLabel: 'Annuler'
+      });
+      if (!confirmed) {
+        closeSocialMenu();
+        return;
+      }
+      await socialProvider.removeFriend(uid);
+      showToast(friend ? `${friend.displayName} supprimé·e.` : 'Profil supprimé.');
+    }
+    closeSocialMenu();
+    refreshSocialOverview({ silent: true });
+  } catch (error) {
+    console.warn('Action sociale impossible', error);
+    showToast('Action impossible pour le moment.');
+  }
+}
+
+async function handleSocialInvitationsClick(event) {
+  const button = event.target.closest('button');
+  if (!button) {
+    return;
+  }
+  const action = button.dataset.action;
+  const inviteId = button.dataset.inviteId;
+  if (!action || !inviteId || !socialProvider) {
+    return;
+  }
+  event.preventDefault();
+  try {
+    if (action === 'accept-invite') {
+      await socialProvider.acceptInvitation(inviteId);
+      showToast('Connexion acceptée !');
+    } else if (action === 'decline-invite') {
+      await socialProvider.declineInvitation(inviteId);
+      showToast('Invitation refusée.');
+    }
+    refreshSocialOverview({ silent: true });
+  } catch (error) {
+    console.warn('Invitation impossible à traiter', error);
+    showToast('Opération impossible pour le moment.');
+  }
+}
+
+function handleGlobalSocialClick(event) {
+  if (!openSocialMenuUid) {
+    return;
+  }
+  const card = document.querySelector(`.social-friend-card[data-uid="${openSocialMenuUid}"]`);
+  if (!card) {
+    closeSocialMenu();
+    return;
+  }
+  if (card.contains(event.target)) {
+    return;
+  }
+  closeSocialMenu();
+}
+
+function toggleSocialMenu(uid) {
+  closeSocialMenu();
+  const card = document.querySelector(`.social-friend-card[data-uid="${uid}"]`);
+  if (!card) {
+    return;
+  }
+  const menu = card.querySelector('.social-menu');
+  const trigger = card.querySelector('.social-menu-trigger');
+  if (menu && trigger) {
+    menu.classList.add('open');
+    trigger.setAttribute('aria-expanded', 'true');
+    openSocialMenuUid = uid;
+  }
+}
+
+function closeSocialMenu() {
+  if (!openSocialMenuUid) {
+    return;
+  }
+  const card = document.querySelector(`.social-friend-card[data-uid="${openSocialMenuUid}"]`);
+  if (card) {
+    const menu = card.querySelector('.social-menu');
+    const trigger = card.querySelector('.social-menu-trigger');
+    if (menu) {
+      menu.classList.remove('open');
+    }
+    if (trigger) {
+      trigger.setAttribute('aria-expanded', 'false');
+    }
+  }
+  openSocialMenuUid = null;
+}
+
+function getFriendFromCache(uid) {
+  if (!socialOverviewCache?.friends) {
+    return null;
+  }
+  return socialOverviewCache.friends.find(friend => friend.uid === uid) || null;
+}
+
+function handleSocialShareSnapshot() {
+  showToast('Bientôt : export de votre progression ✨');
+}
+
+async function openAddPersonModal() {
+  if (!socialProvider) {
+    return;
+  }
+  const modal = document.getElementById('modal-overlay');
+  const content = document.getElementById('modal-content');
+  if (!modal || !content) {
+    return;
+  }
+
+  content.classList.remove('template-wide');
+  content.classList.remove('badge-modal-container');
+  content.classList.remove('quick-add-modal');
+  content.classList.add('social-modal');
+
+  content.innerHTML = `
+    <div class="social-add-modal">
+      <div class="social-add-header">
+        <h3>Ajouter une personne</h3>
+        <button type="button" class="social-add-close" id="social-add-modal-close" aria-label="Fermer">✕</button>
+      </div>
+      <div class="social-add-tabs" role="tablist">
+        <button type="button" class="social-add-tab social-add-tab-active" data-tab="invite" role="tab" aria-selected="true">Inviter</button>
+        <button type="button" class="social-add-tab" data-tab="connect" role="tab" aria-selected="false">Saisir un code</button>
+      </div>
+      <div class="social-add-panel social-add-panel-active" data-panel="invite">
+        <p>Partagez ce lien ou ce code. L’autre personne devra accepter pour que vous soyez connectés.</p>
+        <div class="social-invite-field">
+          <span class="social-invite-label">Lien d’invitation</span>
+          <div class="social-invite-value" id="social-invite-link">Génération…</div>
+          <button type="button" class="btn btn-secondary" id="social-copy-link-btn">Copier le lien</button>
+        </div>
+        <div class="social-invite-field">
+          <span class="social-invite-label">Code</span>
+          <div class="social-invite-code" id="social-invite-code">—</div>
+          <button type="button" class="btn btn-outline" id="social-copy-code-btn">Copier le code</button>
+        </div>
+      </div>
+      <div class="social-add-panel" data-panel="connect" hidden>
+        <form class="social-connect-form" id="social-connect-form">
+          <label for="social-connect-code-input">Code d’invitation</label>
+          <input type="text" id="social-connect-code-input" name="code" placeholder="ZEYNE-AMI-ABCDE" required>
+          <button type="submit" class="btn btn-primary">Se connecter</button>
+        </form>
+        <p class="social-connect-hint">Votre ami·e devra également accepter pour que la connexion soit active.</p>
+      </div>
+    </div>
+  `;
+
+  modal.dataset.activeModal = 'social-add';
+  modal.classList.add('show');
+
+  const closeBtn = document.getElementById('social-add-modal-close');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => closeModal());
+  }
+
+  const tabButtons = Array.from(content.querySelectorAll('.social-add-tab'));
+  const panels = Array.from(content.querySelectorAll('.social-add-panel'));
+
+  const activateTab = (target) => {
+    tabButtons.forEach(btn => {
+      const isActive = btn.dataset.tab === target;
+      btn.classList.toggle('social-add-tab-active', isActive);
+      btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+    panels.forEach(panel => {
+      const isActive = panel.dataset.panel === target;
+      panel.classList.toggle('social-add-panel-active', isActive);
+      panel.toggleAttribute('hidden', !isActive);
+    });
+  };
+
+  tabButtons.forEach(button => {
+    button.addEventListener('click', () => activateTab(button.dataset.tab));
+  });
+
+  activateTab('invite');
+
+  let inviteDetails = null;
+  let inviteFailed = false;
+
+  const ensureInviteDetails = async () => {
+    if (inviteDetails || inviteFailed) {
+      return inviteDetails;
+    }
+    try {
+      inviteDetails = await socialProvider.invite();
+      updateInviteUI();
+      return inviteDetails;
+    } catch (error) {
+      inviteFailed = true;
+      console.warn('Impossible de générer une invitation', error);
+      const linkEl = document.getElementById('social-invite-link');
+      const codeEl = document.getElementById('social-invite-code');
+      if (linkEl) {
+        linkEl.textContent = 'Indisponible pour le moment';
+      }
+      if (codeEl) {
+        codeEl.textContent = '—';
+      }
+      showToast('Invitation indisponible pour le moment.');
+      return null;
+    }
+  };
+
+  const updateInviteUI = () => {
+    const linkEl = document.getElementById('social-invite-link');
+    const codeEl = document.getElementById('social-invite-code');
+    if (inviteDetails) {
+      if (linkEl) {
+        linkEl.textContent = inviteDetails.url;
+        linkEl.setAttribute('title', inviteDetails.url);
+      }
+      if (codeEl) {
+        codeEl.textContent = inviteDetails.code;
+      }
+    }
+  };
+
+  await ensureInviteDetails();
+
+  const copyLinkBtn = document.getElementById('social-copy-link-btn');
+  if (copyLinkBtn) {
+    copyLinkBtn.addEventListener('click', async () => {
+      const details = await ensureInviteDetails();
+      if (!details) {
+        return;
+      }
+      await copyTextToClipboard(details.url);
+      showToast('Invitation envoyée');
+    });
+  }
+
+  const copyCodeBtn = document.getElementById('social-copy-code-btn');
+  if (copyCodeBtn) {
+    copyCodeBtn.addEventListener('click', async () => {
+      const details = await ensureInviteDetails();
+      if (!details) {
+        return;
+      }
+      await copyTextToClipboard(details.code);
+      showToast('Invitation envoyée');
+    });
+  }
+
+  const connectForm = document.getElementById('social-connect-form');
+  if (connectForm) {
+    connectForm.addEventListener('submit', async (evt) => {
+      evt.preventDefault();
+      const input = document.getElementById('social-connect-code-input');
+      const value = input?.value?.trim();
+      if (!value) {
+        showToast('Saisissez un code valide.');
+        return;
+      }
+      try {
+        await socialProvider.accept(value);
+        showToast('Connexion demandée !');
+        closeModal();
+        refreshSocialOverview({ silent: true });
+      } catch (error) {
+        console.warn('Connexion impossible', error);
+        showToast('Code invalide ou expiré.');
+      }
+    });
+  }
+
+  const connectInput = document.getElementById('social-connect-code-input');
+  if (connectInput) {
+    connectInput.addEventListener('input', () => {
+      connectInput.value = connectInput.value.toUpperCase();
+    });
+  }
+
+  setupFocusTrap(content, { modalKey: 'social-add', initialFocus: tabButtons[0] || closeBtn });
+}
+
+async function copyTextToClipboard(text) {
+  if (!text) {
+    return false;
+  }
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (error) {
+    console.warn('Clipboard API indisponible', error);
+  }
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'absolute';
+  textarea.style.left = '-9999px';
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    document.execCommand('copy');
+    return true;
+  } catch (error) {
+    console.warn('Copie impossible', error);
+    return false;
+  } finally {
+    textarea.remove();
+  }
+}
+
+function initSocialModule() {
+  socialProvider = createSocialProvider();
+  const banner = document.getElementById('social-mode-banner');
+  if (banner) {
+    banner.hidden = ENABLE_SOCIAL_LIVE;
+  }
+  const addBtn = document.getElementById('social-add-person-btn');
+  if (addBtn) {
+    addBtn.addEventListener('click', () => openAddPersonModal());
+  }
+  const shareBtn = document.getElementById('social-share-progress-btn');
+  if (shareBtn) {
+    shareBtn.addEventListener('click', () => handleSocialShareSnapshot());
+  }
+  const sharingToggle = document.getElementById('social-sharing-toggle');
+  if (sharingToggle) {
+    sharingToggle.addEventListener('change', async () => {
+      if (!socialProvider) {
+        return;
+      }
+      const desired = sharingToggle.checked;
+      sharingToggle.disabled = true;
+      try {
+        await socialProvider.updatePublicStats({ sharing: desired });
+        showToast(desired ? 'Stats partagées.' : 'Stats masquées.');
+      } catch (error) {
+        console.warn('Impossible de mettre à jour la confidentialité', error);
+        sharingToggle.checked = !desired;
+        showToast('Mise à jour impossible pour le moment.');
+      } finally {
+        sharingToggle.disabled = false;
+      }
+      refreshSocialOverview({ silent: true });
+    });
+  }
+  const friendsGrid = document.getElementById('social-friends-grid');
+  if (friendsGrid) {
+    friendsGrid.addEventListener('click', handleSocialGridClick);
+  }
+  const invitationsList = document.getElementById('social-invitations-list');
+  if (invitationsList) {
+    invitationsList.addEventListener('click', handleSocialInvitationsClick);
+  }
+  document.addEventListener('click', handleGlobalSocialClick);
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      closeSocialMenu();
+    }
+  });
+}
+
 function closeModal() {
   stopModalAudio();
   const modal = document.getElementById('modal-overlay');
@@ -7989,6 +9177,7 @@ function closeModal() {
     content.classList.remove('template-wide');
     content.classList.remove('badge-modal-container');
     content.classList.remove('quick-add-modal');
+    content.classList.remove('social-modal');
     content.innerHTML = '';
   }
   setPlanifierTabsMode('editor');
@@ -8078,9 +9267,11 @@ if ('serviceWorker' in navigator) {
 }
 
 initNotificationsModule();
+initNotificationsTabs();
 initNavigation();
 initWeeklyTabs();
 initDailyQuickAdd();
+initSocialModule();
 const hasProgramme = Boolean((state.settings.goalTitle || '').trim());
 const initialView = hasProgramme ? 'aujourdhui' : 'programme';
 showView(initialView);

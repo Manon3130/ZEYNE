@@ -1374,6 +1374,550 @@ h6 {
   max-width: 600px;
 }
 
+.notifications-card {
+  max-width: 960px;
+}
+
+.notifications-tabs {
+  display: inline-flex;
+  gap: 6px;
+  margin: 24px 0 18px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.65);
+  box-shadow: 0 6px 18px rgba(234, 196, 175, 0.3);
+}
+
+.notifications-tab {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-weight: 600;
+  padding: 10px 22px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.notifications-tab:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.notifications-tab-active {
+  background: var(--primary);
+  color: var(--white);
+  box-shadow: 0 10px 22px rgba(234, 196, 175, 0.35);
+}
+
+.notifications-panel {
+  display: none;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.notifications-panel-active {
+  display: flex;
+}
+
+.notifications-panel[hidden] {
+  display: none !important;
+}
+
+.social-mode-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: rgba(234, 196, 175, 0.25);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.social-offline-card {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 8px 20px rgba(234, 196, 175, 0.25);
+}
+
+.social-offline-card[hidden] {
+  display: none;
+}
+
+.social-offline-card-icon {
+  font-size: 1.8rem;
+}
+
+.social-offline-card-hint {
+  font-size: 0.9rem;
+  color: rgba(166, 128, 118, 0.8);
+}
+
+.social-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.social-header-text h3 {
+  margin-bottom: 4px;
+}
+
+.social-header-text p {
+  color: rgba(166, 128, 118, 0.9);
+  font-size: 0.95rem;
+}
+
+.social-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.social-friends-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.social-empty {
+  padding: 20px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.55);
+  text-align: center;
+  font-weight: 600;
+  color: rgba(166, 128, 118, 0.85);
+}
+
+.social-empty[hidden] {
+  display: none;
+}
+
+.social-friends-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.social-friend-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.75);
+  box-shadow: 0 10px 26px rgba(234, 196, 175, 0.2);
+}
+
+.social-friend-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.social-friend-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(234, 196, 175, 0.35), rgba(233, 180, 180, 0.6));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--text);
+  box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.6);
+}
+
+.social-friend-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.social-friend-name {
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+
+.social-friend-meta {
+  font-size: 0.9rem;
+  color: rgba(166, 128, 118, 0.75);
+}
+
+.social-friend-menu {
+  position: relative;
+}
+
+.social-menu-trigger {
+  border: none;
+  background: rgba(234, 196, 175, 0.25);
+  width: 44px;
+  height: 44px;
+  border-radius: 16px;
+  font-size: 1.2rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text);
+}
+
+.social-menu-trigger:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.social-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 180px;
+  padding: 10px 0;
+  border-radius: 14px;
+  background: var(--white);
+  box-shadow: 0 14px 28px rgba(234, 196, 175, 0.35);
+  display: none;
+  z-index: 10;
+}
+
+.social-menu.open {
+  display: block;
+}
+
+.social-menu button {
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 10px 16px;
+  font-size: 0.95rem;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.social-menu button:hover,
+.social-menu button:focus {
+  background: rgba(234, 196, 175, 0.15);
+  outline: none;
+}
+
+.social-friend-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 0.95rem;
+  color: rgba(166, 128, 118, 0.9);
+}
+
+.social-friend-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.social-friend-stat strong {
+  font-size: 1.15rem;
+  color: var(--text);
+}
+
+.social-friend-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.social-cheer-btn {
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(234, 196, 175, 0.5), rgba(249, 216, 214, 0.85));
+  padding: 10px 20px;
+  font-size: 1.05rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.social-cheer-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(234, 196, 175, 0.35);
+}
+
+.social-cheer-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.social-challenge-card {
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(249, 216, 214, 0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.social-challenge-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.social-challenge-status {
+  font-size: 0.85rem;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(234, 196, 175, 0.35);
+}
+
+.social-challenge-progress {
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.65);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.social-challenge-progress-bar {
+  height: 100%;
+  background: linear-gradient(135deg, rgba(234, 196, 175, 0.85), rgba(209, 196, 242, 0.8));
+  width: 0%;
+  transition: width 0.3s ease;
+}
+
+.social-invitations {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.social-invitations[hidden] {
+  display: none;
+}
+
+.social-invitations-list {
+  display: grid;
+  gap: 12px;
+}
+
+.social-invitation-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 8px 20px rgba(234, 196, 175, 0.2);
+}
+
+.social-invitation-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.social-invitation-actions .btn {
+  flex: 1 1 160px;
+  min-height: 44px;
+}
+
+.social-privacy {
+  margin-top: 16px;
+  padding: 18px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.6);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.social-privacy-note {
+  font-size: 0.9rem;
+  color: rgba(166, 128, 118, 0.9);
+}
+
+.modal-content.social-modal {
+  max-width: 520px;
+}
+
+.social-add-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  color: var(--text);
+}
+
+.social-add-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.social-add-header h3 {
+  margin: 0;
+}
+
+.social-add-close {
+  border: none;
+  background: rgba(234, 196, 175, 0.3);
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.social-add-close:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.social-add-tabs {
+  display: inline-flex;
+  gap: 6px;
+  align-self: flex-start;
+  background: rgba(234, 196, 175, 0.2);
+  padding: 4px;
+  border-radius: 999px;
+}
+
+.social-add-tab {
+  border: none;
+  background: transparent;
+  padding: 8px 18px;
+  border-radius: 999px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.social-add-tab:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.social-add-tab-active {
+  background: var(--primary);
+  color: var(--white);
+  box-shadow: 0 10px 20px rgba(234, 196, 175, 0.35);
+}
+
+.social-add-panel {
+  display: none;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.social-add-panel-active {
+  display: flex;
+}
+
+.social-add-panel[hidden] {
+  display: none !important;
+}
+
+.social-invite-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.65);
+  box-shadow: 0 10px 24px rgba(234, 196, 175, 0.28);
+}
+
+.social-invite-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: rgba(166, 128, 118, 0.9);
+}
+
+.social-invite-value {
+  word-break: break-all;
+  font-weight: 600;
+}
+
+.social-invite-code {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 1.2rem;
+  letter-spacing: 0.08em;
+  background: rgba(234, 196, 175, 0.25);
+}
+
+.social-connect-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.social-connect-form label {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.social-connect-form input {
+  padding: 12px;
+  border-radius: 12px;
+  border: none;
+  background: rgba(255, 255, 255, 0.75);
+  font-size: 1rem;
+}
+
+.social-connect-form input:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.social-connect-hint {
+  font-size: 0.9rem;
+  color: rgba(166, 128, 118, 0.8);
+}
+
+@media (max-width: 768px) {
+  .notifications-card {
+    max-width: 100%;
+  }
+
+  .social-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .social-header-actions {
+    justify-content: stretch;
+  }
+
+  .social-cheer-btn {
+    width: 100%;
+  }
+}
+
 .notifications-card-header {
   display: flex;
   justify-content: space-between;
