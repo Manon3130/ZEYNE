@@ -1952,6 +1952,19 @@ function getDateString(offset = 0) {
   return date.toISOString().split('T')[0];
 }
 
+function parseISODate(dateStr) {
+  if (!dateStr) return null;
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return null;
+  const [year, month, day] = parts.map(part => Number.parseInt(part, 10));
+  if ([year, month, day].some(num => !Number.isFinite(num))) {
+    return null;
+  }
+  const date = new Date(year, month - 1, day);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
 function getNextMondayDate() {
   const date = getTodayDateObj();
   const day = date.getDay();
@@ -3897,6 +3910,25 @@ function openQuickAddModal(options = {}) {
   setupFocusTrap(content, { modalKey: 'quick-add', initialFocus: titleInput });
 }
 
+const focusShortcutIconMarkup = '<svg class="task-shortcut-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 5 14h6l-1 8 8-12h-6l1-8Z" fill="currentColor"/></svg>';
+const postponeShortcutIconMarkup = '<svg class="task-shortcut-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h1V1h2v2h4V1h2v2h1a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3Zm12 5V6a1 1 0 0 0-1-1h-1v1h-2V5h-4v1H9V5H8a1 1 0 0 0-1 1v2ZM9 12h2.25v2.25H13.5V16.5h-2.25v2.25H9V16.5H6.75V14.25H9Zm8 0h1.5v6.75H17Z" fill="currentColor"/></svg>';
+
+function createTaskShortcutButton({ iconMarkup, label, onClick, disabled = false }) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'task-shortcut-btn';
+  button.innerHTML = iconMarkup;
+  button.setAttribute('aria-label', label);
+  button.title = label;
+  if (disabled) {
+    button.disabled = true;
+  }
+  if (typeof onClick === 'function' && !disabled) {
+    button.addEventListener('click', onClick);
+  }
+  return button;
+}
+
 function renderDailyTasks() {
   const today = getToday();
   ensureTasksForDate(today);
@@ -3904,7 +3936,7 @@ function renderDailyTasks() {
   const tasksList = document.getElementById('daily-tasks-list');
   tasksList.innerHTML = '';
   const plusIconMarkup = '<svg class="task-quick-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a1 1 0 0 1 1 1v6h6a1 1 0 0 1 0 2h-6v6a1 1 0 0 1-2 0v-6H5a1 1 0 0 1 0-2h6V5a1 1 0 0 1 1-1Z" fill="currentColor"/></svg>';
-  const editIconMarkup = '<svg class="task-quick-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0L4.59 15.66a1 1 0 0 0-.25.45l-1.32 4.62a1 1 0 0 0 1.23 1.23l4.62-1.32a1 1 0 0 0 .45-.25Z" fill="currentColor"/></svg>';
+  const editIconMarkup = '<svg class="task-quick-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.71 7.04a1 1 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0L4.59 15.66a1 1 0 0 0-.25.45l-1.32 4.62a1 1 0 0 0 1.23 1.23l4.62-1.32a1 1 0 0 0 .45-.25Z" fill="currentColor"/></svg>';
 
   state.tasks[today].forEach((task, idx) => {
     const isDone = task.status === 'done';
@@ -3931,13 +3963,13 @@ function renderDailyTasks() {
     const titleEl = document.createElement('div');
     titleEl.className = 'task-title';
     titleEl.textContent = isEmptySlot ? `Slot ${idx + 1} libre` : (task.title || `Tâche ${idx + 1}`);
-
-    const metaEl = document.createElement('div');
-    metaEl.className = 'task-meta';
-    metaEl.textContent = isEmptySlot ? 'Ajoute une micro-tâche pour rester dans ton flow.' : formatTaskMeta(task);
-
     infoEl.appendChild(titleEl);
-    if (metaEl.textContent) {
+
+    const metaText = isEmptySlot ? 'Ajoute une micro-tâche pour rester dans ton flow.' : formatTaskMeta(task);
+    if (metaText) {
+      const metaEl = document.createElement('div');
+      metaEl.className = 'task-meta';
+      metaEl.textContent = metaText;
       infoEl.appendChild(metaEl);
     }
 
@@ -3973,16 +4005,57 @@ function renderDailyTasks() {
     if (!isEmptySlot) {
       const actions = document.createElement('div');
       actions.className = 'task-actions';
-      actions.innerHTML = `
-        ${!isDone ? `<button class="btn btn-primary" onclick="startTask(${idx})">Commencer</button>` : ''}
-        <button
-          class="btn btn-validate${isDone ? ' checked' : ''}"
-          type="button"
-          aria-pressed="${isDone}"
-          onclick="toggleTaskCompletion(${idx})"
-        >Valider</button>
-        ${!isDone ? `<button class="btn btn-ghost" onclick="reportTask('${today}', ${idx})">Reporter</button>` : ''}
-      `;
+
+      if (!isDone) {
+        const startBtn = document.createElement('button');
+        startBtn.className = 'btn btn-primary';
+        startBtn.type = 'button';
+        startBtn.textContent = 'Commencer';
+        startBtn.addEventListener('click', () => startTask(idx));
+        actions.appendChild(startBtn);
+      }
+
+      const validateBtn = document.createElement('button');
+      validateBtn.className = `btn btn-validate${isDone ? ' checked' : ''}`;
+      validateBtn.type = 'button';
+      validateBtn.setAttribute('aria-pressed', isDone);
+      validateBtn.textContent = 'Valider';
+      validateBtn.addEventListener('click', () => toggleTaskCompletion(idx));
+      actions.appendChild(validateBtn);
+
+      if (!isDone) {
+        const reportBtn = document.createElement('button');
+        reportBtn.className = 'btn btn-ghost';
+        reportBtn.type = 'button';
+        reportBtn.textContent = 'Reporter';
+        reportBtn.addEventListener('click', () => reportTask(today, idx));
+        actions.appendChild(reportBtn);
+      }
+
+      const shortcuts = document.createElement('div');
+      shortcuts.className = 'task-shortcuts';
+
+      if (!isDone) {
+        const quickFocusBtn = createTaskShortcutButton({
+          iconMarkup: focusShortcutIconMarkup,
+          label: 'Commencer 10 min',
+          onClick: () => startQuickFocus(idx)
+        });
+        shortcuts.appendChild(quickFocusBtn);
+      }
+
+      const postponeBtn = createTaskShortcutButton({
+        iconMarkup: postponeShortcutIconMarkup,
+        label: 'Reporter +1 jour',
+        onClick: () => postponeTaskByOneDay(today, idx),
+        disabled: isDone
+      });
+      shortcuts.appendChild(postponeBtn);
+
+      if (shortcuts.childElementCount > 0) {
+        actions.appendChild(shortcuts);
+      }
+
       taskItem.appendChild(actions);
     } else {
       const emptyHint = document.createElement('div');
@@ -4026,20 +4099,84 @@ function renderOtherDays() {
     dayContent.className = 'day-content';
 
     state.tasks[dateStr].forEach((task, idx) => {
+      const isDone = task.status === 'done';
+      const isEmpty = isTaskEmpty(task);
+
       const taskDiv = document.createElement('div');
       taskDiv.className = 'task-item';
-      taskDiv.innerHTML = `
-        <div class="task-header">
-          <div class="task-number">${idx + 1}</div>
-          <div class="task-info">
-            <div class="task-title">${task.title || `Tâche ${idx + 1}`}</div>
-            <div class="task-meta">${formatTaskMeta(task)}</div>
-          </div>
-        </div>
-        <div class="task-actions">
-          <button class="btn btn-ghost" onclick="reportTask('${dateStr}', ${idx})">Reporter</button>
-        </div>
-      `;
+      if (isDone) {
+        taskDiv.classList.add('done');
+      }
+      if (isEmpty) {
+        taskDiv.classList.add('task-empty');
+      }
+
+      const header = document.createElement('div');
+      header.className = 'task-header';
+
+      const numberEl = document.createElement('div');
+      numberEl.className = 'task-number';
+      numberEl.textContent = idx + 1;
+
+      const infoEl = document.createElement('div');
+      infoEl.className = 'task-info';
+
+      const titleEl = document.createElement('div');
+      titleEl.className = 'task-title';
+      titleEl.textContent = isEmpty ? `Slot ${idx + 1} libre` : (task.title || `Tâche ${idx + 1}`);
+      infoEl.appendChild(titleEl);
+
+      if (!isEmpty) {
+        const metaText = formatTaskMeta(task);
+        if (metaText) {
+          const metaEl = document.createElement('div');
+          metaEl.className = 'task-meta';
+          metaEl.textContent = metaText;
+          infoEl.appendChild(metaEl);
+        }
+      } else {
+        const metaEl = document.createElement('div');
+        metaEl.className = 'task-meta';
+        metaEl.textContent = 'Anticipe ton micro-pas pour ce créneau.';
+        infoEl.appendChild(metaEl);
+      }
+
+      header.appendChild(numberEl);
+      header.appendChild(infoEl);
+      taskDiv.appendChild(header);
+
+      if (!isEmpty) {
+        const actions = document.createElement('div');
+        actions.className = 'task-actions';
+
+        if (!isDone) {
+          const reportBtn = document.createElement('button');
+          reportBtn.className = 'btn btn-ghost';
+          reportBtn.type = 'button';
+          reportBtn.textContent = 'Reporter';
+          reportBtn.addEventListener('click', () => reportTask(dateStr, idx));
+          actions.appendChild(reportBtn);
+        }
+
+        const shortcuts = document.createElement('div');
+        shortcuts.className = 'task-shortcuts';
+        const postponeBtn = createTaskShortcutButton({
+          iconMarkup: postponeShortcutIconMarkup,
+          label: 'Reporter +1 jour',
+          onClick: () => postponeTaskByOneDay(dateStr, idx),
+          disabled: isDone
+        });
+        shortcuts.appendChild(postponeBtn);
+        actions.appendChild(shortcuts);
+
+        taskDiv.appendChild(actions);
+      } else {
+        const emptyHint = document.createElement('div');
+        emptyHint.className = 'task-empty-hint';
+        emptyHint.textContent = 'Ajoute un micro-pas pour garder le rythme.';
+        taskDiv.appendChild(emptyHint);
+      }
+
       dayContent.appendChild(taskDiv);
     });
 
@@ -4161,6 +4298,64 @@ function showToast(message) {
       toast.remove();
     }, 300);
   }, 2600);
+}
+
+function showConfirmationToast(message, options = {}) {
+  const container = document.getElementById('toast-container');
+  if (!container) return Promise.resolve(false);
+
+  const { confirmLabel = 'Oui', cancelLabel = 'Annuler', timeout = 7000 } = options;
+
+  return new Promise(resolve => {
+    const toast = document.createElement('div');
+    toast.className = 'toast toast-confirmation';
+
+    const textEl = document.createElement('span');
+    textEl.className = 'toast-message';
+    textEl.textContent = message;
+    toast.appendChild(textEl);
+
+    const actions = document.createElement('div');
+    actions.className = 'toast-actions';
+
+    const confirmBtn = document.createElement('button');
+    confirmBtn.type = 'button';
+    confirmBtn.className = 'toast-btn toast-btn-confirm';
+    confirmBtn.textContent = confirmLabel;
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'toast-btn toast-btn-cancel';
+    cancelBtn.textContent = cancelLabel;
+
+    actions.appendChild(confirmBtn);
+    actions.appendChild(cancelBtn);
+    toast.appendChild(actions);
+
+    container.appendChild(toast);
+
+    requestAnimationFrame(() => {
+      toast.classList.add('show');
+    });
+
+    let resolved = false;
+    const cleanup = (result) => {
+      if (resolved) return;
+      resolved = true;
+      toast.classList.remove('show');
+      setTimeout(() => {
+        toast.remove();
+        resolve(result);
+      }, 300);
+    };
+
+    confirmBtn.addEventListener('click', () => cleanup(true));
+    cancelBtn.addEventListener('click', () => cleanup(false));
+
+    if (timeout) {
+      setTimeout(() => cleanup(false), timeout);
+    }
+  });
 }
 
 function handleDailyCompletionFeedback(currentStreak, badge) {
@@ -5226,6 +5421,19 @@ function checkAllTasksDone() {
   }
 }
 
+function startQuickFocus(taskIdx) {
+  const today = getToday();
+  ensureTasksForDate(today);
+  const task = state.tasks[today][taskIdx];
+  if (!task || isTaskEmpty(task) || task.status === 'done') {
+    return;
+  }
+
+  showTimerModal(taskIdx, { initialDurationSeconds: 10 * 60, autoStart: true });
+}
+
+window.startQuickFocus = startQuickFocus;
+
 window.startTask = async function(taskIdx) {
   const today = getToday();
   ensureTasksForDate(today);
@@ -5267,6 +5475,67 @@ window.toggleTaskCompletion = function(taskIdx) {
     handleDailyCompletionFeedback(streakResult?.current || state.streak.current || 0, newlyUnlockedBadge);
   }
 };
+
+async function postponeTaskByOneDay(dateStr, taskIdx) {
+  if (!dateStr) {
+    return;
+  }
+
+  ensureTasksForDate(dateStr);
+  const tasksForDate = state.tasks[dateStr];
+  if (!Array.isArray(tasksForDate)) {
+    return;
+  }
+
+  const task = tasksForDate[taskIdx];
+  if (!task || isTaskEmpty(task) || task.status === 'done') {
+    return;
+  }
+
+  const sourceDate = parseISODate(dateStr);
+  if (!sourceDate) {
+    showToast('Date invalide.');
+    return;
+  }
+
+  const targetDate = new Date(sourceDate);
+  targetDate.setDate(targetDate.getDate() + 1);
+  targetDate.setHours(0, 0, 0, 0);
+  const targetDateStr = targetDate.toISOString().split('T')[0];
+
+  const deadlineISO = state.settings.deadlineISO;
+  if (deadlineISO) {
+    const deadlineDate = parseISODate(deadlineISO);
+    if (deadlineDate && targetDate > deadlineDate) {
+      const confirmed = await showConfirmationToast('Au-delà de la date butoir — continuer ?', {
+        confirmLabel: 'Oui',
+        cancelLabel: 'Annuler'
+      });
+      if (!confirmed) {
+        return;
+      }
+    }
+  }
+
+  ensureTasksForDate(targetDateStr);
+  const targetTasks = state.tasks[targetDateStr];
+  if (targetTasks[taskIdx] && !isTaskEmpty(targetTasks[taskIdx])) {
+    showToast('Créneau déjà occupé demain.');
+    return;
+  }
+
+  const movedTask = cloneTask(task);
+  movedTask.status = 'planned';
+  targetTasks[taskIdx] = movedTask;
+  tasksForDate[taskIdx] = createEmptyTask();
+
+  saveState();
+  renderDailyTasks();
+  renderOtherDays();
+  updateMomentum();
+  refreshWeeklyReviewIfVisible();
+  showToast('Tâche reportée à demain.');
+}
 
 window.reportTask = function(dateStr, taskIdx) {
   showReportModal(dateStr, taskIdx);
@@ -5379,14 +5648,28 @@ function openAudioRitualModal(audioId, task) {
   });
 }
 
-function showTimerModal(taskIdx) {
+function showTimerModal(taskIdx, options = {}) {
   const modal = document.getElementById('modal-overlay');
   const content = document.getElementById('modal-content');
+
+  const initialDuration = Number(options.initialDurationSeconds);
+  const autoStart = Boolean(options.autoStart);
 
   let timerSeconds = 0;
   let timerInterval = null;
   let timerRunning = false;
-  let totalDuration = 25 * 60;
+  let totalDuration = Number.isFinite(initialDuration) ? initialDuration : 25 * 60;
+  if (totalDuration < 60) {
+    totalDuration = 60;
+  }
+
+  function formatTimer(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.max(0, seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  }
+
+  const initialDisplay = formatTimer(totalDuration);
 
   content.innerHTML = `
     <h3>Minuteur</h3>
@@ -5397,7 +5680,7 @@ function showTimerModal(taskIdx) {
           <button class="btn btn-secondary" onclick="adjustTimer(-5)">− 5 min</button>
           <button class="btn btn-secondary" onclick="adjustTimer(5)">+ 5 min</button>
         </div>
-        <div class="timer-display" id="timer-display">25:00</div>
+        <div class="timer-display" id="timer-display">${initialDisplay}</div>
         <div class="timer-buttons">
           <button class="btn btn-primary" id="timer-start-btn">Démarrer</button>
           <button class="btn btn-secondary" id="timer-finish-btn">Finir</button>
@@ -5417,6 +5700,10 @@ function showTimerModal(taskIdx) {
   const cloud = document.getElementById('cloud-timer');
   const progress = document.getElementById('timer-progress');
 
+  function updateTimerDisplay() {
+    display.textContent = formatTimer(totalDuration);
+  }
+
   window.adjustTimer = (minutes) => {
     if (!timerRunning) {
       totalDuration += minutes * 60;
@@ -5425,47 +5712,55 @@ function showTimerModal(taskIdx) {
     }
   };
 
-  function updateTimerDisplay() {
-    const mins = Math.floor(totalDuration / 60);
-    const secs = totalDuration % 60;
-    display.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+  function pauseTimer() {
+    if (timerInterval) clearInterval(timerInterval);
+    timerInterval = null;
+    timerRunning = false;
+    startBtn.textContent = 'Démarrer';
+    cloud.classList.remove('pulsing');
+  }
+
+  function startTimer() {
+    if (timerRunning) return;
+    if (timerInterval) clearInterval(timerInterval);
+    timerRunning = true;
+    timerSeconds = 0;
+    startBtn.textContent = 'Pause';
+    cloud.classList.add('pulsing');
+    display.textContent = formatTimer(totalDuration);
+    progress.style.borderColor = 'rgba(255, 255, 255, 0)';
+
+    timerInterval = setInterval(() => {
+      timerSeconds++;
+      const remaining = totalDuration - timerSeconds;
+      if (remaining <= 0) {
+        pauseTimer();
+        display.textContent = '0:00';
+        progress.style.borderColor = 'rgba(255, 255, 255, 1)';
+        alert('Temps écoulé !');
+        return;
+      }
+
+      display.textContent = formatTimer(remaining);
+      const progressPercent = Math.min((timerSeconds / totalDuration) * 100, 100);
+      progress.style.borderColor = `rgba(255, 255, 255, ${progressPercent / 100})`;
+    }, 1000);
   }
 
   startBtn.onclick = () => {
-    if (!timerRunning) {
-      timerRunning = true;
-      startBtn.textContent = 'Pause';
-      cloud.classList.add('pulsing');
-      timerSeconds = 0;
-
-      timerInterval = setInterval(() => {
-        timerSeconds++;
-        const remaining = totalDuration - timerSeconds;
-        if (remaining <= 0) {
-          clearInterval(timerInterval);
-          timerRunning = false;
-          startBtn.textContent = 'Démarrer';
-          cloud.classList.remove('pulsing');
-          alert('Temps écoulé !');
-        }
-
-        const mins = Math.floor(remaining / 60);
-        const secs = remaining % 60;
-        display.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
-
-        const progressPercent = (timerSeconds / totalDuration) * 100;
-        progress.style.borderColor = `rgba(255, 255, 255, ${progressPercent / 100})`;
-      }, 1000);
+    if (timerRunning) {
+      pauseTimer();
     } else {
-      clearInterval(timerInterval);
-      timerRunning = false;
-      startBtn.textContent = 'Démarrer';
-      cloud.classList.remove('pulsing');
+      startTimer();
     }
   };
 
   finishBtn.onclick = () => {
     if (timerInterval) clearInterval(timerInterval);
+    timerInterval = null;
+    timerRunning = false;
+    startBtn.textContent = 'Démarrer';
+    cloud.classList.remove('pulsing');
     const reviewValue = document.getElementById('micro-review-input')?.value?.trim();
     if (reviewValue) {
       const today = getToday();
@@ -5481,6 +5776,14 @@ function showTimerModal(taskIdx) {
     }
     closeModal();
   };
+
+  updateTimerDisplay();
+
+  if (autoStart) {
+    requestAnimationFrame(() => {
+      startTimer();
+    });
+  }
 }
 
 function showReportModal(dateStr, taskIdx) {
