@@ -329,6 +329,35 @@
                   <span class="insight-value" id="insight-dominant-mood">—</span>
                 </div>
               </div>
+              <div class="weekly-heatmap-wrapper" id="weekly-heatmap-wrapper">
+                <div class="weekly-heatmap-card" id="weekly-heatmap-card">
+                  <div class="heatmap-header">
+                    <div class="heatmap-title">
+                      <span class="insight-chart-title">Heatmap hebdo</span>
+                      <span class="heatmap-caption" id="heatmap-caption">Semaine en cours</span>
+                    </div>
+                    <div class="heatmap-actions">
+                      <div class="heatmap-badges">
+                        <span class="heatmap-badge" id="heatmap-badge-top" hidden>Top créneau · —</span>
+                        <span class="heatmap-badge" id="heatmap-badge-avoid" hidden>À éviter · —</span>
+                        <span class="heatmap-badge" id="heatmap-badge-regular" hidden>Régulier · —</span>
+                      </div>
+                      <button type="button" class="heatmap-toggle" id="heatmap-range-toggle" aria-pressed="false">4 dernières semaines</button>
+                    </div>
+                  </div>
+                  <div class="heatmap-warning" id="heatmap-warning-banner" hidden>Pas assez de données, revenez après quelques jours.</div>
+                  <div class="heatmap-grid-wrapper">
+                    <div class="heatmap-grid" id="weekly-heatmap-grid" role="grid" aria-label="Taux de réussite par jour et moment"></div>
+                  </div>
+                  <div class="heatmap-legend" id="heatmap-legend">
+                    <span><span class="heatmap-legend-swatch heatmap-swatch-strong" aria-hidden="true"></span> ≥ 70&nbsp;%</span>
+                    <span><span class="heatmap-legend-swatch heatmap-swatch-medium" aria-hidden="true"></span> 40–69&nbsp;%</span>
+                    <span><span class="heatmap-legend-swatch heatmap-swatch-low" aria-hidden="true"></span> &lt; 40&nbsp;%</span>
+                    <span><span class="heatmap-legend-swatch heatmap-swatch-empty" aria-hidden="true"></span> Sans données</span>
+                  </div>
+                </div>
+                <button type="button" class="btn btn-primary heatmap-auto-btn" id="heatmap-auto-suggest-btn">Suggérer automatiquement les meilleurs créneaux</button>
+              </div>
               <div class="weekly-insights-charts">
                 <div class="insight-chart">
                   <div class="insight-chart-header">
