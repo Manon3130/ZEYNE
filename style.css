@@ -808,6 +808,55 @@ h6 {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  align-items: center;
+}
+
+.task-shortcuts {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.task-shortcut-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  border: none;
+  background: rgba(234, 196, 175, 0.3);
+  color: var(--text);
+  box-shadow: 0 6px 14px rgba(234, 196, 175, 0.35);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.task-shortcut-btn:hover {
+  background: rgba(234, 196, 175, 0.45);
+  transform: translateY(-1px);
+}
+
+.task-shortcut-btn:active {
+  transform: translateY(1px);
+}
+
+.task-shortcut-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
+  box-shadow: none;
+}
+
+.task-shortcut-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.task-shortcut-icon {
+  width: 18px;
+  height: 18px;
 }
 
 .btn {
@@ -1878,6 +1927,56 @@ h6 {
   transform: translateY(0);
 }
 
+.toast-confirmation {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.toast-message {
+  flex: 1;
+  font-weight: 600;
+}
+
+.toast-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.toast-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 0.85rem;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--text);
+  cursor: pointer;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.toast-btn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.toast-btn:active {
+  transform: translateY(1px);
+}
+
+.toast-btn:focus-visible {
+  outline: 2px solid var(--white);
+  outline-offset: 2px;
+}
+
+.toast-btn-confirm {
+  background: var(--white);
+  color: var(--text);
+}
+
+.toast-btn-cancel {
+  background: rgba(255, 255, 255, 0.65);
+}
+
 .template-library {
   display: flex;
   flex-direction: column;
@@ -2499,6 +2598,24 @@ h6 {
 
   .task-form-row {
     grid-template-columns: 1fr;
+  }
+
+  .task-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  .task-shortcuts {
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  .task-shortcut-btn {
+    width: 36px;
+    height: 36px;
   }
 
   .cloud-timer {
