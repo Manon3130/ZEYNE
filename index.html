@@ -61,6 +61,21 @@
             </div>
           </div>
 
+          <div class="card card-challenge" id="challenge-card" hidden>
+            <div class="challenge-header">
+              <div>
+                <h2>Défi 7 jours</h2>
+                <p class="challenge-subtitle" id="challenge-subtitle">—</p>
+              </div>
+              <div class="challenge-badge-pill" id="challenge-badge-pill" hidden>
+                <span class="challenge-badge-icon" id="challenge-badge-icon">🏅</span>
+                <span class="challenge-badge-label" id="challenge-badge-label">Badge</span>
+              </div>
+            </div>
+            <div class="challenge-body" id="challenge-body"></div>
+            <div class="challenge-actions" id="challenge-actions"></div>
+          </div>
+
           <div class="card card-daily3">
             <div class="card-daily3-header">
               <h2>Daily 3 d'aujourd'hui</h2>
@@ -484,6 +499,12 @@
             <section class="social-invitations" id="social-invitations-section" hidden aria-live="polite">
               <h4>Invitations</h4>
               <div class="social-invitations-list" id="social-invitations-list"></div>
+            </section>
+
+            <section class="challenge-social" id="challenge-social-section" aria-live="polite">
+              <h4>Défis</h4>
+              <p class="challenge-social-empty" id="challenge-social-empty">Aucun défi pour le moment.</p>
+              <div class="challenge-social-list" id="challenge-social-list"></div>
             </section>
 
             <section class="social-privacy" aria-labelledby="social-privacy-title">

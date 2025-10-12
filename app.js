@@ -64,7 +64,22 @@ const QUICK_ADD_MOMENT_DEFAULT_TIME = {
   'Soir': '21:45'
 };
 
+const ENABLE_CHALLENGE = true;
 const ENABLE_SOCIAL_LIVE = false;
+
+const CHALLENGE_DAY_COUNT = 7;
+const CHALLENGE_MIN_TASKS_SUCCESS = 2;
+const CHALLENGE_MIN_SESSION_SECONDS = 20 * 60;
+const CHALLENGE_MIN_TIMER_SECONDS_VALIDATION = 10 * 60;
+const CHALLENGE_MIN_LATENCY_SECONDS = 60;
+const CHALLENGE_MAX_HISTORY = 5;
+const CHALLENGE_CATCHUP_WINDOW_HOURS = 24;
+const CHALLENGE_BADGES = [
+  { id: 'none', label: '—', threshold: 0, icon: '⬡' },
+  { id: 'bronze', label: 'Bronze', threshold: 5, icon: '🥉' },
+  { id: 'silver', label: 'Argent', threshold: 6, icon: '🥈' },
+  { id: 'gold', label: 'Or', threshold: 7, icon: '👑' }
+];
 
 const FIREBASE_CONFIG = {
   // TODO: à remplir quand on activera Firestore
@@ -810,6 +825,230 @@ function createDefaultBadgesState() {
   };
 }
 
+function createDefaultChallengeState() {
+  return {
+    current: null,
+    history: [],
+    notifications: {
+      lastMorning: null,
+      lastEvening: null,
+      successDays: [],
+      completionShownFor: null
+    }
+  };
+}
+
+function getChallengeBadgeDefinitionById(id) {
+  return CHALLENGE_BADGES.find(badge => badge.id === id) || CHALLENGE_BADGES[0];
+}
+
+function determineChallengeBadgeId(score) {
+  let resolved = 'none';
+  CHALLENGE_BADGES.forEach(badge => {
+    if (score >= badge.threshold) {
+      resolved = badge.id;
+    }
+  });
+  return resolved;
+}
+
+function generateChallengeId() {
+  return `challenge-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function createChallengeParticipant({ uid, displayName, type = 'friend' } = {}) {
+  const normalizedUid = typeof uid === 'string' && uid.trim() ? uid.trim() : `participant-${Math.random().toString(36).slice(2, 9)}`;
+  const label = typeof displayName === 'string' && displayName.trim() ? displayName.trim() : 'Participant';
+  return {
+    uid: normalizedUid,
+    displayName: label,
+    type: type === 'self' ? 'self' : 'friend',
+    score: 0,
+    streak: 0,
+    timeline: Array(CHALLENGE_DAY_COUNT).fill('pending'),
+    cheers: 0,
+    lastActivityAt: new Date().toISOString()
+  };
+}
+
+function normalizeChallengeParticipant(participant) {
+  if (!participant || typeof participant !== 'object') {
+    return null;
+  }
+  const base = createChallengeParticipant({ uid: participant.uid, displayName: participant.displayName, type: participant.type });
+  if (Array.isArray(participant.timeline)) {
+    base.timeline = participant.timeline.slice(0, CHALLENGE_DAY_COUNT).map(status => {
+      return ['pending', 'success', 'fail', 'catchup'].includes(status) ? status : 'pending';
+    });
+    while (base.timeline.length < CHALLENGE_DAY_COUNT) {
+      base.timeline.push('pending');
+    }
+  }
+  const score = Number(participant.score);
+  if (Number.isFinite(score) && score >= 0) {
+    base.score = Math.min(CHALLENGE_DAY_COUNT, Math.round(score));
+  }
+  const streak = Number(participant.streak);
+  if (Number.isFinite(streak) && streak >= 0) {
+    base.streak = Math.round(streak);
+  }
+  const cheers = Number(participant.cheers);
+  if (Number.isFinite(cheers) && cheers >= 0) {
+    base.cheers = Math.round(cheers);
+  }
+  base.lastActivityAt = typeof participant.lastActivityAt === 'string' ? participant.lastActivityAt : base.lastActivityAt;
+  return base;
+}
+
+function normalizeChallengeDay(day, index = 0, startDate = null) {
+  const allowedStatuses = ['pending', 'success', 'fail', 'catchup'];
+  let dateStr = typeof day?.date === 'string' ? day.date : null;
+  if ((!dateStr || !isValidISODate(dateStr)) && startDate && isValidISODate(startDate)) {
+    const baseDate = parseISODate(startDate);
+    if (baseDate) {
+      baseDate.setDate(baseDate.getDate() + index);
+      dateStr = baseDate.toISOString().split('T')[0];
+    }
+  }
+  const status = allowedStatuses.includes(day?.status) ? day.status : 'pending';
+  return {
+    date: dateStr,
+    status,
+    usedJoker: day?.usedJoker === true,
+    completedAt: typeof day?.completedAt === 'string' ? day.completedAt : null,
+    failRecordedAt: typeof day?.failRecordedAt === 'string' ? day.failRecordedAt : null,
+    catchupExpiresAt: typeof day?.catchupExpiresAt === 'string' ? day.catchupExpiresAt : null,
+    catchupCompletedAt: typeof day?.catchupCompletedAt === 'string' ? day.catchupCompletedAt : null
+  };
+}
+
+function normalizeChallenge(challenge) {
+  if (!challenge || typeof challenge !== 'object') {
+    return null;
+  }
+
+  const startDate = isValidISODate(challenge.startDate) ? challenge.startDate : getToday();
+  const createdAt = typeof challenge.createdAt === 'string' ? challenge.createdAt : new Date().toISOString();
+  const updatedAt = typeof challenge.updatedAt === 'string' ? challenge.updatedAt : createdAt;
+  const mode = challenge.mode === 'social' ? 'social' : 'solo';
+  const ownerUid = typeof challenge.ownerUid === 'string' && challenge.ownerUid.trim()
+    ? challenge.ownerUid.trim()
+    : 'local-user';
+
+  const days = Array.from({ length: CHALLENGE_DAY_COUNT }, (_, idx) => normalizeChallengeDay(challenge.days?.[idx], idx, startDate));
+
+  const participantUids = Array.isArray(challenge.participantUids)
+    ? challenge.participantUids.filter(uid => typeof uid === 'string' && uid.trim()).map(uid => uid.trim())
+    : [];
+
+  let participants = Array.isArray(challenge.participants)
+    ? challenge.participants.map(normalizeChallengeParticipant).filter(Boolean)
+    : [];
+
+  if (!participants.length) {
+    participants = [createChallengeParticipant({ uid: ownerUid, displayName: 'Moi', type: 'self' })];
+  }
+
+  const score = Number(challenge.score);
+  const normalizedScore = Number.isFinite(score) && score >= 0 ? Math.min(CHALLENGE_DAY_COUNT, Math.round(score)) : 0;
+  const badge = getChallengeBadgeDefinitionById(challenge.badge)?.id || 'none';
+  const allowedStates = ['scheduled', 'active', 'completed'];
+  const state = allowedStates.includes(challenge.state) ? challenge.state : 'active';
+  const jokerUsed = Boolean(challenge.jokerUsed) || days.some(day => day?.usedJoker);
+  const catchupDayEntry = days.find(day => day && day.status === 'catchup');
+  const catchupUsed = Boolean(challenge.catchupUsed) || Boolean(catchupDayEntry);
+
+  return {
+    id: typeof challenge.id === 'string' && challenge.id.trim() ? challenge.id.trim() : generateChallengeId(),
+    ownerUid,
+    participantUids,
+    participants,
+    startDate,
+    mode,
+    days,
+    score: normalizedScore,
+    badge,
+    state,
+    createdAt,
+    updatedAt,
+    jokerUsed,
+    catchupUsed,
+    catchupDay: typeof challenge.catchupDay === 'string' ? challenge.catchupDay : (catchupDayEntry?.date || null),
+    scheduledStart: typeof challenge.scheduledStart === 'string' ? challenge.scheduledStart : null
+  };
+}
+
+function ensureChallengeState() {
+  if (!ENABLE_CHALLENGE) {
+    return false;
+  }
+
+  let changed = false;
+  if (!state.challenge || typeof state.challenge !== 'object') {
+    state.challenge = createDefaultChallengeState();
+    return true;
+  }
+
+  const challengeState = state.challenge;
+
+  if (!Array.isArray(challengeState.history)) {
+    challengeState.history = [];
+    changed = true;
+  }
+
+  challengeState.history = challengeState.history
+    .map(entry => normalizeChallenge(entry))
+    .filter(Boolean)
+    .slice(0, CHALLENGE_MAX_HISTORY);
+
+  if (!challengeState.notifications || typeof challengeState.notifications !== 'object') {
+    challengeState.notifications = {
+      lastMorning: null,
+      lastEvening: null,
+      successDays: [],
+      completionShownFor: null
+    };
+    changed = true;
+  } else {
+    if (typeof challengeState.notifications.lastMorning !== 'string') {
+      challengeState.notifications.lastMorning = null;
+      changed = true;
+    }
+    if (typeof challengeState.notifications.lastEvening !== 'string') {
+      challengeState.notifications.lastEvening = null;
+      changed = true;
+    }
+    if (!Array.isArray(challengeState.notifications.successDays)) {
+      challengeState.notifications.successDays = [];
+      changed = true;
+    } else if (challengeState.notifications.successDays.length > 14) {
+      challengeState.notifications.successDays = challengeState.notifications.successDays.slice(-14);
+      changed = true;
+    }
+    if (typeof challengeState.notifications.completionShownFor !== 'string') {
+      challengeState.notifications.completionShownFor = null;
+      changed = true;
+    }
+  }
+
+  if (challengeState.current) {
+    const normalized = normalizeChallenge(challengeState.current);
+    if (normalized) {
+      const previous = JSON.stringify(challengeState.current);
+      const next = JSON.stringify(normalized);
+      if (previous !== next) {
+        challengeState.current = normalized;
+        changed = true;
+      }
+    } else {
+      challengeState.current = null;
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+
 function isValidISODate(value) {
   if (typeof value !== 'string') return false;
   const date = new Date(value);
@@ -1162,7 +1401,8 @@ let state = {
   notifications: createDefaultNotificationsState(),
   micropasSuggestionState: {},
   focusAdaptive: createDefaultFocusAdaptiveState(),
-  momentSuggestion: createDefaultMomentSuggestionState()
+  momentSuggestion: createDefaultMomentSuggestionState(),
+  challenge: createDefaultChallengeState()
 };
 
 let audioDBPromise = null;
@@ -2947,6 +3187,7 @@ function loadState() {
   }
 
   ensureAudioLibraryState();
+  const challengeNormalized = ensureChallengeState();
   const notificationsNormalized = ensureNotificationState();
   const focusNormalized = ensureFocusAdaptiveState();
   const momentCleaned = cleanupMomentSuggestionState();
@@ -2957,7 +3198,7 @@ function loadState() {
   cleanupReportHistory();
   cleanupMicropasSuggestionState();
 
-  if (notificationsNormalized || focusNormalized || outcomesCleaned || momentCleaned) {
+  if (challengeNormalized || notificationsNormalized || focusNormalized || outcomesCleaned || momentCleaned) {
     saveState();
   }
 }
@@ -3031,7 +3272,14 @@ function createEmptyTask() {
     duration: null,
     status: 'planned',
     micropas: '',
-    usesDefaultDuration: true
+    usesDefaultDuration: true,
+    completedAt: null,
+    lastStartedAt: null,
+    focusSessions: [],
+    lastFocusDurationSec: null,
+    lastFocusCompletedAt: null,
+    lastCompletionLatencySec: null,
+    statusChangedAt: null
   };
 }
 
@@ -3085,6 +3333,43 @@ function ensureTasksForDate(dateStr) {
       task.usesDefaultDuration = hasCustomDuration ? false : true;
       if (!task.status) task.status = 'planned';
       if (task.micropas === undefined) task.micropas = '';
+      if (!Array.isArray(task.focusSessions)) {
+        task.focusSessions = [];
+      } else {
+        task.focusSessions = task.focusSessions
+          .map(entry => {
+            if (!entry || typeof entry !== 'object') {
+              return null;
+            }
+            const duration = Number(entry.durationSec ?? entry.duration);
+            const completedAt = typeof entry.completedAt === 'string' ? entry.completedAt : null;
+            if (!Number.isFinite(duration) || duration < 0) {
+              return null;
+            }
+            return {
+              durationSec: Math.round(duration),
+              completedAt
+            };
+          })
+          .filter(Boolean)
+          .slice(-12);
+      }
+      if (typeof task.completedAt !== 'string') {
+        task.completedAt = null;
+      }
+      if (typeof task.lastStartedAt !== 'string') {
+        task.lastStartedAt = null;
+      }
+      const focusDuration = Number(task.lastFocusDurationSec);
+      task.lastFocusDurationSec = Number.isFinite(focusDuration) && focusDuration >= 0 ? Math.round(focusDuration) : null;
+      if (typeof task.lastFocusCompletedAt !== 'string') {
+        task.lastFocusCompletedAt = null;
+      }
+      const latency = Number(task.lastCompletionLatencySec);
+      task.lastCompletionLatencySec = Number.isFinite(latency) && latency >= 0 ? Math.round(latency) : null;
+      if (typeof task.statusChangedAt !== 'string') {
+        task.statusChangedAt = null;
+      }
       if (!task.id) {
         const hasContent = Boolean((task.title || '').trim()) || Boolean((task.moment || '').trim());
         const audioValue = normalizeAudioValue(task.audio);
@@ -3097,7 +3382,1451 @@ function ensureTasksForDate(dateStr) {
 }
 
 function cloneTask(task) {
-  return task ? { ...task } : createEmptyTask();
+  if (!task) {
+    return createEmptyTask();
+  }
+  const copy = { ...task };
+  copy.focusSessions = Array.isArray(task.focusSessions)
+    ? task.focusSessions.map(session => (session ? { ...session } : null)).filter(Boolean)
+    : [];
+  return copy;
+}
+
+function getTaskFocusSessions(task) {
+  if (!task || !Array.isArray(task.focusSessions)) {
+    return [];
+  }
+  return task.focusSessions
+    .map(entry => {
+      if (!entry || typeof entry !== 'object') {
+        return null;
+      }
+      const duration = Number(entry.durationSec ?? entry.duration);
+      if (!Number.isFinite(duration) || duration <= 0) {
+        return null;
+      }
+      return {
+        durationSec: Math.round(duration),
+        completedAt: typeof entry.completedAt === 'string' ? entry.completedAt : null
+      };
+    })
+    .filter(Boolean);
+}
+
+function registerFocusSessionForTask(task, durationSec) {
+  if (!task) {
+    return false;
+  }
+  const normalizedDuration = Number.isFinite(durationSec) ? Math.max(0, Math.round(durationSec)) : 0;
+  if (normalizedDuration <= 0) {
+    return false;
+  }
+  if (!Array.isArray(task.focusSessions)) {
+    task.focusSessions = [];
+  }
+  const entry = {
+    durationSec: normalizedDuration,
+    completedAt: new Date().toISOString()
+  };
+  task.focusSessions.push(entry);
+  task.focusSessions = task.focusSessions.slice(-12);
+  task.lastFocusDurationSec = normalizedDuration;
+  task.lastFocusCompletedAt = entry.completedAt;
+  return true;
+}
+
+function getTaskCompletionLatency(task) {
+  if (!task) {
+    return null;
+  }
+  const latency = Number(task.lastCompletionLatencySec);
+  if (!Number.isFinite(latency) || latency < 0) {
+    return null;
+  }
+  return Math.round(latency);
+}
+
+function hasTaskAntiCheatValidation(task) {
+  if (!task || task.status !== 'done') {
+    return false;
+  }
+  const latency = getTaskCompletionLatency(task);
+  const hasLatency = Number.isFinite(latency) && latency >= CHALLENGE_MIN_LATENCY_SECONDS;
+  const sessions = getTaskFocusSessions(task);
+  const hasLongSession = sessions.some(session => session.durationSec >= CHALLENGE_MIN_TIMER_SECONDS_VALIDATION);
+  return hasLatency || hasLongSession;
+}
+
+function isTaskEligibleForChallenge(task) {
+  if (!task || task.status !== 'done') {
+    return false;
+  }
+  if (isTaskEmpty(task)) {
+    return false;
+  }
+  return hasTaskAntiCheatValidation(task);
+}
+
+function taskHasFocusSession(task, minSeconds) {
+  if (!task) {
+    return false;
+  }
+  const sessions = getTaskFocusSessions(task);
+  return sessions.some(session => session.durationSec >= minSeconds);
+}
+
+function computeChallengeDayMetrics(dateStr) {
+  const tasks = Array.isArray(state.tasks?.[dateStr]) ? state.tasks[dateStr] : [];
+  const eligibleTasks = tasks.filter(isTaskEligibleForChallenge);
+  const totalDone = tasks.filter(task => task && task.status === 'done').length;
+  const focus20 = tasks.some(task => taskHasFocusSession(task, CHALLENGE_MIN_SESSION_SECONDS));
+  const focus10 = tasks.some(task => taskHasFocusSession(task, CHALLENGE_MIN_TIMER_SECONDS_VALIDATION));
+  return {
+    eligibleCount: eligibleTasks.length,
+    totalDone,
+    hasFocus20: focus20,
+    hasFocus10: focus10
+  };
+}
+
+function updateChallengeProgress(options = {}) {
+  if (!ENABLE_CHALLENGE) {
+    return false;
+  }
+
+  ensureChallengeState();
+  const challenge = state.challenge.current;
+  if (!challenge) {
+    return false;
+  }
+
+  const referenceDateStr = typeof options.referenceDate === 'string' && isValidISODate(options.referenceDate)
+    ? options.referenceDate
+    : getToday();
+  const referenceDate = parseISODate(referenceDateStr) || getTodayDateObj();
+  referenceDate.setHours(0, 0, 0, 0);
+  const now = new Date();
+  const nowTime = now.getTime();
+
+  let changed = false;
+  let newlySuccessfulIndex = null;
+
+  const startDateObj = parseISODate(challenge.startDate);
+  if (startDateObj) {
+    startDateObj.setHours(0, 0, 0, 0);
+    if (startDateObj.getTime() > referenceDate.getTime()) {
+      if (challenge.state !== 'scheduled') {
+        challenge.state = 'scheduled';
+        changed = true;
+      }
+    } else if (challenge.state === 'scheduled') {
+      challenge.state = 'active';
+      changed = true;
+    }
+  }
+
+  let score = 0;
+  let allResolved = true;
+
+  challenge.days.forEach((day, index) => {
+    if (!day || !day.date || !isValidISODate(day.date)) {
+      allResolved = false;
+      return;
+    }
+    const dayDate = parseISODate(day.date);
+    if (!dayDate) {
+      allResolved = false;
+      return;
+    }
+    dayDate.setHours(0, 0, 0, 0);
+    const dayStart = dayDate.getTime();
+    const dayEnd = dayStart + 24 * 60 * 60 * 1000;
+
+    const metrics = computeChallengeDayMetrics(day.date);
+    const successByTasks = metrics.eligibleCount >= CHALLENGE_MIN_TASKS_SUCCESS;
+    const successByFocus = metrics.eligibleCount >= 1 && metrics.hasFocus20;
+    const isSuccess = successByTasks || successByFocus;
+    const previousStatus = day.status || 'pending';
+    let newStatus = previousStatus;
+
+    const catchupExpiry = typeof day.catchupExpiresAt === 'string' ? Date.parse(day.catchupExpiresAt) : null;
+    const canUseCatchup = !challenge.catchupUsed && typeof day.failRecordedAt === 'string' && Number.isFinite(catchupExpiry)
+      ? nowTime <= catchupExpiry
+      : false;
+
+    if (isSuccess) {
+      if (previousStatus === 'fail' && canUseCatchup) {
+        newStatus = 'catchup';
+        day.catchupCompletedAt = new Date().toISOString();
+        challenge.catchupUsed = true;
+        challenge.catchupDay = day.date;
+      } else if (previousStatus !== 'success' && previousStatus !== 'catchup') {
+        newStatus = 'success';
+      }
+      if (!day.completedAt) {
+        day.completedAt = new Date().toISOString();
+      }
+      if (previousStatus !== newStatus) {
+        newlySuccessfulIndex = index;
+        changed = true;
+      }
+      day.failRecordedAt = null;
+      if (newStatus !== 'catchup') {
+        day.catchupExpiresAt = null;
+        day.catchupCompletedAt = null;
+      }
+    } else {
+      if (nowTime < dayStart) {
+        if (previousStatus !== 'pending') {
+          newStatus = 'pending';
+          changed = true;
+        }
+        allResolved = false;
+        day.completedAt = null;
+      } else if (nowTime >= dayEnd) {
+        if (previousStatus === 'success' || previousStatus === 'catchup') {
+          newStatus = previousStatus;
+        } else {
+          newStatus = 'fail';
+          if (!day.failRecordedAt) {
+            day.failRecordedAt = new Date().toISOString();
+          }
+          if (!day.catchupExpiresAt) {
+            const expiryBase = day.failRecordedAt ? Date.parse(day.failRecordedAt) : nowTime;
+            const expiryDate = new Date(expiryBase);
+            expiryDate.setHours(expiryDate.getHours() + CHALLENGE_CATCHUP_WINDOW_HOURS);
+            day.catchupExpiresAt = expiryDate.toISOString();
+          }
+          if (!challenge.jokerUsed) {
+            day.usedJoker = true;
+            challenge.jokerUsed = true;
+          }
+          day.completedAt = null;
+          if (previousStatus !== 'fail') {
+            changed = true;
+          }
+        }
+      } else {
+        if (previousStatus !== 'pending') {
+          newStatus = 'pending';
+          changed = true;
+        }
+        allResolved = false;
+        day.completedAt = null;
+      }
+
+      if (newStatus === 'fail' && canUseCatchup && isSuccess) {
+        newStatus = 'catchup';
+        day.catchupCompletedAt = new Date().toISOString();
+        challenge.catchupUsed = true;
+        challenge.catchupDay = day.date;
+        changed = true;
+        newlySuccessfulIndex = index;
+      }
+    }
+
+    if (day.status !== newStatus) {
+      day.status = newStatus;
+    }
+
+    if (day.status === 'success' || day.status === 'catchup') {
+      score += 1;
+    } else if (day.status === 'pending' && nowTime < dayEnd) {
+      allResolved = false;
+    }
+  });
+
+  if (challenge.score !== score) {
+    challenge.score = score;
+    changed = true;
+  }
+
+  const badgeId = determineChallengeBadgeId(score);
+  if (challenge.badge !== badgeId) {
+    challenge.badge = badgeId;
+    changed = true;
+  }
+
+  challenge.updatedAt = new Date().toISOString();
+
+  if (Array.isArray(challenge.participants)) {
+    challenge.participants.forEach(participant => {
+      if (participant && participant.type === 'self') {
+        participant.timeline = challenge.days.map(day => day?.status || 'pending');
+        participant.score = challenge.score;
+        participant.streak = computeChallengeSoftStreak(challenge);
+        participant.lastActivityAt = new Date().toISOString();
+      }
+    });
+  }
+
+  const lastDay = challenge.days[challenge.days.length - 1];
+  let challengeFinished = false;
+  if (lastDay && lastDay.date && isValidISODate(lastDay.date)) {
+    const lastDate = parseISODate(lastDay.date);
+    if (lastDate) {
+      lastDate.setHours(0, 0, 0, 0);
+      const lastEnd = lastDate.getTime() + 24 * 60 * 60 * 1000;
+      if (nowTime >= lastEnd && allResolved) {
+        challengeFinished = true;
+      }
+    }
+  }
+
+  if (challengeFinished && challenge.state !== 'completed') {
+    challenge.state = 'completed';
+    challenge.completedAt = new Date().toISOString();
+    changed = true;
+  }
+
+  if (!options.skipNotifications) {
+    handleChallengeNotifications(challenge, {
+      newlySuccessfulIndex,
+      referenceDate: referenceDateStr,
+      completed: challengeFinished
+    });
+  }
+
+  if (challengeFinished) {
+    handleChallengeCompletion(challenge);
+  }
+
+  return changed;
+}
+
+function handleChallengeNotifications(challenge, { newlySuccessfulIndex = null, referenceDate = getToday(), completed = false } = {}) {
+  if (!ENABLE_CHALLENGE || !challenge) {
+    return;
+  }
+
+  if (!state.challenge.notifications || typeof state.challenge.notifications !== 'object') {
+    state.challenge.notifications = createDefaultChallengeState().notifications;
+  }
+
+  const store = state.challenge.notifications;
+  const now = new Date();
+  const hours = now.getHours();
+
+  if (challenge.state === 'active') {
+    const dayOffset = differenceInDays(challenge.startDate, referenceDate);
+    if (Number.isFinite(dayOffset) && dayOffset >= 0 && dayOffset < CHALLENGE_DAY_COUNT) {
+      const currentDay = challenge.days[dayOffset];
+      if (hours < 12 && store.lastMorning !== referenceDate) {
+        showToast(`Défi J${dayOffset + 1}/7 — go ✨`);
+        store.lastMorning = referenceDate;
+      }
+      if (currentDay && currentDay.status !== 'success' && currentDay.status !== 'catchup') {
+        if (hours >= 18 && store.lastEvening !== referenceDate) {
+          showToast(`Encore 1 micro-tâche pour valider J${dayOffset + 1}/7.`);
+          store.lastEvening = referenceDate;
+        }
+      }
+    }
+  }
+
+  if (newlySuccessfulIndex !== null) {
+    const day = challenge.days[newlySuccessfulIndex];
+    if (day && !store.successDays.includes(day.date)) {
+      showToast(`J${newlySuccessfulIndex + 1}/7 validé 🎉`);
+      store.successDays.push(day.date);
+      if (store.successDays.length > 14) {
+        store.successDays = store.successDays.slice(-14);
+      }
+    }
+  }
+
+  const completionAlreadyShown = store.completionShownFor === challenge.id;
+  if (completed && challenge.badge && challenge.badge !== 'none' && !completionAlreadyShown) {
+    const badgeDef = getChallengeBadgeDefinitionById(challenge.badge);
+    showToast(`Défi terminé — Badge ${badgeDef.label}`);
+  }
+}
+
+function cloneChallengeForHistory(challenge) {
+  const serialized = JSON.parse(JSON.stringify(challenge));
+  return normalizeChallenge(serialized);
+}
+
+function persistChallengeToHistory(challenge) {
+  const entry = cloneChallengeForHistory(challenge);
+  if (!entry) {
+    return;
+  }
+  const existingIdx = state.challenge.history.findIndex(item => item && item.id === entry.id);
+  if (existingIdx !== -1) {
+    state.challenge.history.splice(existingIdx, 1);
+  }
+  state.challenge.history.unshift(entry);
+  state.challenge.history = state.challenge.history.slice(0, CHALLENGE_MAX_HISTORY);
+}
+
+function handleChallengeCompletion(challenge) {
+  if (!ENABLE_CHALLENGE || !challenge || challenge.state !== 'completed') {
+    return;
+  }
+
+  if (!state.challenge.notifications || typeof state.challenge.notifications !== 'object') {
+    state.challenge.notifications = createDefaultChallengeState().notifications;
+  }
+
+  const store = state.challenge.notifications;
+  const badgeDef = getChallengeBadgeDefinitionById(challenge.badge);
+
+  if (store.completionShownFor !== challenge.id) {
+    store.completionShownFor = challenge.id;
+    showChallengeCompletionModal(challenge, badgeDef);
+    launchConfetti();
+  }
+
+  persistChallengeToHistory(challenge);
+}
+
+function showChallengeCompletionModal(challenge, badge = null) {
+  if (!challenge) {
+    return;
+  }
+
+  const modal = document.getElementById('modal-overlay');
+  const content = document.getElementById('modal-content');
+  if (!modal || !content) {
+    return;
+  }
+
+  const badgeDef = badge || getChallengeBadgeDefinitionById(challenge.badge);
+  const streak = computeChallengeSoftStreak(challenge, challenge.days?.[challenge.days.length - 1]?.date || getToday());
+  const summaryParts = [`Tu as validé ${challenge.score}/7 jours.`];
+  if (challenge.jokerUsed) {
+    summaryParts.push('Joker utilisé.');
+  }
+  if (challenge.catchupUsed) {
+    summaryParts.push('Rattrapage réussi.');
+  }
+
+  content.classList.remove(
+    'template-wide',
+    'badge-modal-container',
+    'quick-add-modal',
+    'social-modal',
+    'challenge-details-modal',
+    'challenge-setup-modal'
+  );
+  content.classList.add('challenge-completion-modal');
+
+  content.innerHTML = `
+    <div class="challenge-completion" role="document" aria-labelledby="challenge-completion-title">
+      <div class="challenge-completion-icon" aria-hidden="true">${badgeDef.icon}</div>
+      <h3 class="challenge-completion-title" id="challenge-completion-title">Badge ${badgeDef.label}</h3>
+      <p class="challenge-completion-summary">${summaryParts.join(' ')}</p>
+      <div class="challenge-completion-timeline" id="challenge-completion-timeline"></div>
+      <div class="challenge-completion-meta" id="challenge-completion-meta"></div>
+      <div class="challenge-completion-actions">
+        <button type="button" class="btn btn-primary" id="challenge-completion-share">Partager</button>
+        <button type="button" class="btn btn-secondary" id="challenge-completion-restart">Relancer</button>
+        <button type="button" class="btn btn-outline" id="challenge-completion-close">Fermer</button>
+      </div>
+    </div>
+  `;
+
+  const timelineContainer = document.getElementById('challenge-completion-timeline');
+  if (timelineContainer) {
+    const timeline = document.createElement('div');
+    timeline.className = 'challenge-timeline challenge-timeline-large';
+    timelineContainer.appendChild(timeline);
+    renderChallengeTimeline(timeline, challenge);
+  }
+
+  const metaContainer = document.getElementById('challenge-completion-meta');
+  if (metaContainer) {
+    const metaEntries = [challenge.mode === 'social' ? 'Mode social' : 'Mode solo', `Streak ${streak}`];
+    if (challenge.jokerUsed) {
+      metaEntries.push('Joker');
+    }
+    if (challenge.catchupUsed) {
+      metaEntries.push('Catch-up');
+    }
+    metaEntries.forEach(label => {
+      const chip = document.createElement('span');
+      chip.className = 'challenge-completion-chip';
+      chip.textContent = label;
+      metaContainer.appendChild(chip);
+    });
+  }
+
+  const shareBtn = document.getElementById('challenge-completion-share');
+  const restartBtn = document.getElementById('challenge-completion-restart');
+  const closeBtn = document.getElementById('challenge-completion-close');
+
+  if (shareBtn) {
+    shareBtn.addEventListener('click', () => generateChallengeShareImage(challenge));
+  }
+  if (restartBtn) {
+    restartBtn.addEventListener('click', () => {
+      closeModal();
+      openChallengeSetupModal({ defaultMode: challenge.mode });
+    });
+  }
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => closeModal());
+  }
+
+  modal.dataset.activeModal = 'challenge-completion';
+  modal.classList.add('show');
+  setupFocusTrap(content, {
+    modalKey: 'challenge-completion',
+    initialFocus: shareBtn || restartBtn || closeBtn || null
+  });
+}
+
+function getChallengeDayIndexForDate(challenge, dateStr) {
+  if (!challenge || !challenge.startDate || !isValidISODate(dateStr)) {
+    return null;
+  }
+  const diff = differenceInDays(challenge.startDate, dateStr);
+  if (!Number.isFinite(diff)) {
+    return null;
+  }
+  if (diff < 0 || diff >= CHALLENGE_DAY_COUNT) {
+    return null;
+  }
+  return diff;
+}
+
+function computeChallengeSoftStreak(challenge, referenceDateStr = getToday()) {
+  if (!challenge) {
+    return 0;
+  }
+  let streak = 0;
+  challenge.days.forEach(day => {
+    if (!day || !day.date || day.date > referenceDateStr) {
+      return;
+    }
+    if (day.status === 'success' || day.status === 'catchup') {
+      streak += 1;
+    } else if (day.status === 'fail') {
+      if (!day.usedJoker) {
+        streak = 0;
+      }
+    }
+  });
+  return streak;
+}
+
+function renderChallengeTimeline(container, challenge) {
+  if (!container) {
+    return;
+  }
+  container.innerHTML = '';
+  const todayStr = getToday();
+  challenge.days.forEach((day, index) => {
+    const item = document.createElement('div');
+    const status = day?.status || 'pending';
+    item.className = `challenge-day challenge-day-${status}`;
+    if (day?.usedJoker) {
+      item.classList.add('challenge-day-joker');
+    }
+    if (day?.date === todayStr) {
+      item.classList.add('challenge-day-today');
+    }
+    if (day?.date && day.date > todayStr) {
+      item.classList.add('challenge-day-future');
+    }
+    const label = document.createElement('span');
+    label.className = 'challenge-day-label';
+    label.textContent = `J${index + 1}`;
+    const dot = document.createElement('span');
+    dot.className = 'challenge-day-dot';
+    item.appendChild(label);
+    item.appendChild(dot);
+    container.appendChild(item);
+  });
+}
+
+function createChallengeActionButton(label, variant, onClick) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  const baseClass = variant === 'primary' ? 'btn btn-primary' : variant === 'outline' ? 'btn btn-outline' : 'btn btn-secondary';
+  button.className = `${baseClass} challenge-action-btn`;
+  button.textContent = label;
+  if (typeof onClick === 'function') {
+    button.addEventListener('click', onClick);
+  }
+  return button;
+}
+
+function renderChallengeParticipantsPreview(challenge) {
+  if (!challenge || !Array.isArray(challenge.participants)) {
+    return null;
+  }
+  const wrapper = document.createElement('div');
+  wrapper.className = 'challenge-participants-preview';
+  challenge.participants.slice(0, 6).forEach(participant => {
+    const chip = document.createElement('div');
+    chip.className = 'challenge-participant-chip';
+    const initials = participant.displayName
+      ? participant.displayName.split(' ').map(part => part[0]).join('').slice(0, 2).toUpperCase()
+      : '—';
+    const avatar = document.createElement('div');
+    avatar.className = 'challenge-participant-avatar';
+    avatar.textContent = initials;
+    const info = document.createElement('div');
+    info.className = 'challenge-participant-info';
+    const name = document.createElement('span');
+    name.className = 'challenge-participant-name';
+    name.textContent = participant.displayName || 'Participant';
+    const meta = document.createElement('span');
+    meta.className = 'challenge-participant-meta';
+    const score = Number.isFinite(participant.score) ? participant.score : 0;
+    meta.textContent = `${score}/7 · ${participant.streak || 0} streak`; 
+    info.appendChild(name);
+    info.appendChild(meta);
+    chip.appendChild(avatar);
+    chip.appendChild(info);
+    wrapper.appendChild(chip);
+  });
+  return wrapper;
+}
+
+function renderChallengeCard() {
+  const card = document.getElementById('challenge-card');
+  if (!card) {
+    return;
+  }
+
+  if (!ENABLE_CHALLENGE) {
+    card.hidden = true;
+    return;
+  }
+
+  ensureChallengeState();
+
+  const subtitleEl = document.getElementById('challenge-subtitle');
+  const badgePill = document.getElementById('challenge-badge-pill');
+  const badgeIconEl = document.getElementById('challenge-badge-icon');
+  const badgeLabelEl = document.getElementById('challenge-badge-label');
+  const body = document.getElementById('challenge-body');
+  const actions = document.getElementById('challenge-actions');
+
+  if (!subtitleEl || !badgePill || !badgeIconEl || !badgeLabelEl || !body || !actions) {
+    return;
+  }
+
+  const challenge = state.challenge.current;
+  card.hidden = false;
+  body.innerHTML = '';
+  actions.innerHTML = '';
+
+  if (!challenge) {
+    subtitleEl.textContent = 'Active ton mini-challenge Daily-3.';
+    badgePill.hidden = true;
+    const intro = document.createElement('p');
+    intro.className = 'challenge-empty-text';
+    intro.textContent = 'Valide tes Daily-3 pendant 7 jours et débloque un badge.';
+    body.appendChild(intro);
+
+    const ctaRow = document.createElement('div');
+    ctaRow.className = 'challenge-empty-actions';
+    ctaRow.appendChild(createChallengeActionButton('Lancer aujourd’hui', 'primary', () => {
+      startQuickChallenge({ startOption: 'today', mode: 'solo' });
+    }));
+    ctaRow.appendChild(createChallengeActionButton('Programmer lundi', 'outline', () => {
+      startQuickChallenge({ startOption: 'next-monday', mode: 'solo' });
+    }));
+    ctaRow.appendChild(createChallengeActionButton('Inviter des amis', 'secondary', () => {
+      openChallengeSetupModal({ defaultMode: 'social' });
+    }));
+    actions.appendChild(ctaRow);
+    return;
+  }
+
+  const todayStr = getToday();
+  const dayOffset = getChallengeDayIndexForDate(challenge, todayStr);
+
+  if (challenge.state === 'scheduled') {
+    subtitleEl.textContent = `Début le ${formatDate(challenge.startDate)}`;
+  } else if (challenge.state === 'completed') {
+    subtitleEl.textContent = `Terminé • ${challenge.score}/7`;
+  } else if (Number.isInteger(dayOffset)) {
+    subtitleEl.textContent = `Actif • J${dayOffset + 1}/7`;
+  } else {
+    subtitleEl.textContent = 'Actif';
+  }
+
+  if (challenge.badge && challenge.badge !== 'none') {
+    const badgeDef = getChallengeBadgeDefinitionById(challenge.badge);
+    badgeIconEl.textContent = badgeDef.icon;
+    badgeLabelEl.textContent = badgeDef.label;
+    badgePill.hidden = false;
+  } else {
+    badgePill.hidden = true;
+  }
+
+  const timelineWrapper = document.createElement('div');
+  timelineWrapper.className = 'challenge-timeline-wrapper';
+  const timeline = document.createElement('div');
+  timeline.className = 'challenge-timeline';
+  renderChallengeTimeline(timeline, challenge);
+  timelineWrapper.appendChild(timeline);
+  body.appendChild(timelineWrapper);
+
+  const stats = document.createElement('div');
+  stats.className = 'challenge-stats';
+
+  const scoreStat = document.createElement('div');
+  scoreStat.className = 'challenge-stat';
+  const scoreValue = document.createElement('span');
+  scoreValue.className = 'challenge-stat-value';
+  scoreValue.textContent = `${challenge.score}/7`;
+  const scoreLabel = document.createElement('span');
+  scoreLabel.className = 'challenge-stat-label';
+  scoreLabel.textContent = 'jours validés';
+  scoreStat.appendChild(scoreValue);
+  scoreStat.appendChild(scoreLabel);
+
+  const streakStat = document.createElement('div');
+  streakStat.className = 'challenge-stat';
+  const streakValue = document.createElement('span');
+  streakValue.className = 'challenge-stat-value';
+  const streak = computeChallengeSoftStreak(challenge, todayStr);
+  streakValue.textContent = streak;
+  const streakLabel = document.createElement('span');
+  streakLabel.className = 'challenge-stat-label';
+  streakLabel.textContent = 'streak du défi';
+  streakStat.appendChild(streakValue);
+  streakStat.appendChild(streakLabel);
+
+  stats.appendChild(scoreStat);
+  stats.appendChild(streakStat);
+
+  if (challenge.jokerUsed) {
+    const jokerStat = document.createElement('div');
+    jokerStat.className = 'challenge-stat';
+    const jokerValue = document.createElement('span');
+    jokerValue.className = 'challenge-stat-value challenge-stat-joker';
+    jokerValue.textContent = 'Joker';
+    const jokerLabel = document.createElement('span');
+    jokerLabel.className = 'challenge-stat-label';
+    jokerLabel.textContent = 'reset doux utilisé';
+    jokerStat.appendChild(jokerValue);
+    jokerStat.appendChild(jokerLabel);
+    stats.appendChild(jokerStat);
+  }
+
+  body.appendChild(stats);
+
+  const meta = document.createElement('div');
+  meta.className = 'challenge-meta';
+  const modeSpan = document.createElement('span');
+  modeSpan.textContent = challenge.mode === 'social' ? 'Mode social' : 'Mode solo';
+  meta.appendChild(modeSpan);
+  const dateSpan = document.createElement('span');
+  dateSpan.textContent = `Début : ${formatDate(challenge.startDate)}`;
+  meta.appendChild(dateSpan);
+  body.appendChild(meta);
+
+  if (challenge.mode === 'social') {
+    const participantsPreview = renderChallengeParticipantsPreview(challenge);
+    if (participantsPreview) {
+      body.appendChild(participantsPreview);
+    }
+  }
+
+  const actionsRow = document.createElement('div');
+  actionsRow.className = 'challenge-actions-row';
+
+  if (challenge.state === 'completed') {
+    actionsRow.appendChild(createChallengeActionButton('Partager', 'primary', () => {
+      generateChallengeShareImage(challenge);
+    }));
+    actionsRow.appendChild(createChallengeActionButton('Relancer', 'secondary', () => {
+      openChallengeSetupModal({ defaultMode: challenge.mode });
+    }));
+  } else {
+    actionsRow.appendChild(createChallengeActionButton('Voir détails', 'secondary', () => {
+      openChallengeDetailsModal();
+    }));
+    if (challenge.mode === 'social') {
+      actionsRow.appendChild(createChallengeActionButton('Inviter', 'outline', () => {
+        openChallengeSetupModal({ defaultMode: 'social' });
+      }));
+    }
+    actionsRow.appendChild(createChallengeActionButton('Abandonner', 'outline', () => {
+      abandonChallenge();
+    }));
+  }
+
+  actions.appendChild(actionsRow);
+
+  renderChallengeSocialList();
+}
+
+function startQuickChallenge({ startOption = 'today', mode = 'solo' } = {}) {
+  startNewChallenge({ startOption, mode, friends: [] });
+}
+
+function getIsoFromDate(date) {
+  return date.toISOString().split('T')[0];
+}
+
+function buildChallengeParticipants(mode, friends = []) {
+  const participants = [createChallengeParticipant({ uid: 'local-user', displayName: 'Moi', type: 'self' })];
+  if (mode === 'social') {
+    const seen = new Set(['local-user']);
+    friends.forEach(friend => {
+      if (!friend) return;
+      const label = typeof friend.displayName === 'string' && friend.displayName.trim()
+        ? friend.displayName.trim()
+        : (typeof friend === 'string' ? friend.trim() : 'Ami');
+      if (!label) return;
+      const uid = typeof friend.uid === 'string' && friend.uid.trim()
+        ? friend.uid.trim()
+        : `friend-${label.toLowerCase().replace(/[^a-z0-9]/gi, '')}-${Math.random().toString(36).slice(2, 6)}`;
+      if (seen.has(uid) || participants.length >= 6) {
+        return;
+      }
+      seen.add(uid);
+      const participant = createChallengeParticipant({ uid, displayName: label, type: 'friend' });
+      participant.timeline = Array(CHALLENGE_DAY_COUNT).fill('pending');
+      participant.score = 0;
+      participant.streak = 0;
+      participants.push(participant);
+    });
+  }
+  return participants;
+}
+
+function startNewChallenge({ startOption = 'today', startDate = null, mode = 'solo', friends = [] } = {}) {
+  const today = getTodayDateObj();
+  let startISO = startDate;
+  if (!startISO) {
+    if (startOption === 'next-monday') {
+      const monday = getNextMondayDate();
+      startISO = getIsoFromDate(monday);
+    } else {
+      startISO = getIsoFromDate(today);
+    }
+  }
+
+  const startObj = parseISODate(startISO) || today;
+  startObj.setHours(0, 0, 0, 0);
+
+  const days = Array.from({ length: CHALLENGE_DAY_COUNT }, (_, index) => {
+    const date = new Date(startObj);
+    date.setDate(date.getDate() + index);
+    const iso = getIsoFromDate(date);
+    return normalizeChallengeDay({ date: iso, status: 'pending' }, index, startISO);
+  });
+
+  const participants = buildChallengeParticipants(mode, friends);
+  const participantUids = participants
+    .filter(participant => participant.type === 'friend')
+    .map(participant => participant.uid);
+
+  const challenge = normalizeChallenge({
+    id: generateChallengeId(),
+    ownerUid: 'local-user',
+    participantUids,
+    participants,
+    startDate: startISO,
+    mode,
+    days,
+    score: 0,
+    badge: 'none',
+    state: startObj.getTime() > today.getTime() ? 'scheduled' : 'active',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    jokerUsed: false,
+    catchupUsed: false
+  });
+
+  state.challenge.current = challenge;
+  state.challenge.notifications = createDefaultChallengeState().notifications;
+  updateChallengeProgress({ referenceDate: getIsoFromDate(today), skipNotifications: true });
+  saveState();
+  renderChallengeCard();
+  showToast('Défi lancé !');
+}
+
+async function abandonChallenge() {
+  if (!state.challenge.current) {
+    return;
+  }
+  const confirmed = await showConfirmationToast('Abandonner le défi en cours ?', {
+    confirmLabel: 'Abandonner',
+    cancelLabel: 'Continuer'
+  });
+  if (!confirmed) {
+    return;
+  }
+  const current = state.challenge.current;
+  current.state = 'abandoned';
+  current.updatedAt = new Date().toISOString();
+  persistChallengeToHistory(current);
+  state.challenge.current = null;
+  state.challenge.notifications = createDefaultChallengeState().notifications;
+  saveState();
+  renderChallengeCard();
+  renderChallengeSocialList();
+  showToast('Défi abandonné.');
+}
+
+function getAvailableChallengeFriends() {
+  const friends = [];
+  if (socialOverviewCache && Array.isArray(socialOverviewCache.friends)) {
+    socialOverviewCache.friends.forEach(friend => {
+      if (!friend || !friend.uid) return;
+      friends.push({ uid: friend.uid, displayName: friend.displayName || 'Ami' });
+    });
+  }
+  return friends;
+}
+
+function generateChallengeShareImage(challenge) {
+  if (!challenge) {
+    return;
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = 900;
+  canvas.height = 600;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#F7E6D6';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = '#A68076';
+  ctx.font = 'bold 42px "Open Sans"';
+  ctx.fillText('Défi 7 jours', 60, 80);
+
+  const badgeDef = getChallengeBadgeDefinitionById(challenge.badge);
+  ctx.font = '28px "Open Sans"';
+  ctx.fillText(`${badgeDef.icon} ${badgeDef.label}`, 60, 130);
+
+  ctx.font = '24px "Open Sans"';
+  ctx.fillText(`${challenge.score}/7 jours validés`, 60, 180);
+  const streak = computeChallengeSoftStreak(challenge);
+  ctx.fillText(`Streak : ${streak} jour${streak > 1 ? 's' : ''}`, 60, 220);
+
+  ctx.font = '20px "Open Sans"';
+  ctx.fillText(`Début : ${formatDate(challenge.startDate)}`, 60, 260);
+
+  const circleRadius = 32;
+  const startX = 80;
+  const startY = 360;
+  const gap = 110;
+  challenge.days.forEach((day, index) => {
+    const x = startX + index * gap;
+    ctx.beginPath();
+    let fill = '#EFC3C2';
+    if (day.status === 'success') {
+      fill = '#CFE8C2';
+    } else if (day.status === 'catchup') {
+      fill = '#D8C8F2';
+    } else if (day.status === 'fail') {
+      fill = '#F9D8D6';
+    } else if (day.status === 'pending') {
+      fill = '#EAC4AF';
+    }
+    ctx.fillStyle = fill;
+    ctx.arc(x, startY, circleRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#A68076';
+    ctx.font = 'bold 18px "Open Sans"';
+    ctx.fillText(`J${index + 1}`, x - 15, startY + 6);
+  });
+
+  const dataUrl = canvas.toDataURL('image/png');
+  const link = document.createElement('a');
+  link.href = dataUrl;
+  link.download = `defi-7-jours-${challenge.badge || 'share'}.png`;
+  link.click();
+}
+
+function openChallengeDetailsModal(challenge = state.challenge.current) {
+  if (!challenge) {
+    return;
+  }
+
+  const modal = document.getElementById('modal-overlay');
+  const content = document.getElementById('modal-content');
+  if (!modal || !content) {
+    return;
+  }
+
+  content.classList.remove(
+    'template-wide',
+    'badge-modal-container',
+    'quick-add-modal',
+    'social-modal',
+    'challenge-setup-modal',
+    'challenge-completion-modal'
+  );
+  content.classList.add('challenge-details-modal');
+
+  const badgeDef = getChallengeBadgeDefinitionById(challenge.badge);
+
+  content.innerHTML = `
+    <div class="challenge-details">
+      <div class="challenge-details-head">
+        <h3>Défi 7 jours</h3>
+        <button type="button" class="challenge-details-close" id="challenge-details-close" aria-label="Fermer">✕</button>
+      </div>
+      <p class="challenge-details-subtitle">${formatDate(challenge.startDate)} → ${formatDate(challenge.days[challenge.days.length - 1].date)}</p>
+      <div class="challenge-details-summary">
+        <div class="challenge-details-badge">${badgeDef.icon} ${badgeDef.label}</div>
+        <div class="challenge-details-score">${challenge.score}/7 jours validés</div>
+        <div class="challenge-details-streak">Streak : ${computeChallengeSoftStreak(challenge)}</div>
+      </div>
+      <div class="challenge-details-timeline" id="challenge-details-timeline"></div>
+      <section class="challenge-details-participants" aria-label="Participants">
+        <h4>Participants</h4>
+        <div class="challenge-details-participants-list" id="challenge-details-participants"></div>
+      </section>
+      <div class="challenge-details-actions">
+        <button type="button" class="btn btn-secondary" id="challenge-details-share">Partager</button>
+        <button type="button" class="btn btn-outline" id="challenge-details-close-btn">Fermer</button>
+      </div>
+    </div>
+  `;
+
+  const timelineContainer = document.getElementById('challenge-details-timeline');
+  if (timelineContainer) {
+    const timeline = document.createElement('div');
+    timeline.className = 'challenge-timeline challenge-timeline-large';
+    timelineContainer.appendChild(timeline);
+    renderChallengeTimeline(timeline, challenge);
+  }
+
+  const participantsContainer = document.getElementById('challenge-details-participants');
+  if (participantsContainer) {
+    participantsContainer.innerHTML = '';
+    (challenge.participants || []).forEach(participant => {
+      const card = document.createElement('article');
+      card.className = 'challenge-details-participant';
+      const header = document.createElement('div');
+      header.className = 'challenge-details-participant-header';
+      header.textContent = participant.displayName || 'Participant';
+      const meta = document.createElement('div');
+      meta.className = 'challenge-details-participant-meta';
+      const score = Number.isFinite(participant.score) ? participant.score : 0;
+      meta.textContent = `${score}/7 · ${participant.streak || 0} streak`;
+      card.appendChild(header);
+      card.appendChild(meta);
+
+      const miniTimeline = document.createElement('div');
+      miniTimeline.className = 'challenge-details-mini-timeline';
+      const timelineData = Array.isArray(participant.timeline) ? participant.timeline : challenge.days.map(day => day.status);
+      timelineData.slice(0, CHALLENGE_DAY_COUNT).forEach(status => {
+        const dot = document.createElement('span');
+        dot.className = `challenge-mini-dot challenge-mini-${status}`;
+        miniTimeline.appendChild(dot);
+      });
+      card.appendChild(miniTimeline);
+
+      if (participant.type === 'friend') {
+        const cheerBtn = document.createElement('button');
+        cheerBtn.type = 'button';
+        cheerBtn.className = 'challenge-cheer-btn';
+        cheerBtn.innerHTML = '👏<span class="sr-only">Envoyer un clap</span>';
+        cheerBtn.addEventListener('click', () => {
+          sendChallengeCheer(participant.uid);
+        });
+        card.appendChild(cheerBtn);
+      }
+
+      participantsContainer.appendChild(card);
+    });
+  }
+
+  const closeBtn = document.getElementById('challenge-details-close');
+  const closeBtnSecondary = document.getElementById('challenge-details-close-btn');
+  const shareBtn = document.getElementById('challenge-details-share');
+
+  const closeHandler = () => closeModal();
+  if (closeBtn) {
+    closeBtn.addEventListener('click', closeHandler);
+  }
+  if (closeBtnSecondary) {
+    closeBtnSecondary.addEventListener('click', closeHandler);
+  }
+  if (shareBtn) {
+    shareBtn.addEventListener('click', () => generateChallengeShareImage(challenge));
+  }
+
+  modal.dataset.activeModal = 'challenge-details';
+  modal.classList.add('show');
+  setupFocusTrap(content, { modalKey: 'challenge-details', initialFocus: shareBtn || closeBtnSecondary || closeBtn });
+}
+
+function sendChallengeCheer(participantUid) {
+  const challenge = state.challenge.current;
+  if (!challenge || !Array.isArray(challenge.participants)) {
+    return;
+  }
+  const participant = challenge.participants.find(entry => entry && entry.uid === participantUid);
+  if (!participant) {
+    return;
+  }
+  participant.cheers = (participant.cheers || 0) + 1;
+  participant.lastActivityAt = new Date().toISOString();
+  showToast('👏 envoyé !');
+  saveState();
+  renderChallengeCard();
+}
+
+function removeChallengeHistoryEntry(challengeId) {
+  if (!state.challenge.history) {
+    return;
+  }
+  const idx = state.challenge.history.findIndex(entry => entry && entry.id === challengeId);
+  if (idx !== -1) {
+    state.challenge.history.splice(idx, 1);
+    saveState();
+    renderChallengeSocialList();
+  }
+}
+
+function buildChallengeSocialCard(challenge, { isCurrent = false } = {}) {
+  const card = document.createElement('article');
+  card.className = 'challenge-social-card';
+  const header = document.createElement('div');
+  header.className = 'challenge-social-card-head';
+  const title = document.createElement('h5');
+  title.textContent = isCurrent ? 'Défi en cours' : 'Défi terminé';
+  header.appendChild(title);
+  const status = document.createElement('span');
+  status.className = 'challenge-social-status';
+  status.textContent = challenge.state === 'completed' ? 'Terminé' : (challenge.state === 'scheduled' ? 'Programmé' : 'Actif');
+  header.appendChild(status);
+  card.appendChild(header);
+
+  const summary = document.createElement('div');
+  summary.className = 'challenge-social-summary';
+  summary.innerHTML = `<span>${challenge.score}/7</span><span>Streak ${computeChallengeSoftStreak(challenge)}</span>`;
+  card.appendChild(summary);
+
+  if (Array.isArray(challenge.participants) && challenge.participants.length) {
+    const participantList = document.createElement('div');
+    participantList.className = 'challenge-social-participants';
+    challenge.participants.slice(0, 4).forEach(participant => {
+      const item = document.createElement('div');
+      item.className = 'challenge-social-participant';
+      item.textContent = `${participant.displayName || 'Ami'} · ${participant.score || 0}/7`;
+      participantList.appendChild(item);
+    });
+    card.appendChild(participantList);
+  }
+
+  const actions = document.createElement('div');
+  actions.className = 'challenge-social-actions';
+  const detailsBtn = document.createElement('button');
+  detailsBtn.type = 'button';
+  detailsBtn.className = 'btn btn-secondary';
+  detailsBtn.textContent = 'Voir';
+  detailsBtn.addEventListener('click', () => openChallengeDetailsModal(challenge));
+  actions.appendChild(detailsBtn);
+
+  if (isCurrent) {
+    const shareBtn = document.createElement('button');
+    shareBtn.type = 'button';
+    shareBtn.className = 'btn btn-outline';
+    shareBtn.textContent = 'Partager';
+    shareBtn.addEventListener('click', () => generateChallengeShareImage(challenge));
+    actions.appendChild(shareBtn);
+  } else {
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'btn btn-outline';
+    closeBtn.textContent = 'Fermer';
+    closeBtn.addEventListener('click', () => removeChallengeHistoryEntry(challenge.id));
+    actions.appendChild(closeBtn);
+  }
+
+  card.appendChild(actions);
+  return card;
+}
+
+function renderChallengeSocialList() {
+  const container = document.getElementById('challenge-social-list');
+  const empty = document.getElementById('challenge-social-empty');
+  if (!container) {
+    return;
+  }
+  ensureChallengeState();
+  container.innerHTML = '';
+  const current = state.challenge.current;
+  if (current) {
+    container.appendChild(buildChallengeSocialCard(current, { isCurrent: true }));
+  }
+  (state.challenge.history || []).forEach(entry => {
+    container.appendChild(buildChallengeSocialCard(entry, { isCurrent: false }));
+  });
+  if (empty) {
+    empty.hidden = Boolean(current || (state.challenge.history || []).length);
+  }
+}
+
+function openChallengeSetupModal({ defaultMode = 'solo', inviteOnly = false } = {}) {
+  const modal = document.getElementById('modal-overlay');
+  const content = document.getElementById('modal-content');
+  if (!modal || !content) {
+    return;
+  }
+
+  ensureChallengeState();
+  let activeChallenge = state.challenge.current;
+  if (inviteOnly && !activeChallenge) {
+    inviteOnly = false;
+  }
+
+  content.classList.remove(
+    'template-wide',
+    'badge-modal-container',
+    'quick-add-modal',
+    'social-modal',
+    'challenge-details-modal',
+    'challenge-completion-modal'
+  );
+  content.classList.add('challenge-setup-modal');
+
+  const availableFriends = getAvailableChallengeFriends();
+  if (!inviteOnly && socialProvider && typeof socialProvider.getFriends === 'function') {
+    refreshSocialOverview({ silent: true }).catch(() => {});
+  }
+
+  const modalTitle = inviteOnly ? 'Inviter des amis' : 'Nouveau défi 7 jours';
+  const primaryLabel = inviteOnly ? 'Inviter' : 'Lancer le défi';
+
+  const buildFriendOption = (friend) => {
+    const wrapper = document.createElement('label');
+    wrapper.className = 'challenge-friend-option';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.name = 'challenge-friend';
+    input.value = friend.uid;
+    input.dataset.name = friend.displayName || 'Ami';
+    wrapper.appendChild(input);
+    const span = document.createElement('span');
+    span.textContent = friend.displayName || 'Ami';
+    wrapper.appendChild(span);
+    return wrapper;
+  };
+
+  const buildFriendListHTML = () => {
+    const container = document.createElement('div');
+    container.className = 'challenge-friends-list';
+    const limit = inviteOnly && activeChallenge
+      ? Math.max(0, 6 - (activeChallenge.participants ? activeChallenge.participants.length : 1))
+      : 5;
+    const existingUids = new Set(inviteOnly && activeChallenge && Array.isArray(activeChallenge.participants)
+      ? activeChallenge.participants.map(participant => participant.uid)
+      : []);
+    availableFriends.forEach(friend => {
+      if (!friend || existingUids.has(friend.uid)) {
+        return;
+      }
+      if (container.childElementCount >= limit) {
+        return;
+      }
+      container.appendChild(buildFriendOption(friend));
+    });
+    return container;
+  };
+
+  const baseMarkup = document.createElement('div');
+  baseMarkup.className = 'challenge-setup';
+  baseMarkup.innerHTML = `
+    <div class="challenge-setup-head">
+      <h3>${modalTitle}</h3>
+      <button type="button" class="challenge-setup-close" id="challenge-setup-close" aria-label="Fermer">✕</button>
+    </div>
+  `;
+
+  const form = document.createElement('form');
+  form.className = 'challenge-setup-form';
+
+  if (!inviteOnly) {
+    form.innerHTML = `
+      <fieldset class="challenge-fieldset">
+        <legend>Début</legend>
+        <label class="challenge-radio">
+          <input type="radio" name="challenge-start" value="today" checked>
+          <span>Aujourd’hui</span>
+        </label>
+        <label class="challenge-radio">
+          <input type="radio" name="challenge-start" value="next-monday">
+          <span>Lundi prochain</span>
+        </label>
+      </fieldset>
+      <fieldset class="challenge-fieldset">
+        <legend>Mode</legend>
+        <label class="challenge-radio">
+          <input type="radio" name="challenge-mode" value="solo" ${defaultMode === 'social' ? '' : 'checked'}>
+          <span>Solo</span>
+        </label>
+        <label class="challenge-radio">
+          <input type="radio" name="challenge-mode" value="social" ${defaultMode === 'social' ? 'checked' : ''}>
+          <span>Avec amis</span>
+        </label>
+      </fieldset>
+    `;
+  } else {
+    form.innerHTML = '';
+  }
+
+  const friendsBlock = document.createElement('div');
+  friendsBlock.className = 'challenge-friends-block';
+  friendsBlock.innerHTML = inviteOnly
+    ? '<h4>Ajouter des amis (max 5)</h4>'
+    : '<h4>Sélectionne jusqu’à 5 amis</h4>';
+  const friendsList = buildFriendListHTML();
+  if (friendsList.childElementCount > 0) {
+    friendsBlock.appendChild(friendsList);
+  } else {
+    const empty = document.createElement('p');
+    empty.className = 'challenge-friends-empty';
+    empty.textContent = 'Aucun ami disponible pour le moment.';
+    friendsBlock.appendChild(empty);
+  }
+
+  const manualAdd = document.createElement('div');
+  manualAdd.className = 'challenge-add-friend';
+  manualAdd.innerHTML = `
+    <input type="text" id="challenge-manual-friend" placeholder="Nom d’un ami">
+    <button type="button" class="btn btn-secondary" id="challenge-add-friend-btn">Ajouter</button>
+  `;
+  friendsBlock.appendChild(manualAdd);
+
+  const actionsRow = document.createElement('div');
+  actionsRow.className = 'challenge-setup-actions';
+  const submitBtn = document.createElement('button');
+  submitBtn.type = 'submit';
+  submitBtn.className = 'btn btn-primary';
+  submitBtn.textContent = primaryLabel;
+  const cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button';
+  cancelBtn.className = 'btn btn-outline';
+  cancelBtn.id = 'challenge-setup-cancel';
+  cancelBtn.textContent = 'Annuler';
+  actionsRow.appendChild(submitBtn);
+  actionsRow.appendChild(cancelBtn);
+
+  if (!inviteOnly) {
+    form.appendChild(friendsBlock);
+    form.appendChild(actionsRow);
+  } else {
+    form.appendChild(friendsBlock);
+    form.appendChild(actionsRow);
+  }
+
+  baseMarkup.appendChild(form);
+  content.innerHTML = '';
+  content.appendChild(baseMarkup);
+
+  const closeBtn = document.getElementById('challenge-setup-close');
+  const cancelButton = document.getElementById('challenge-setup-cancel');
+
+  const closeModalHandler = () => closeModal();
+  if (closeBtn) {
+    closeBtn.addEventListener('click', closeModalHandler);
+  }
+  if (cancelButton) {
+    cancelButton.addEventListener('click', closeModalHandler);
+  }
+
+  const friendsContainer = friendsBlock.querySelector('.challenge-friends-list');
+  const manualInput = document.getElementById('challenge-manual-friend');
+  const addFriendBtn = document.getElementById('challenge-add-friend-btn');
+
+  const appendManualFriend = () => {
+    if (!manualInput) return;
+    const name = manualInput.value.trim();
+    if (!name) return;
+    const limit = inviteOnly && activeChallenge
+      ? Math.max(0, 6 - (activeChallenge.participants ? activeChallenge.participants.length : 1))
+      : 5;
+    if (friendsContainer && friendsContainer.childElementCount >= limit) {
+      showToast('Limite de participants atteinte.');
+      return;
+    }
+    const uid = `manual-${name.toLowerCase().replace(/[^a-z0-9]/gi, '')}-${Math.random().toString(36).slice(2, 6)}`;
+    const option = buildFriendOption({ uid, displayName: name });
+    if (friendsContainer) {
+      friendsContainer.appendChild(option);
+    }
+    manualInput.value = '';
+  };
+
+  if (addFriendBtn) {
+    addFriendBtn.addEventListener('click', appendManualFriend);
+  }
+  if (manualInput) {
+    manualInput.addEventListener('keypress', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        appendManualFriend();
+      }
+    });
+  }
+
+  const updateFriendsVisibility = () => {
+    if (inviteOnly) {
+      friendsBlock.hidden = false;
+      return;
+    }
+    const modeInput = content.querySelector('input[name="challenge-mode"]:checked');
+    const mode = modeInput ? modeInput.value : 'solo';
+    friendsBlock.hidden = mode !== 'social';
+  };
+
+  if (!inviteOnly) {
+    updateFriendsVisibility();
+    const modeInputs = Array.from(content.querySelectorAll('input[name="challenge-mode"]'));
+    modeInputs.forEach(input => {
+      input.addEventListener('change', updateFriendsVisibility);
+    });
+  }
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const friendInputs = Array.from(content.querySelectorAll('input[name="challenge-friend"]:checked'));
+    const selectedFriends = friendInputs.map(input => ({ uid: input.value, displayName: input.dataset.name || input.value }));
+    if (inviteOnly && activeChallenge) {
+      const availableSlots = Math.max(0, 6 - (activeChallenge.participants ? activeChallenge.participants.length : 1));
+      if (selectedFriends.length > availableSlots) {
+        showToast('Maximum 5 amis par défi.');
+        return;
+      }
+      selectedFriends.forEach(friend => {
+        if (!friend) return;
+        const exists = activeChallenge.participants.some(participant => participant.uid === friend.uid);
+        if (exists) return;
+        const participant = createChallengeParticipant({ uid: friend.uid, displayName: friend.displayName, type: 'friend' });
+        participant.timeline = Array(CHALLENGE_DAY_COUNT).fill('pending');
+        activeChallenge.participants.push(participant);
+        if (!activeChallenge.participantUids.includes(friend.uid)) {
+          activeChallenge.participantUids.push(friend.uid);
+        }
+      });
+      activeChallenge.mode = 'social';
+      activeChallenge.updatedAt = new Date().toISOString();
+      saveState();
+      renderChallengeCard();
+      renderChallengeSocialList();
+      showToast('Invitations enregistrées.');
+      closeModal();
+      return;
+    }
+
+    const modeInput = content.querySelector('input[name="challenge-mode"]:checked');
+    const mode = modeInput ? modeInput.value : defaultMode;
+    const startInput = content.querySelector('input[name="challenge-start"]:checked');
+    const startOption = startInput ? startInput.value : 'today';
+
+    startNewChallenge({ startOption: startOption === 'next-monday' ? 'next-monday' : 'today', mode, friends: selectedFriends });
+    closeModal();
+  });
+
+  modal.dataset.activeModal = 'challenge-setup';
+  modal.classList.add('show');
+  setupFocusTrap(content, { modalKey: 'challenge-setup', initialFocus: submitBtn });
 }
 
 function isTaskEmpty(task) {
@@ -4606,6 +6335,9 @@ function openTemplateLibrary() {
 
   setPlanifierTabsMode('templates');
   content.classList.remove('template-wide');
+  content.classList.remove('challenge-details-modal');
+  content.classList.remove('challenge-setup-modal');
+  content.classList.remove('challenge-completion-modal');
 
   content.innerHTML = `
     <div class="template-library">
@@ -4953,6 +6685,7 @@ function renderDashboard() {
   renderKPIImage();
   updateMomentum();
   renderStreakSummary();
+  renderChallengeCard();
   updateUpcomingReminderBanner();
 }
 
@@ -7428,13 +9161,29 @@ window.toggleTaskCompletion = function(taskIdx) {
 
   task.status = task.status === 'done' ? 'planned' : 'done';
   const toggledToDone = task.status === 'done';
+  const nowISO = new Date().toISOString();
+  const nowMs = Date.now();
+  const previousStatusChangedAt = typeof task.statusChangedAt === 'string' ? Date.parse(task.statusChangedAt) : null;
 
   if (toggledToDone) {
     recordFocusOutcomeForTask(today, task, 'done');
     recordMomentExecutionEvent(today, task, 'success');
+    const startedAt = typeof task.lastStartedAt === 'string' ? Date.parse(task.lastStartedAt) : null;
+    let latencySec = null;
+    if (Number.isFinite(startedAt)) {
+      latencySec = Math.max(0, Math.round((nowMs - startedAt) / 1000));
+    } else if (Number.isFinite(previousStatusChangedAt)) {
+      latencySec = Math.max(0, Math.round((nowMs - previousStatusChangedAt) / 1000));
+    }
+    task.lastCompletionLatencySec = latencySec;
+    task.completedAt = nowISO;
+    task.statusChangedAt = nowISO;
   } else {
     clearFocusOutcomeForTask(today, task);
     removeMomentExecutionEvent(today, task, 'success');
+    task.completedAt = null;
+    task.lastCompletionLatencySec = null;
+    task.statusChangedAt = nowISO;
   }
 
   const isNowComplete = tasksForToday.every(t => t.status === 'done');
@@ -7448,10 +9197,13 @@ window.toggleTaskCompletion = function(taskIdx) {
     registerMicropasCompletion(task);
   }
 
+  updateChallengeProgress({ reason: 'task', referenceDate: today });
+
   saveState();
   renderDailyTasks();
   updateMomentum();
   renderStreakSummary();
+  renderChallengeCard();
   refreshWeeklyReviewIfVisible();
 
   if (!wasComplete && isNowComplete) {
@@ -7648,6 +9400,8 @@ function showTimerModal(taskIdx, options = {}) {
   let timerInterval = null;
   let timerRunning = false;
   let startEventRecorded = false;
+  let sessionStarted = false;
+  let sessionMetadataRecorded = false;
   let totalDuration = Number.isFinite(initialDuration) ? initialDuration : 25 * 60;
   if (totalDuration < 60) {
     totalDuration = 60;
@@ -7693,7 +9447,8 @@ function showTimerModal(taskIdx, options = {}) {
   const progress = document.getElementById('timer-progress');
 
   function updateTimerDisplay() {
-    display.textContent = formatTimer(totalDuration);
+    const remaining = Math.max(0, totalDuration - timerSeconds);
+    display.textContent = formatTimer(remaining);
   }
 
   window.adjustTimer = (minutes) => {
@@ -7711,32 +9466,75 @@ function showTimerModal(taskIdx, options = {}) {
     startBtn.textContent = 'Démarrer';
     cloud.classList.remove('pulsing');
     focusSessionRuntime.activeTimer = false;
+    updateTimerDisplay();
+  }
+
+  function finalizeSession(autoComplete = false) {
+    if (timerInterval) {
+      clearInterval(timerInterval);
+      timerInterval = null;
+    }
+    timerRunning = false;
+    focusSessionRuntime.activeTimer = false;
+    startBtn.textContent = 'Démarrer';
+    cloud.classList.remove('pulsing');
+
+    let recorded = false;
+    const elapsed = Math.max(0, Math.min(timerSeconds, totalDuration));
+    if (sessionStarted && task && elapsed >= 60) {
+      recorded = registerFocusSessionForTask(task, elapsed);
+    }
+    timerSeconds = elapsed;
+    updateTimerDisplay();
+    progress.style.borderColor = 'rgba(255, 255, 255, 1)';
+
+    sessionStarted = false;
+    sessionMetadataRecorded = false;
+
+    return { recordedSession: recorded, elapsedSeconds: elapsed, autoComplete };
   }
 
   function startTimer() {
     if (timerRunning) return;
     if (timerInterval) clearInterval(timerInterval);
+    if (!sessionStarted) {
+      sessionStarted = true;
+      timerSeconds = 0;
+    }
+    let shouldSave = false;
+    if (!sessionMetadataRecorded && task) {
+      const startedISO = new Date().toISOString();
+      task.lastStartedAt = startedISO;
+      task.statusChangedAt = startedISO;
+      sessionMetadataRecorded = true;
+      shouldSave = true;
+    }
     if (!startEventRecorded && task) {
       if (recordMomentExecutionEvent(today, task, 'start')) {
-        saveState();
+        shouldSave = true;
       }
       startEventRecorded = true;
     }
+    if (shouldSave) {
+      saveState();
+    }
     timerRunning = true;
     focusSessionRuntime.activeTimer = true;
-    timerSeconds = 0;
     startBtn.textContent = 'Pause';
     cloud.classList.add('pulsing');
-    display.textContent = formatTimer(totalDuration);
+    updateTimerDisplay();
     progress.style.borderColor = 'rgba(255, 255, 255, 0)';
 
     timerInterval = setInterval(() => {
       timerSeconds++;
-      const remaining = totalDuration - timerSeconds;
+      const remaining = Math.max(0, totalDuration - timerSeconds);
       if (remaining <= 0) {
-        pauseTimer();
-        display.textContent = '0:00';
-        progress.style.borderColor = 'rgba(255, 255, 255, 1)';
+        const result = finalizeSession(true);
+        if (result.recordedSession) {
+          saveState();
+          updateChallengeProgress({ reason: 'focus', referenceDate: today });
+          renderChallengeCard();
+        }
         alert('Temps écoulé !');
         return;
       }
@@ -7756,12 +9554,8 @@ function showTimerModal(taskIdx, options = {}) {
   };
 
   finishBtn.onclick = () => {
-    if (timerInterval) clearInterval(timerInterval);
-    timerInterval = null;
-    timerRunning = false;
-    startBtn.textContent = 'Démarrer';
-    cloud.classList.remove('pulsing');
-    focusSessionRuntime.activeTimer = false;
+    const result = finalizeSession(false);
+    let shouldSave = result.recordedSession;
     const reviewValue = document.getElementById('micro-review-input')?.value?.trim();
     if (reviewValue) {
       const today = getToday();
@@ -7772,8 +9566,15 @@ function showTimerModal(taskIdx, options = {}) {
         text: reviewValue,
         recordedAt: new Date().toISOString()
       });
-      saveState();
+      shouldSave = true;
       refreshWeeklyReviewIfVisible();
+    }
+    if (result.recordedSession) {
+      updateChallengeProgress({ reason: 'focus', referenceDate: today });
+      renderChallengeCard();
+    }
+    if (shouldSave) {
+      saveState();
     }
     closeModal();
   };
@@ -9178,6 +10979,9 @@ function closeModal() {
     content.classList.remove('badge-modal-container');
     content.classList.remove('quick-add-modal');
     content.classList.remove('social-modal');
+    content.classList.remove('challenge-details-modal');
+    content.classList.remove('challenge-setup-modal');
+    content.classList.remove('challenge-completion-modal');
     content.innerHTML = '';
   }
   setPlanifierTabsMode('editor');
