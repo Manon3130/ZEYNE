@@ -64,6 +64,12 @@ const QUICK_ADD_MOMENT_DEFAULT_TIME = {
   'Soir': '21:45'
 };
 
+const FOCUS_MOMENT_KEYS = ['morning', 'afternoon', 'evening'];
+const FOCUS_DURATION_LIMITS = { min: 5, max: 45, step: 5 };
+const FOCUS_DEFAULT_DURATION = { morning: 25, afternoon: 25, evening: 25 };
+const FOCUS_SNOOZE_DAYS = 7;
+const FOCUS_MUTE_DAYS = 30;
+
 const PROGRAMME_CATEGORIES = [
   {
     id: 'etudes-examens',
@@ -598,7 +604,9 @@ function buildProgrammeDayTasks(dayData, mode) {
     return {
       title: normalizedMode === 'structure' ? '' : (slot.title || ''),
       moment: momentLabel,
-      audio: audioValue
+      audio: audioValue,
+      duration: null,
+      usesDefaultDuration: true
     };
   });
 }
@@ -739,6 +747,22 @@ function createDefaultNotificationsState() {
     },
     dnd: { enabled: false, start: '22:00', end: '07:00' },
     sound: { beep: true }
+  };
+}
+
+function createDefaultFocusAdaptiveState() {
+  return {
+    enabled: true,
+    defaultDurationByMoment: { ...FOCUS_DEFAULT_DURATION },
+    snoozeUntil: { morning: null, afternoon: null, evening: null },
+    muteUntil: { morning: null, afternoon: null, evening: null },
+    momentStreaks: {
+      morning: { success: 0, failure: 0 },
+      afternoon: { success: 0, failure: 0 },
+      evening: { success: 0, failure: 0 }
+    },
+    momentResetAt: { morning: null, afternoon: null, evening: null },
+    taskOutcomes: []
   };
 }
 
@@ -1107,7 +1131,8 @@ let state = {
   streak: createDefaultStreakState(),
   badges: createDefaultBadgesState(),
   notifications: createDefaultNotificationsState(),
-  micropasSuggestionState: {}
+  micropasSuggestionState: {},
+  focusAdaptive: createDefaultFocusAdaptiveState()
 };
 
 let audioDBPromise = null;
@@ -1122,6 +1147,10 @@ const notificationRuntime = {
 let upcomingReminderIntervalId = null;
 let notificationsInitialized = false;
 let notificationBeepContext = null;
+
+const focusSessionRuntime = {
+  activeTimer: false
+};
 
 const pwaInstallRuntime = {
   deferredPrompt: null,
@@ -1431,6 +1460,495 @@ function ensureNotificationState() {
   if (!notifications.timezone || typeof notifications.timezone !== 'string' || notifications.timezone !== timezone) {
     notifications.timezone = timezone;
     changed = true;
+  }
+
+  return changed;
+}
+
+function ensureFocusAdaptiveState() {
+  if (!state.focusAdaptive || typeof state.focusAdaptive !== 'object') {
+    state.focusAdaptive = createDefaultFocusAdaptiveState();
+    return true;
+  }
+
+  let changed = false;
+  const adaptive = state.focusAdaptive;
+
+  if (adaptive.enabled === undefined) {
+    adaptive.enabled = true;
+    changed = true;
+  }
+
+  if (!adaptive.defaultDurationByMoment || typeof adaptive.defaultDurationByMoment !== 'object') {
+    adaptive.defaultDurationByMoment = { ...FOCUS_DEFAULT_DURATION };
+    changed = true;
+  }
+
+  FOCUS_MOMENT_KEYS.forEach(key => {
+    const current = Number(adaptive.defaultDurationByMoment[key]);
+    if (!Number.isFinite(current) || current < FOCUS_DURATION_LIMITS.min || current > FOCUS_DURATION_LIMITS.max) {
+      adaptive.defaultDurationByMoment[key] = FOCUS_DEFAULT_DURATION[key];
+      changed = true;
+    }
+  });
+
+  if (!adaptive.snoozeUntil || typeof adaptive.snoozeUntil !== 'object') {
+    adaptive.snoozeUntil = { morning: null, afternoon: null, evening: null };
+    changed = true;
+  }
+
+  if (!adaptive.muteUntil || typeof adaptive.muteUntil !== 'object') {
+    adaptive.muteUntil = { morning: null, afternoon: null, evening: null };
+    changed = true;
+  }
+
+  if (!adaptive.momentStreaks || typeof adaptive.momentStreaks !== 'object') {
+    adaptive.momentStreaks = {
+      morning: { success: 0, failure: 0 },
+      afternoon: { success: 0, failure: 0 },
+      evening: { success: 0, failure: 0 }
+    };
+    changed = true;
+  }
+
+  FOCUS_MOMENT_KEYS.forEach(key => {
+    const streak = adaptive.momentStreaks[key];
+    if (!streak || typeof streak !== 'object') {
+      adaptive.momentStreaks[key] = { success: 0, failure: 0 };
+      changed = true;
+      return;
+    }
+    if (!Number.isFinite(streak.success)) {
+      streak.success = 0;
+      changed = true;
+    }
+    if (!Number.isFinite(streak.failure)) {
+      streak.failure = 0;
+      changed = true;
+    }
+  });
+
+  if (!adaptive.momentResetAt || typeof adaptive.momentResetAt !== 'object') {
+    adaptive.momentResetAt = { morning: null, afternoon: null, evening: null };
+    changed = true;
+  }
+
+  FOCUS_MOMENT_KEYS.forEach(key => {
+    const resetValue = adaptive.momentResetAt[key];
+    if (resetValue !== null && typeof resetValue !== 'string') {
+      adaptive.momentResetAt[key] = null;
+      changed = true;
+    }
+  });
+
+  if (!Array.isArray(adaptive.taskOutcomes)) {
+    adaptive.taskOutcomes = [];
+    changed = true;
+  }
+
+  return changed;
+}
+
+function getMomentKeyFromLabel(momentLabel) {
+  if (!momentLabel) {
+    return null;
+  }
+  const slot = categorizeMomentSlot(momentLabel) || momentLabel;
+  const normalized = slot.toString().trim().toLowerCase();
+  if (normalized.startsWith('matin')) {
+    return 'morning';
+  }
+  if (normalized.startsWith('après') || normalized.startsWith('apres')) {
+    return 'afternoon';
+  }
+  if (normalized.startsWith('soir')) {
+    return 'evening';
+  }
+  return null;
+}
+
+function getMomentLabelFromKey(momentKey) {
+  if (!momentKey) {
+    return '';
+  }
+  const key = momentKey.toString().toLowerCase();
+  if (key === 'morning') {
+    return 'Matin';
+  }
+  if (key === 'afternoon') {
+    return 'Après-midi';
+  }
+  if (key === 'evening') {
+    return 'Soir';
+  }
+  return '';
+}
+
+function getFocusDefaultDuration(momentKey) {
+  ensureFocusAdaptiveState();
+  if (!momentKey || !FOCUS_MOMENT_KEYS.includes(momentKey)) {
+    return null;
+  }
+  const value = Number(state.focusAdaptive.defaultDurationByMoment?.[momentKey]);
+  if (Number.isFinite(value)) {
+    return Math.min(FOCUS_DURATION_LIMITS.max, Math.max(FOCUS_DURATION_LIMITS.min, Math.round(value / FOCUS_DURATION_LIMITS.step) * FOCUS_DURATION_LIMITS.step));
+  }
+  return FOCUS_DEFAULT_DURATION[momentKey];
+}
+
+function getFocusDefaultDurationForMomentLabel(momentLabel) {
+  const momentKey = getMomentKeyFromLabel(momentLabel);
+  return getFocusDefaultDuration(momentKey) || FOCUS_DURATION_LIMITS.min;
+}
+
+function taskUsesDefaultDuration(task) {
+  if (!task || typeof task !== 'object') {
+    return false;
+  }
+  return task.usesDefaultDuration !== false;
+}
+
+function getEffectiveTaskDuration(task) {
+  if (!task) {
+    return null;
+  }
+  if (task.usesDefaultDuration === false) {
+    const raw = Number(task.duration);
+    return Number.isFinite(raw) && raw > 0 ? raw : null;
+  }
+  const momentKey = getMomentKeyFromLabel(task.moment);
+  if (!momentKey) {
+    return null;
+  }
+  return getFocusDefaultDuration(momentKey);
+}
+
+function findFocusOutcomeEntry(dateStr, taskId) {
+  ensureFocusAdaptiveState();
+  if (!Array.isArray(state.focusAdaptive.taskOutcomes)) {
+    return null;
+  }
+  return state.focusAdaptive.taskOutcomes.find(entry => entry && entry.date === dateStr && entry.taskId === taskId) || null;
+}
+
+function cleanupFocusOutcomeHistory(maxAgeDays = 120) {
+  ensureFocusAdaptiveState();
+  if (!Array.isArray(state.focusAdaptive.taskOutcomes)) {
+    state.focusAdaptive.taskOutcomes = [];
+    return true;
+  }
+
+  const entries = state.focusAdaptive.taskOutcomes;
+  const today = getTodayDateObj();
+  const cutoff = new Date(today);
+  const windowDays = Number.isFinite(maxAgeDays) && maxAgeDays > 0 ? maxAgeDays : 120;
+  cutoff.setDate(today.getDate() - windowDays);
+  cutoff.setHours(0, 0, 0, 0);
+  const cutoffTime = cutoff.getTime();
+
+  let changed = false;
+  const dedupMap = new Map();
+
+  entries.forEach(entry => {
+    if (!entry || typeof entry !== 'object') {
+      changed = true;
+      return;
+    }
+    const momentKey = entry.moment;
+    if (!FOCUS_MOMENT_KEYS.includes(momentKey)) {
+      changed = true;
+      return;
+    }
+    if (!entry.taskId || !entry.date) {
+      changed = true;
+      return;
+    }
+    const entryDate = parseISODate(entry.date);
+    if (!entryDate) {
+      changed = true;
+      return;
+    }
+    if (entryDate.getTime() < cutoffTime) {
+      changed = true;
+      return;
+    }
+    const recordedAt = entry.recordedAt ? new Date(entry.recordedAt) : null;
+    const key = `${entry.date}:${entry.taskId}`;
+    const normalizedEntry = {
+      taskId: entry.taskId,
+      date: entry.date,
+      moment: momentKey,
+      outcome: entry.outcome === 'done' ? 'done' : (entry.outcome === 'reported' ? 'reported' : 'missed'),
+      recordedAt: recordedAt instanceof Date && !Number.isNaN(recordedAt.getTime()) ? recordedAt.toISOString() : new Date(entryDate.getTime()).toISOString()
+    };
+    const existing = dedupMap.get(key);
+    if (!existing) {
+      dedupMap.set(key, normalizedEntry);
+    } else {
+      const existingTime = new Date(existing.recordedAt);
+      const newTime = new Date(normalizedEntry.recordedAt);
+      if (newTime.getTime() >= existingTime.getTime()) {
+        dedupMap.set(key, normalizedEntry);
+      }
+      changed = true;
+    }
+  });
+
+  const filtered = Array.from(dedupMap.values());
+  if (filtered.length !== entries.length) {
+    changed = true;
+  }
+
+  if (changed) {
+    state.focusAdaptive.taskOutcomes = filtered;
+  }
+
+  return changed;
+}
+
+function recomputeFocusMomentStreaks() {
+  ensureFocusAdaptiveState();
+  const streaks = {
+    morning: { success: 0, failure: 0 },
+    afternoon: { success: 0, failure: 0 },
+    evening: { success: 0, failure: 0 }
+  };
+
+  const entries = Array.isArray(state.focusAdaptive.taskOutcomes)
+    ? [...state.focusAdaptive.taskOutcomes]
+    : [];
+
+  entries.sort((a, b) => {
+    const timeA = new Date(a?.recordedAt || `${a?.date || ''}T00:00:00Z`).getTime();
+    const timeB = new Date(b?.recordedAt || `${b?.date || ''}T00:00:00Z`).getTime();
+    return timeA - timeB;
+  });
+
+  entries.forEach(entry => {
+    if (!entry || !FOCUS_MOMENT_KEYS.includes(entry.moment)) {
+      return;
+    }
+    const resetValue = state.focusAdaptive.momentResetAt?.[entry.moment] || null;
+    const resetDate = resetValue ? new Date(resetValue) : null;
+    const recordedDate = new Date(entry.recordedAt || `${entry.date}T00:00:00Z`);
+    if (resetDate instanceof Date && !Number.isNaN(resetDate.getTime()) && recordedDate < resetDate) {
+      return;
+    }
+    const streak = streaks[entry.moment];
+    if (!streak) {
+      return;
+    }
+    if (entry.outcome === 'done') {
+      streak.success = (streak.success || 0) + 1;
+      streak.failure = 0;
+    } else if (entry.outcome === 'reported' || entry.outcome === 'missed') {
+      streak.failure = (streak.failure || 0) + 1;
+      streak.success = 0;
+    }
+  });
+
+  state.focusAdaptive.momentStreaks = streaks;
+}
+
+function recordFocusOutcomeForTask(dateStr, task, outcome) {
+  ensureFocusAdaptiveState();
+  if (!dateStr || !task || !outcome) {
+    return false;
+  }
+  const normalizedOutcome = outcome === 'done' ? 'done' : (outcome === 'reported' ? 'reported' : 'missed');
+  const momentKey = getMomentKeyFromLabel(task.moment);
+  if (!momentKey) {
+    return false;
+  }
+  if (!task.id) {
+    task.id = generateTaskId();
+  }
+
+  const existingIdx = state.focusAdaptive.taskOutcomes.findIndex(entry => entry && entry.date === dateStr && entry.taskId === task.id);
+  if (existingIdx !== -1) {
+    const existing = state.focusAdaptive.taskOutcomes[existingIdx];
+    if (existing.outcome === normalizedOutcome && existing.moment === momentKey) {
+      return false;
+    }
+    state.focusAdaptive.taskOutcomes.splice(existingIdx, 1);
+  }
+
+  state.focusAdaptive.taskOutcomes.push({
+    taskId: task.id,
+    date: dateStr,
+    moment: momentKey,
+    outcome: normalizedOutcome,
+    recordedAt: new Date().toISOString()
+  });
+
+  cleanupFocusOutcomeHistory();
+  recomputeFocusMomentStreaks();
+  return true;
+}
+
+function clearFocusOutcomeForTask(dateStr, task) {
+  ensureFocusAdaptiveState();
+  if (!dateStr || !task || !task.id) {
+    return false;
+  }
+  const idx = state.focusAdaptive.taskOutcomes.findIndex(entry => entry && entry.date === dateStr && entry.taskId === task.id);
+  if (idx === -1) {
+    return false;
+  }
+  state.focusAdaptive.taskOutcomes.splice(idx, 1);
+  recomputeFocusMomentStreaks();
+  return true;
+}
+
+function resetFocusMomentStreak(momentKey) {
+  ensureFocusAdaptiveState();
+  if (!momentKey || !FOCUS_MOMENT_KEYS.includes(momentKey)) {
+    return;
+  }
+  state.focusAdaptive.momentResetAt[momentKey] = new Date().toISOString();
+  recomputeFocusMomentStreaks();
+}
+
+function isFocusSuggestionSuppressed(momentKey) {
+  ensureFocusAdaptiveState();
+  if (!momentKey || !FOCUS_MOMENT_KEYS.includes(momentKey)) {
+    return true;
+  }
+  const today = getToday();
+  const muteUntil = state.focusAdaptive.muteUntil?.[momentKey];
+  if (muteUntil && today <= muteUntil) {
+    return true;
+  }
+  const snoozeUntil = state.focusAdaptive.snoozeUntil?.[momentKey];
+  if (snoozeUntil && today <= snoozeUntil) {
+    return true;
+  }
+  return false;
+}
+
+function getFocusSuggestionForMoment(momentKey) {
+  ensureFocusAdaptiveState();
+  if (!momentKey || !FOCUS_MOMENT_KEYS.includes(momentKey)) {
+    return null;
+  }
+  if (state.focusAdaptive.enabled === false) {
+    return null;
+  }
+  if (isFocusSuggestionSuppressed(momentKey)) {
+    return null;
+  }
+
+  const current = getFocusDefaultDuration(momentKey);
+  const streak = state.focusAdaptive.momentStreaks?.[momentKey] || { success: 0, failure: 0 };
+
+  if ((streak.failure || 0) >= 2) {
+    const candidate = Math.max(FOCUS_DURATION_LIMITS.min, current - FOCUS_DURATION_LIMITS.step);
+    if (candidate < current) {
+      return { type: 'decrease', targetDuration: candidate };
+    }
+  }
+
+  if ((streak.success || 0) >= 3) {
+    const candidate = Math.min(FOCUS_DURATION_LIMITS.max, current + FOCUS_DURATION_LIMITS.step);
+    if (candidate > current) {
+      return { type: 'increase', targetDuration: candidate };
+    }
+  }
+
+  return null;
+}
+
+function applyFocusDefaultDuration(momentKey, newDuration) {
+  ensureFocusAdaptiveState();
+  if (!momentKey || !FOCUS_MOMENT_KEYS.includes(momentKey)) {
+    return;
+  }
+  const bounded = Math.min(FOCUS_DURATION_LIMITS.max, Math.max(FOCUS_DURATION_LIMITS.min, newDuration));
+  const normalized = Math.round(bounded / FOCUS_DURATION_LIMITS.step) * FOCUS_DURATION_LIMITS.step;
+  state.focusAdaptive.defaultDurationByMoment[momentKey] = Math.min(FOCUS_DURATION_LIMITS.max, Math.max(FOCUS_DURATION_LIMITS.min, normalized));
+  state.focusAdaptive.snoozeUntil[momentKey] = null;
+  state.focusAdaptive.muteUntil[momentKey] = null;
+  resetFocusMomentStreak(momentKey);
+
+  const today = getToday();
+  ensureTasksForDate(today);
+  const todayTasks = state.tasks[today];
+  todayTasks.forEach(task => {
+    if (!task || isTaskEmpty(task)) {
+      return;
+    }
+    if (getMomentKeyFromLabel(task.moment) !== momentKey) {
+      return;
+    }
+    if (task.usesDefaultDuration === false) {
+      return;
+    }
+    task.duration = null;
+    task.usesDefaultDuration = true;
+  });
+}
+
+function snoozeFocusSuggestion(momentKey) {
+  ensureFocusAdaptiveState();
+  if (!momentKey || !FOCUS_MOMENT_KEYS.includes(momentKey)) {
+    return;
+  }
+  state.focusAdaptive.snoozeUntil[momentKey] = getDateString(FOCUS_SNOOZE_DAYS);
+  resetFocusMomentStreak(momentKey);
+}
+
+function muteFocusSuggestion(momentKey) {
+  ensureFocusAdaptiveState();
+  if (!momentKey || !FOCUS_MOMENT_KEYS.includes(momentKey)) {
+    return;
+  }
+  state.focusAdaptive.muteUntil[momentKey] = getDateString(FOCUS_MUTE_DAYS);
+  resetFocusMomentStreak(momentKey);
+}
+
+function reconcileFocusAdaptiveOutcomes() {
+  ensureFocusAdaptiveState();
+  let changed = false;
+  const today = getToday();
+  const tasksByDate = state.tasks || {};
+
+  Object.entries(tasksByDate).forEach(([dateStr, tasks]) => {
+    if (!isValidISODate(dateStr)) {
+      return;
+    }
+    if (dateStr >= today) {
+      return;
+    }
+    if (!Array.isArray(tasks)) {
+      return;
+    }
+
+    tasks.forEach(task => {
+      if (!task || isTaskEmpty(task)) {
+        return;
+      }
+      if (!task.id) {
+        task.id = generateTaskId();
+        changed = true;
+      }
+      const existing = findFocusOutcomeEntry(dateStr, task.id);
+      if (task.status === 'done') {
+        if (!existing || existing.outcome !== 'done') {
+          if (recordFocusOutcomeForTask(dateStr, task, 'done')) {
+            changed = true;
+          }
+        }
+      } else if (!existing || (existing.outcome !== 'reported' && existing.outcome !== 'missed')) {
+        if (recordFocusOutcomeForTask(dateStr, task, 'missed')) {
+          changed = true;
+        }
+      }
+    });
+  });
+
+  if (changed) {
+    cleanupFocusOutcomeHistory();
+    recomputeFocusMomentStreaks();
   }
 
   return changed;
@@ -1961,11 +2479,14 @@ function loadState() {
 
   ensureAudioLibraryState();
   const notificationsNormalized = ensureNotificationState();
+  const focusNormalized = ensureFocusAdaptiveState();
+  const outcomesCleaned = cleanupFocusOutcomeHistory();
+  recomputeFocusMomentStreaks();
   sanitizeStreakData();
   cleanupReportHistory();
   cleanupMicropasSuggestionState();
 
-  if (notificationsNormalized) {
+  if (notificationsNormalized || focusNormalized || outcomesCleaned) {
     saveState();
   }
 }
@@ -2030,7 +2551,17 @@ function generateTaskId() {
 }
 
 function createEmptyTask() {
-  return { id: null, title: '', moment: '', time: '', audio: 'Aucun', duration: null, status: 'planned', micropas: '' };
+  return {
+    id: null,
+    title: '',
+    moment: '',
+    time: '',
+    audio: 'Aucun',
+    duration: null,
+    status: 'planned',
+    micropas: '',
+    usesDefaultDuration: true
+  };
 }
 
 function normalizeAudioValue(audioValue) {
@@ -2074,6 +2605,11 @@ function ensureTasksForDate(dateStr) {
       } else {
         task.duration = null;
       }
+      const hasCustomDuration = Number.isFinite(task.duration) && task.duration > 0;
+      if (!hasCustomDuration) {
+        task.duration = null;
+      }
+      task.usesDefaultDuration = hasCustomDuration ? false : true;
       if (!task.status) task.status = 'planned';
       if (task.micropas === undefined) task.micropas = '';
       if (!task.id) {
@@ -2120,11 +2656,11 @@ function formatTaskAudioLabel(task) {
 
 function formatTaskDuration(task) {
   if (!task) return '';
-  const raw = Number(task.duration);
-  if (!Number.isFinite(raw) || raw <= 0) {
+  const effective = getEffectiveTaskDuration(task);
+  if (!Number.isFinite(effective) || effective <= 0) {
     return '';
   }
-  return `${raw} min`;
+  return `${effective} min`;
 }
 
 function formatCount(value, singular, plural) {
@@ -2656,6 +3192,8 @@ function applyMicropasSuggestion({ reason, task, dateStr, taskIdx, micropasText,
     task.title = baseTitle ? `Lire/Parcourir 10’ : ${baseTitle}` : 'Lire/Parcourir 10’';
     task.duration = MICROPAS_SUGGESTIONS[reason].duration;
   }
+
+  task.usesDefaultDuration = false;
 
   const resolvedMicropas = micropasText && micropasText.trim() ? micropasText.trim() : (details.micropasText || '');
   task.micropas = resolvedMicropas;
@@ -3849,6 +4387,10 @@ function undoLastTemplateApplication() {
 }
 
 function renderDashboard() {
+  const adaptiveUpdated = reconcileFocusAdaptiveOutcomes();
+  if (adaptiveUpdated) {
+    saveState();
+  }
   renderDaysRemaining();
   renderDailyTasks();
   renderOtherDays();
@@ -4251,7 +4793,8 @@ function openQuickAddModal(options = {}) {
 
   const existingDuration = Number(currentTask.duration);
   const hasExistingDuration = Number.isFinite(existingDuration) && existingDuration > 0;
-  const initialDurationValue = isReplace ? (hasExistingDuration ? existingDuration : '') : 25;
+  const initialDurationValue = isReplace && currentTask.usesDefaultDuration === false && hasExistingDuration ? existingDuration : '';
+  const initialPlaceholderDuration = getFocusDefaultDurationForMomentLabel(initialMoment);
 
   const initialSlotMoment = getMomentSlotIndex(initialMoment);
 
@@ -4262,6 +4805,7 @@ function openQuickAddModal(options = {}) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
   const durationValueAttr = initialDurationValue === '' ? '' : String(initialDurationValue);
+  const durationPlaceholderAttr = Number.isFinite(initialPlaceholderDuration) ? String(initialPlaceholderDuration) : '';
 
   lastFocusBeforeModal = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
@@ -4329,7 +4873,7 @@ function openQuickAddModal(options = {}) {
       </fieldset>
       <div class="quick-add-field">
         <label for="quick-add-duration">Durée (min)</label>
-        <input id="quick-add-duration" name="quick-add-duration" type="number" min="5" max="60" step="5" placeholder="25" value="${durationValueAttr}">
+        <input id="quick-add-duration" name="quick-add-duration" type="number" min="5" max="60" step="5" placeholder="${durationPlaceholderAttr}" value="${durationValueAttr}">
       </div>
       <div class="quick-add-actions">
         <button type="submit" class="btn btn-primary">Enregistrer</button>
@@ -4354,6 +4898,18 @@ function openQuickAddModal(options = {}) {
   let hasCustomMomentSelection = isReplace && initialSlotMoment !== getMomentSlotIndex(slotMomentDefault);
   let ignoreMomentChange = false;
 
+  const updateDurationPlaceholder = () => {
+    if (!durationInput) {
+      return;
+    }
+    const selectedMomentRadio = form.querySelector('input[name="quick-moment"]:checked');
+    const selectedMomentLabel = selectedMomentRadio ? selectedMomentRadio.value : initialMoment;
+    const defaultDuration = getFocusDefaultDurationForMomentLabel(selectedMomentLabel);
+    if (Number.isFinite(defaultDuration)) {
+      durationInput.setAttribute('placeholder', String(defaultDuration));
+    }
+  };
+
   const setRitualValue = (value) => {
     ritualRadios.forEach(radio => {
       radio.checked = radio.value === value;
@@ -4376,6 +4932,7 @@ function openQuickAddModal(options = {}) {
         const defaultValue = getDefaultRitualForMoment(radio.value);
         setRitualValue(defaultValue);
       }
+      updateDurationPlaceholder();
     });
   });
 
@@ -4394,6 +4951,7 @@ function openQuickAddModal(options = {}) {
           setRitualValue(getDefaultRitualForMoment(newMoment));
         }
       }
+      updateDurationPlaceholder();
     });
   });
 
@@ -4408,6 +4966,8 @@ function openQuickAddModal(options = {}) {
       durationInput.setCustomValidity('');
     });
   }
+
+  updateDurationPlaceholder();
 
   form.addEventListener('submit', (event) => {
     event.preventDefault();
@@ -4452,14 +5012,17 @@ function openQuickAddModal(options = {}) {
       ? existingTime
       : getDefaultTimeForMoment(selectedMoment) || '';
 
+    const usesDefaultDuration = durationValue === null;
+
     const updatedTask = {
       ...existing,
       title: titleValue,
       moment: selectedMoment,
       audio: normalizeAudioValue(selectedRitual),
-      duration: durationValue,
+      duration: usesDefaultDuration ? null : durationValue,
       time: resolvedTime,
-      status: 'planned'
+      status: 'planned',
+      usesDefaultDuration
     };
 
     tasks[slotValue] = updatedTask;
@@ -4494,14 +5057,80 @@ function createTaskShortcutButton({ iconMarkup, label, onClick, disabled = false
   return button;
 }
 
+function createFocusNudgeElement({ momentKey, suggestion }) {
+  if (!momentKey || !suggestion) {
+    return null;
+  }
+
+  const container = document.createElement('div');
+  container.className = 'focus-nudge';
+
+  const textEl = document.createElement('span');
+  textEl.className = 'focus-nudge-text';
+  textEl.textContent = `Passer à ${suggestion.targetDuration} min ?`;
+  container.appendChild(textEl);
+
+  const actions = document.createElement('div');
+  actions.className = 'focus-nudge-actions';
+
+  const yesBtn = document.createElement('button');
+  yesBtn.type = 'button';
+  yesBtn.className = 'focus-nudge-btn focus-nudge-btn-primary';
+  yesBtn.textContent = 'Oui';
+  yesBtn.addEventListener('click', () => {
+    applyFocusDefaultDuration(momentKey, suggestion.targetDuration);
+    saveState();
+    renderDailyTasks();
+    renderOtherDays();
+    const label = getMomentLabelFromKey(momentKey) || 'créneau';
+    showToast(`Durée ${label} → ${suggestion.targetDuration} min.`);
+  });
+
+  const laterBtn = document.createElement('button');
+  laterBtn.type = 'button';
+  laterBtn.className = 'focus-nudge-btn';
+  laterBtn.textContent = 'Plus tard';
+  laterBtn.addEventListener('click', () => {
+    snoozeFocusSuggestion(momentKey);
+    saveState();
+    renderDailyTasks();
+    showToast('Suggestion snoozée 7 jours.');
+  });
+
+  const neverBtn = document.createElement('button');
+  neverBtn.type = 'button';
+  neverBtn.className = 'focus-nudge-btn';
+  neverBtn.textContent = 'Jamais';
+  neverBtn.addEventListener('click', () => {
+    muteFocusSuggestion(momentKey);
+    saveState();
+    renderDailyTasks();
+    showToast('Suggestion masquée 30 jours.');
+  });
+
+  actions.appendChild(yesBtn);
+  actions.appendChild(laterBtn);
+  actions.appendChild(neverBtn);
+  container.appendChild(actions);
+
+  return container;
+}
+
 function renderDailyTasks() {
   const today = getToday();
   ensureTasksForDate(today);
+  ensureFocusAdaptiveState();
 
   const tasksList = document.getElementById('daily-tasks-list');
   tasksList.innerHTML = '';
   const plusIconMarkup = '<svg class="task-quick-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a1 1 0 0 1 1 1v6h6a1 1 0 0 1 0 2h-6v6a1 1 0 0 1-2 0v-6H5a1 1 0 0 1 0-2h6V5a1 1 0 0 1 1-1Z" fill="currentColor"/></svg>';
   const editIconMarkup = '<svg class="task-quick-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.71 7.04a1 1 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0L4.59 15.66a1 1 0 0 0-.25.45l-1.32 4.62a1 1 0 0 0 1.23 1.23l4.62-1.32a1 1 0 0 0 .45-.25Z" fill="currentColor"/></svg>';
+
+  const focusSuggestions = {};
+  const displayedNudges = new Set();
+  FOCUS_MOMENT_KEYS.forEach(key => {
+    focusSuggestions[key] = getFocusSuggestionForMoment(key);
+  });
 
   state.tasks[today].forEach((task, idx) => {
     const isDone = task.status === 'done';
@@ -4548,6 +5177,18 @@ function renderDailyTasks() {
     }
     if (badgesEl.childElementCount > 0) {
       infoEl.appendChild(badgesEl);
+    }
+
+    if (!isEmptySlot && !isDone && !focusSessionRuntime.activeTimer) {
+      const momentKey = getMomentKeyFromLabel(task.moment);
+      const suggestion = momentKey ? focusSuggestions[momentKey] : null;
+      if (momentKey && suggestion && !displayedNudges.has(momentKey) && taskUsesDefaultDuration(task)) {
+        const nudgeEl = createFocusNudgeElement({ momentKey, suggestion });
+        if (nudgeEl) {
+          infoEl.appendChild(nudgeEl);
+          displayedNudges.add(momentKey);
+        }
+      }
     }
 
     const quickAction = document.createElement('button');
@@ -5741,10 +6382,16 @@ function startUpcomingReminderTicker() {
 
 function updateNotificationsForm() {
   ensureNotificationState();
+  ensureFocusAdaptiveState();
 
   const timezoneEl = document.getElementById('notifications-timezone');
   if (timezoneEl) {
     timezoneEl.textContent = state.notifications.timezone || getLocalTimezone();
+  }
+
+  const adaptiveToggle = document.getElementById('adaptive-difficulty-toggle');
+  if (adaptiveToggle) {
+    adaptiveToggle.checked = state.focusAdaptive.enabled !== false;
   }
 
   const masterToggle = document.getElementById('notifications-enabled-toggle');
@@ -5846,6 +6493,16 @@ function initNotificationsModule() {
   }
 
   notificationsInitialized = true;
+
+  const adaptiveToggle = document.getElementById('adaptive-difficulty-toggle');
+  if (adaptiveToggle) {
+    adaptiveToggle.addEventListener('change', () => {
+      ensureFocusAdaptiveState();
+      state.focusAdaptive.enabled = adaptiveToggle.checked;
+      saveState();
+      renderDailyTasks();
+    });
+  }
 
   const masterToggle = document.getElementById('notifications-enabled-toggle');
   if (masterToggle) {
@@ -6061,6 +6718,12 @@ window.toggleTaskCompletion = function(taskIdx) {
   task.status = task.status === 'done' ? 'planned' : 'done';
   const toggledToDone = task.status === 'done';
 
+  if (toggledToDone) {
+    recordFocusOutcomeForTask(today, task, 'done');
+  } else {
+    clearFocusOutcomeForTask(today, task);
+  }
+
   const isNowComplete = tasksForToday.every(t => t.status === 'done');
   const streakResult = updateDayCompletionRecord(today, isNowComplete);
   let newlyUnlockedBadge = null;
@@ -6136,6 +6799,7 @@ async function postponeTaskByOneDay(dateStr, taskIdx) {
   targetTasks[taskIdx] = movedTask;
   tasksForDate[taskIdx] = createEmptyTask();
 
+  recordFocusOutcomeForTask(dateStr, task, 'reported');
   saveState();
   renderDailyTasks();
   renderOtherDays();
@@ -6299,6 +6963,8 @@ function showTimerModal(taskIdx, options = {}) {
     </div>
   `;
 
+  modal.dataset.activeModal = 'timer';
+  focusSessionRuntime.activeTimer = false;
   modal.classList.add('show');
 
   const startBtn = document.getElementById('timer-start-btn');
@@ -6325,12 +6991,14 @@ function showTimerModal(taskIdx, options = {}) {
     timerRunning = false;
     startBtn.textContent = 'Démarrer';
     cloud.classList.remove('pulsing');
+    focusSessionRuntime.activeTimer = false;
   }
 
   function startTimer() {
     if (timerRunning) return;
     if (timerInterval) clearInterval(timerInterval);
     timerRunning = true;
+    focusSessionRuntime.activeTimer = true;
     timerSeconds = 0;
     startBtn.textContent = 'Pause';
     cloud.classList.add('pulsing');
@@ -6368,6 +7036,7 @@ function showTimerModal(taskIdx, options = {}) {
     timerRunning = false;
     startBtn.textContent = 'Démarrer';
     cloud.classList.remove('pulsing');
+    focusSessionRuntime.activeTimer = false;
     const reviewValue = document.getElementById('micro-review-input')?.value?.trim();
     if (reviewValue) {
       const today = getToday();
@@ -6615,6 +7284,7 @@ function showReportModal(dateStr, taskIdx, options = {}) {
         state.tasks[dateStr][taskIdx] = createEmptyTask();
       }
 
+      recordFocusOutcomeForTask(dateStr, task, 'reported');
       finalizeReportModalContext({ taskForLogging: movedTask });
       recordReportForDate(newDate, reasonValue, movedTask, dateStr);
       saveState();
@@ -6633,6 +7303,7 @@ function closeModal() {
   const activeModalType = modal?.dataset.activeModal || null;
   const wasQuickAdd = activeModalType === 'quick-add';
   const wasReportModal = activeModalType === 'report';
+  const wasTimerModal = activeModalType === 'timer';
   releaseFocusTrap();
   if (modal) {
     if (wasReportModal && currentReportModalContext) {
@@ -6643,6 +7314,9 @@ function closeModal() {
     }
     modal.classList.remove('show');
     delete modal.dataset.activeModal;
+  }
+  if (wasTimerModal) {
+    focusSessionRuntime.activeTimer = false;
   }
   if (content) {
     content.classList.remove('template-wide');
