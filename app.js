@@ -1414,6 +1414,7 @@ let state = {
   badges: createDefaultBadgesState(),
   notifications: createDefaultNotificationsState(),
   micropasSuggestionState: {},
+  dailySummary: { lastShownDate: null },
   focusAdaptive: createDefaultFocusAdaptiveState(),
   momentSuggestion: createDefaultMomentSuggestionState(),
   challenge: createDefaultChallengeState()
@@ -1438,6 +1439,8 @@ const focusSessionRuntime = {
 
 let socialProvider = null;
 let socialOverviewCache = null;
+let dailySummaryRuntime = { typingTimeouts: [], hideTimeout: null, isVisible: false };
+let dailySummaryPopupInitialized = false;
 const socialChallengeStatusCache = new Map();
 let activeNotificationsTab = 'alerts';
 let openSocialMenuUid = null;
@@ -1835,6 +1838,30 @@ function ensureFocusAdaptiveState() {
   if (!Array.isArray(adaptive.taskOutcomes)) {
     adaptive.taskOutcomes = [];
     changed = true;
+  }
+
+  return changed;
+}
+
+function ensureDailySummaryState() {
+  if (!state.dailySummary || typeof state.dailySummary !== 'object') {
+    state.dailySummary = { lastShownDate: null };
+    return true;
+  }
+
+  let changed = false;
+  const summaryState = state.dailySummary;
+
+  if (!('lastShownDate' in summaryState)) {
+    summaryState.lastShownDate = null;
+    changed = true;
+  }
+
+  if (summaryState.lastShownDate !== null) {
+    if (typeof summaryState.lastShownDate !== 'string' || !isValidISODate(summaryState.lastShownDate)) {
+      summaryState.lastShownDate = null;
+      changed = true;
+    }
   }
 
   return changed;
@@ -3207,13 +3234,21 @@ function loadState() {
   const focusNormalized = ensureFocusAdaptiveState();
   const momentCleaned = cleanupMomentSuggestionState();
   const outcomesCleaned = cleanupFocusOutcomeHistory();
+  const dailySummaryNormalized = ensureDailySummaryState();
   recomputeFocusMomentStreaks();
   refreshMomentSuggestionIfNeeded(true);
   sanitizeStreakData();
   cleanupReportHistory();
   cleanupMicropasSuggestionState();
 
-  if (challengeNormalized || notificationsNormalized || focusNormalized || outcomesCleaned || momentCleaned) {
+  if (
+    challengeNormalized ||
+    notificationsNormalized ||
+    focusNormalized ||
+    outcomesCleaned ||
+    momentCleaned ||
+    dailySummaryNormalized
+  ) {
     saveState();
   }
 }
@@ -6702,6 +6737,7 @@ function renderDashboard() {
   renderStreakSummary();
   renderChallengeCard();
   updateUpcomingReminderBanner();
+  maybeShowDailySummaryPopup();
 }
 
 function renderWeeklyReview() {
@@ -8457,6 +8493,262 @@ function muteMomentSuggestion(momentKey) {
   return true;
 }
 
+function mapAudioEntryToSummaryLabel(entry) {
+  if (!entry) return '';
+  const category = (entry.category || '').toLowerCase();
+  if (category === 'respiration') return 'Respiration';
+  if (category === 'etirements' || category === 'étirements') return 'Étirements';
+  return entry.title || '';
+}
+
+function getDailySummaryAudioLabel(task) {
+  if (!task) return 'Sans audio';
+  const directId = normalizeAudioValue(task.audio);
+
+  if (directId && directId !== 'Aucun') {
+    const directEntry = getAudioEntryById(directId);
+    if (directEntry) {
+      return mapAudioEntryToSummaryLabel(directEntry) || 'Sans audio';
+    }
+    if (directId === 'builtin-respiration') return 'Respiration';
+    if (directId === 'builtin-etirements') return 'Étirements';
+  }
+
+  const resolved = getResolvedAudioForTask(task);
+  if (resolved && resolved.entry) {
+    return mapAudioEntryToSummaryLabel(resolved.entry) || 'Sans audio';
+  }
+
+  return 'Sans audio';
+}
+
+function capitalizeFirstLetter(text) {
+  if (!text) return '';
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function formatDailySummaryTimeLabel(schedule, rawTime) {
+  if (schedule) {
+    const hours = Number.isFinite(schedule.hours) ? schedule.hours : null;
+    const minutes = Number.isFinite(schedule.minutes) ? schedule.minutes : null;
+    if (hours === null) {
+      return '';
+    }
+    if (!minutes) {
+      return `${hours}h`;
+    }
+    return `${hours}h${String(minutes).padStart(2, '0')}`;
+  }
+  const trimmed = (rawTime || '').trim();
+  return trimmed;
+}
+
+function getDailySummaryMomentDescriptor(task, schedule) {
+  const rawMoment = (task?.moment || '').toLowerCase();
+  if (rawMoment.includes('matin')) return 'ce matin';
+  if (rawMoment.includes('après') || rawMoment.includes("apres")) return 'cet après-midi';
+  if (rawMoment.includes('soir')) return 'ce soir';
+  if (rawMoment.includes('midi')) return 'en milieu de journée';
+
+  if (schedule) {
+    if (schedule.hours < 12) return 'ce matin';
+    if (schedule.hours < 18) return 'cet après-midi';
+    return 'ce soir';
+  }
+
+  return 'dans la journée';
+}
+
+function getDailySummaryAudioNarrative(audioLabel) {
+  const label = (audioLabel || '').toLowerCase();
+  if (!label || label === 'sans audio') {
+    return "on reste concentré sans audio particulier";
+  }
+  if (label === 'respiration') {
+    return "on se prépare en douceur avec un exercice de respiration";
+  }
+  if (label === 'étirements' || label === 'etirements') {
+    return "on s'éveille avec quelques étirements";
+  }
+  return `on se met dans l'ambiance avec "${audioLabel}"`;
+}
+
+function formatDailySummaryNarrativeSegment(task, index, total) {
+  const title = (task?.title || '').trim() || 'ta micro-tâche';
+  const schedule = resolveTaskScheduledTime(task);
+  const timeLabel = formatDailySummaryTimeLabel(schedule, task?.time);
+  const descriptor = getDailySummaryMomentDescriptor(task, schedule);
+  const whenPart = `${descriptor}${timeLabel ? ` à ${timeLabel}` : ''}`;
+  const audioLabel = getDailySummaryAudioLabel(task);
+  const audioNarrative = getDailySummaryAudioNarrative(audioLabel);
+
+  let segmentIntro;
+  if (total === 1) {
+    segmentIntro = `${capitalizeFirstLetter(whenPart)}, nous nous consacrons à ${title}`;
+  } else if (index === 0) {
+    segmentIntro = `${capitalizeFirstLetter(whenPart)}, nous commençons avec ${title}`;
+  } else if (index === total - 1) {
+    segmentIntro = `Puis pour finir ${whenPart}, nous terminons avec ${title}`;
+  } else {
+    segmentIntro = `Ensuite ${whenPart}, nous poursuivons avec ${title}`;
+  }
+
+  return `${segmentIntro}, ${audioNarrative}.`;
+}
+
+function buildDailySummaryText() {
+  const today = getToday();
+  ensureTasksForDate(today);
+  const todaysTasks = state.tasks[today] || [];
+  const plannedTasks = todaysTasks.filter(task => task && !isTaskEmpty(task));
+
+  if (!plannedTasks.length) {
+    const nextMoment = getNextMomentLabel();
+    return `Coucou ! Tu n'as pas encore prévu tes mini-tâches pour aujourd'hui. Ajoute ton Daily 3 pour ${nextMoment.toLowerCase()} et choisis le rituel qui t'inspire (Respiration, Étirements ou Sans audio).`;
+  }
+
+  const intro = 'Salut ! Voici un petit récap pour toi de ta journée :';
+  const segments = plannedTasks.map((task, index) =>
+    formatDailySummaryNarrativeSegment(task, index, plannedTasks.length)
+  );
+  const outro = 'Bon courage !';
+
+  return [intro, segments.join(' '), outro].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+}
+
+function stopDailySummaryTyping() {
+  if (!Array.isArray(dailySummaryRuntime.typingTimeouts)) {
+    dailySummaryRuntime.typingTimeouts = [];
+    return;
+  }
+  dailySummaryRuntime.typingTimeouts.forEach(timeoutId => clearTimeout(timeoutId));
+  dailySummaryRuntime.typingTimeouts = [];
+}
+
+function startDailySummaryTyping(element, text) {
+  if (!element) return;
+  stopDailySummaryTyping();
+  element.textContent = '';
+  if (!text) return;
+
+  let index = 0;
+
+  const typeNext = () => {
+    element.textContent = text.slice(0, index + 1);
+    index += 1;
+    if (index >= text.length) {
+      return;
+    }
+    const nextChar = text.charAt(index);
+    const delay = nextChar === '\n' ? 220 : 38;
+    const timeoutId = setTimeout(typeNext, delay);
+    dailySummaryRuntime.typingTimeouts.push(timeoutId);
+  };
+
+  const initialTimeout = setTimeout(() => {
+    if (!dailySummaryRuntime.isVisible) {
+      element.textContent = text;
+      return;
+    }
+    typeNext();
+  }, 160);
+
+  dailySummaryRuntime.typingTimeouts.push(initialTimeout);
+}
+
+function isDailySummaryVisible() {
+  return dailySummaryRuntime.isVisible === true;
+}
+
+function showDailySummaryPopup(summaryText) {
+  const overlay = document.getElementById('daily-summary-overlay');
+  const textEl = document.getElementById('daily-summary-text');
+  const closeBtn = document.getElementById('daily-summary-close-btn');
+  if (!overlay || !textEl) {
+    return false;
+  }
+
+  if (dailySummaryRuntime.hideTimeout) {
+    clearTimeout(dailySummaryRuntime.hideTimeout);
+    dailySummaryRuntime.hideTimeout = null;
+  }
+
+  dailySummaryRuntime.isVisible = true;
+  overlay.removeAttribute('hidden');
+  overlay.setAttribute('aria-hidden', 'false');
+  if (typeof document !== 'undefined' && document.body) {
+    document.body.classList.add('daily-summary-open');
+  }
+
+  requestAnimationFrame(() => {
+    overlay.classList.add('show');
+    startDailySummaryTyping(textEl, summaryText);
+    if (closeBtn && typeof closeBtn.focus === 'function') {
+      closeBtn.focus();
+    }
+  });
+
+  ensureDailySummaryState();
+  state.dailySummary.lastShownDate = getToday();
+  saveState();
+
+  return true;
+}
+
+function hideDailySummaryPopup() {
+  const overlay = document.getElementById('daily-summary-overlay');
+  const textEl = document.getElementById('daily-summary-text');
+  if (!overlay) {
+    return;
+  }
+
+  if (dailySummaryRuntime.hideTimeout) {
+    clearTimeout(dailySummaryRuntime.hideTimeout);
+    dailySummaryRuntime.hideTimeout = null;
+  }
+
+  overlay.classList.remove('show');
+  overlay.setAttribute('aria-hidden', 'true');
+  if (typeof document !== 'undefined' && document.body) {
+    document.body.classList.remove('daily-summary-open');
+  }
+  dailySummaryRuntime.isVisible = false;
+  stopDailySummaryTyping();
+
+  if (textEl && typeof textEl.textContent === 'string') {
+    textEl.textContent = textEl.textContent.trim();
+  }
+
+  dailySummaryRuntime.hideTimeout = setTimeout(() => {
+    overlay.setAttribute('hidden', '');
+    dailySummaryRuntime.hideTimeout = null;
+  }, 220);
+}
+
+function maybeShowDailySummaryPopup() {
+  if (isDailySummaryVisible()) {
+    return false;
+  }
+
+  const overlay = document.getElementById('daily-summary-overlay');
+  if (!overlay) {
+    return false;
+  }
+
+  ensureDailySummaryState();
+  const today = getToday();
+  if (state.dailySummary.lastShownDate === today) {
+    return false;
+  }
+
+  const summaryText = buildDailySummaryText();
+  if (!summaryText) {
+    return false;
+  }
+
+  return showDailySummaryPopup(summaryText);
+}
+
 function renderDailyTasks() {
   const today = getToday();
   ensureTasksForDate(today);
@@ -8686,6 +8978,36 @@ function renderDailyTasks() {
   });
 
   checkAllTasksDone();
+}
+
+function initDailySummaryPopup() {
+  if (dailySummaryPopupInitialized) {
+    return;
+  }
+
+  const overlay = document.getElementById('daily-summary-overlay');
+  const closeBtn = document.getElementById('daily-summary-close-btn');
+  if (!overlay || !closeBtn) {
+    return;
+  }
+
+  dailySummaryPopupInitialized = true;
+
+  closeBtn.addEventListener('click', () => {
+    hideDailySummaryPopup();
+  });
+
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) {
+      hideDailySummaryPopup();
+    }
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && isDailySummaryVisible()) {
+      hideDailySummaryPopup();
+    }
+  });
 }
 
 function initDailyQuickAdd() {
@@ -12002,6 +12324,7 @@ if ('serviceWorker' in navigator) {
   });
 }
 
+initDailySummaryPopup();
 initNotificationsModule();
 initNotificationsTabs();
 initNavigation();
@@ -12011,3 +12334,4 @@ initSocialModule();
 const hasProgramme = Boolean((state.settings.goalTitle || '').trim());
 const initialView = hasProgramme ? 'aujourdhui' : 'programme';
 showView(initialView);
+maybeShowDailySummaryPopup();
