@@ -15,6 +15,13 @@ const BADGE_DEFINITIONS = [
   { id: 'platinum', label: 'Platine', threshold: 30, icon: '🏆' }
 ];
 
+const HISTORY_BADGES = [
+  { id: 'platine', label: 'Platine', icon: '🏆' },
+  { id: 'or', label: 'Or', icon: '🥇' },
+  { id: 'argent', label: 'Argent', icon: '🥈' },
+  { id: 'bronze', label: 'Bronze', icon: '🥉' }
+];
+
 const MOOD_DETAILS = {
   sad: { emoji: '😞', label: 'Bas' },
   tired: { emoji: '😴', label: 'Fatigué' },
@@ -72,6 +79,13 @@ const INACTIVITY_NUDGE_MIN_DELAY_MS = 60 * 1000;
 
 const ENABLE_CHALLENGE = true;
 const ENABLE_SOCIAL_LIVE = false;
+const ENABLE_HISTORY = false;
+
+const HISTORY_DB_NAME = 'ZEYNE_PROGRAMS_DB';
+const HISTORY_DB_VERSION = 1;
+const HISTORY_STORE_ACTIVE = 'programs_active';
+const HISTORY_STORE_ARCHIVED = 'programs_archived';
+const HISTORY_ARCHIVE_LIMIT = 50;
 
 const CHALLENGE_DAY_COUNT = 7;
 const CHALLENGE_MIN_TASKS_SUCCESS = 2;
@@ -1104,6 +1118,472 @@ function differenceInDays(startISO, endISO) {
   return Math.round(diffMs / (1000 * 60 * 60 * 24));
 }
 
+function sanitizeProgramTitle(title) {
+  if (typeof title === 'string') {
+    const trimmed = title.trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+  if (state?.settings?.goalTitle) {
+    const fallback = state.settings.goalTitle.toString().trim();
+    if (fallback) {
+      return fallback;
+    }
+  }
+  return 'Objectif';
+}
+
+function slugifyProgramTitle(title) {
+  const base = sanitizeProgramTitle(title).toLowerCase();
+  const slug = base.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
+  return slug || 'objectif';
+}
+
+function computeProgramIdentifier({ title, startDate, endDate }) {
+  const start = isValidISODate(startDate) ? startDate : getToday();
+  const end = isValidISODate(endDate) ? endDate : 'ongoing';
+  const slug = slugifyProgramTitle(title);
+  return `program-${start}-${end}-${slug}`;
+}
+
+function getProgrammeCategoryLabel(categoryId) {
+  if (!categoryId) return null;
+  const category = getProgrammeCategoryById(categoryId);
+  return category ? category.label : null;
+}
+
+function addDaysToISO(baseISO, days) {
+  if (!isValidISODate(baseISO)) {
+    return null;
+  }
+  const date = new Date(baseISO);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().split('T')[0];
+}
+
+function resolveHistoryBadge(completionRate, streakMax) {
+  const rate = Number.isFinite(completionRate) ? completionRate : 0;
+  const streak = Number.isFinite(streakMax) ? streakMax : 0;
+  if (rate >= 98 && streak >= 14) return 'platine';
+  if (rate >= 90) return 'or';
+  if (rate >= 75) return 'argent';
+  if (rate >= 60) return 'bronze';
+  return null;
+}
+
+function getHistoryBadgeDefinition(id) {
+  return HISTORY_BADGES.find(badge => badge.id === id) || null;
+}
+
+function buildProgramSnapshotFromState(meta = {}) {
+  if (!ENABLE_HISTORY) {
+    return null;
+  }
+
+  const title = sanitizeProgramTitle(meta.title);
+  let startISO = isValidISODate(meta.startDate) ? meta.startDate : (isValidISODate(state.settings.startISO) ? state.settings.startISO : (getEarliestTaskDate() || getToday()));
+  let endISO = isValidISODate(meta.endDate) ? meta.endDate : (isValidISODate(state.settings.deadlineISO) ? state.settings.deadlineISO : startISO);
+
+  const startDate = parseISODate(startISO) || getTodayDateObj();
+  let endDate = parseISODate(endISO) || startDate;
+  if (endDate.getTime() < startDate.getTime()) {
+    endDate = new Date(startDate);
+    endISO = startISO;
+  }
+
+  const schedule = [];
+  let plannedCount = 0;
+  let doneCount = 0;
+  let currentStreak = 0;
+  let maxStreak = 0;
+  let lastActiveISO = startISO;
+
+  const slotStats = {
+    morning: { label: 'Matin', done: 0, total: 0 },
+    afternoon: { label: 'Après-midi', done: 0, total: 0 },
+    evening: { label: 'Soir', done: 0, total: 0 }
+  };
+
+  const audioCounts = {};
+  const moodCounts = {};
+  const motivationValues = [];
+  const reportCounts = {};
+  let reportsTotal = 0;
+
+  const dayMs = 24 * 60 * 60 * 1000;
+  const dayCount = Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / dayMs) + 1);
+
+  for (let offset = 0; offset < dayCount; offset += 1) {
+    const dateObj = new Date(startDate.getTime() + offset * dayMs);
+    const dateStr = dateObj.toISOString().split('T')[0];
+    const tasks = Array.isArray(state.tasks?.[dateStr]) ? state.tasks[dateStr] : [];
+    const slots = [null, null, null];
+    let dayHasCompletion = false;
+
+    for (let idx = 0; idx < 3; idx += 1) {
+      const task = tasks[idx];
+      if (task && !isTaskEmpty(task)) {
+        plannedCount += 1;
+        const normalizedAudio = normalizeAudioValue(task.audio || 'Aucun');
+        slots[idx] = {
+          title: task.title || '',
+          moment: task.moment || '',
+          audio: normalizedAudio,
+          micropas: task.micropas || '',
+          duration: Number.isFinite(task.duration) ? task.duration : null
+        };
+        const slotLabel = categorizeMomentSlot(task.moment) || QUICK_ADD_SLOT_MOMENTS[idx] || '';
+        let slotKey = null;
+        if (slotLabel.toLowerCase().includes('matin')) slotKey = 'morning';
+        else if (slotLabel.toLowerCase().includes('soir')) slotKey = 'evening';
+        else if (slotLabel) slotKey = 'afternoon';
+        if (slotKey && slotStats[slotKey]) {
+          slotStats[slotKey].total += 1;
+          if (task.status === 'done') {
+            slotStats[slotKey].done += 1;
+          }
+        }
+        if (normalizedAudio && normalizedAudio !== 'Aucun') {
+          audioCounts[normalizedAudio] = (audioCounts[normalizedAudio] || 0) + 1;
+        }
+        if (task.status === 'done') {
+          doneCount += 1;
+          dayHasCompletion = true;
+        }
+      }
+    }
+
+    if (slots.some(slot => slot)) {
+      lastActiveISO = dateStr;
+    }
+
+    if (dayHasCompletion) {
+      currentStreak += 1;
+      if (currentStreak > maxStreak) {
+        maxStreak = currentStreak;
+      }
+    } else {
+      currentStreak = 0;
+    }
+
+    const moodEntry = state.moodHistory?.[dateStr];
+    if (moodEntry) {
+      if (typeof moodEntry.motivation === 'number' && !Number.isNaN(moodEntry.motivation)) {
+        motivationValues.push(Math.max(0, Math.min(100, Math.round(moodEntry.motivation))));
+      }
+      if (moodEntry.emoji) {
+        moodCounts[moodEntry.emoji] = (moodCounts[moodEntry.emoji] || 0) + 1;
+      }
+    }
+
+    const reportEntry = state.reports?.[dateStr];
+    if (reportEntry) {
+      reportsTotal += Number(reportEntry.total) || 0;
+      const reasons = reportEntry.reasons || {};
+      Object.keys(reasons).forEach(key => {
+        reportCounts[key] = (reportCounts[key] || 0) + (Number(reasons[key]) || 0);
+      });
+    }
+
+    schedule.push({ offset, date: dateStr, slots });
+  }
+
+  if (isValidISODate(lastActiveISO) && new Date(lastActiveISO) > new Date(endISO)) {
+    endISO = lastActiveISO;
+  }
+
+  const normalizedDuration = differenceInDays(startISO, endISO);
+  const durationDays = Number.isInteger(normalizedDuration) ? normalizedDuration + 1 : schedule.length || 1;
+  const completionRate = plannedCount > 0 ? Math.round((doneCount / plannedCount) * 100) : 0;
+  const badge = resolveHistoryBadge(completionRate, maxStreak);
+
+  const motivationAverage = motivationValues.length
+    ? Math.round(motivationValues.reduce((acc, value) => acc + value, 0) / motivationValues.length)
+    : null;
+
+  let moodKey = null;
+  let moodBest = 0;
+  Object.entries(moodCounts).forEach(([key, count]) => {
+    if (count > moodBest) {
+      moodBest = count;
+      moodKey = key;
+    }
+  });
+  const moodLabel = moodKey && MOOD_DETAILS[moodKey] ? MOOD_DETAILS[moodKey].label : null;
+
+  let dominantReportKey = null;
+  let dominantReportCount = 0;
+  Object.entries(reportCounts).forEach(([key, count]) => {
+    if (count > dominantReportCount) {
+      dominantReportKey = key;
+      dominantReportCount = count;
+    }
+  });
+
+  let bestSlotKey = null;
+  let bestSlotRate = 0;
+  Object.entries(slotStats).forEach(([key, stats]) => {
+    if (!stats.total) return;
+    const rate = stats.done / stats.total;
+    if (bestSlotKey === null || rate > bestSlotRate || (rate === bestSlotRate && stats.done > slotStats[bestSlotKey]?.done)) {
+      bestSlotKey = key;
+      bestSlotRate = rate;
+    }
+  });
+
+  const audioEntries = Object.entries(audioCounts).sort((a, b) => b[1] - a[1]);
+  const topAudioId = audioEntries.length ? audioEntries[0][0] : null;
+  const topAudioLabel = topAudioId ? formatAudioLabel(topAudioId) : null;
+
+  const templateId = meta.templateId || state.settings.programmeCategoryId || null;
+  const templateLabel = templateId ? getProgrammeCategoryLabel(templateId) : null;
+
+  const programId = meta.id || computeProgramIdentifier({ title, startDate: startISO, endDate: endISO });
+
+  return {
+    id: programId,
+    version: 1,
+    title,
+    startDate: startISO,
+    endDate: endISO,
+    durationDays,
+    archivedAt: new Date().toISOString(),
+    badge,
+    stats: {
+      completionRate,
+      microPlanned: plannedCount,
+      microDone: doneCount,
+      streakMax: maxStreak,
+      averageMotivation: motivationAverage,
+      averageMoodKey: moodKey,
+      averageMoodLabel: moodLabel,
+      reportsTotal,
+      dominantReportKey,
+      dominantReportLabel: dominantReportKey && REPORT_REASON_DETAILS[dominantReportKey]
+        ? REPORT_REASON_DETAILS[dominantReportKey].label
+        : null,
+      slots: slotStats,
+      bestSlot: bestSlotKey ? {
+        key: bestSlotKey,
+        label: slotStats[bestSlotKey].label,
+        rate: bestSlotRate
+      } : null,
+      topAudio: topAudioId ? {
+        id: topAudioId,
+        label: topAudioLabel,
+        count: audioCounts[topAudioId]
+      } : null,
+      templateId,
+      templateLabel
+    },
+    schedule,
+    metadata: {
+      templateId,
+      templateLabel,
+      source: meta?.metadata?.source || null
+    }
+  };
+}
+
+function deriveProgramMetaFromSettings() {
+  if (!ENABLE_HISTORY) {
+    return null;
+  }
+
+  const goalTitleRaw = typeof state.settings.goalTitle === 'string' ? state.settings.goalTitle.trim() : '';
+  if (!goalTitleRaw) {
+    return null;
+  }
+
+  const startISO = isValidISODate(state.settings.startISO) ? state.settings.startISO : null;
+  const endISO = isValidISODate(state.settings.deadlineISO) ? state.settings.deadlineISO : null;
+  if (!startISO) {
+    return null;
+  }
+
+  const templateId = state.settings.programmeCategoryId || null;
+  const title = sanitizeProgramTitle(goalTitleRaw);
+  const id = computeProgramIdentifier({ title, startDate: startISO, endDate: endISO });
+
+  return {
+    id,
+    title,
+    startDate: startISO,
+    endDate: endISO,
+    templateId,
+    templateLabel: templateId ? getProgrammeCategoryLabel(templateId) : null,
+    metadata: { source: 'settings' }
+  };
+}
+
+async function syncActiveProgramFromSettings() {
+  if (!ENABLE_HISTORY) {
+    return;
+  }
+  const meta = deriveProgramMetaFromSettings();
+  if (meta) {
+    await replaceActivePrograms([meta]);
+  } else {
+    await replaceActivePrograms([]);
+  }
+}
+
+async function archiveProgramMeta(meta, { reason = 'auto' } = {}) {
+  if (!ENABLE_HISTORY || !meta) {
+    return null;
+  }
+  const existing = meta.id ? await getArchivedProgramById(meta.id) : null;
+  const snapshot = buildProgramSnapshotFromState({ ...meta, metadata: { ...(meta.metadata || {}), source: reason } });
+  if (!snapshot) {
+    return existing || null;
+  }
+  snapshot.metadata = {
+    ...(snapshot.metadata || {}),
+    archivedReason: reason
+  };
+  await putArchivedProgram(snapshot);
+  return snapshot;
+}
+
+async function archiveCurrentProgram({ reason = 'manual', removeActive = true } = {}) {
+  if (!ENABLE_HISTORY) {
+    return null;
+  }
+  const meta = deriveProgramMetaFromSettings();
+  if (!meta) {
+    return null;
+  }
+  const snapshot = await archiveProgramMeta(meta, { reason });
+  if (removeActive) {
+    await replaceActivePrograms([]);
+    state.settings.startISO = '';
+    state.settings.deadlineISO = '';
+    saveState();
+  }
+  return snapshot;
+}
+
+async function maybeAutoArchiveProgram() {
+  if (!ENABLE_HISTORY) {
+    return;
+  }
+  try {
+    const activePrograms = await listActivePrograms();
+    if (!activePrograms.length) {
+      return;
+    }
+    const today = getToday();
+    const remaining = [];
+    for (const program of activePrograms) {
+      if (!program || !isValidISODate(program.endDate)) {
+        remaining.push(program);
+        continue;
+      }
+      if (program.endDate >= today) {
+        remaining.push(program);
+        continue;
+      }
+      const alreadyArchived = program.id ? await getArchivedProgramById(program.id) : null;
+      if (!alreadyArchived) {
+        await archiveProgramMeta(program, { reason: 'auto' });
+      }
+    }
+    await replaceActivePrograms(remaining.filter(Boolean));
+  } catch (error) {
+    console.warn('Archivage automatique impossible', error);
+  }
+}
+
+function applyProgramSchedule(program, startISO, { asDraft = false } = {}) {
+  if (!program || !Array.isArray(program.schedule) || !isValidISODate(startISO)) {
+    return false;
+  }
+  const schedule = program.schedule;
+  for (const day of schedule) {
+    const offset = Number.isFinite(day?.offset) ? day.offset : 0;
+    const targetISO = addDaysToISO(startISO, offset);
+    if (!targetISO) {
+      continue;
+    }
+    ensureTasksForDate(targetISO);
+    const slots = Array.isArray(day?.slots) ? day.slots : [];
+    for (let idx = 0; idx < 3; idx += 1) {
+      const slotData = slots[idx] || null;
+      if (slotData) {
+        state.tasks[targetISO][idx] = {
+          id: generateTaskId(),
+          title: slotData.title || '',
+          moment: slotData.moment || '',
+          audio: normalizeAudioValue(slotData.audio || 'Aucun'),
+          duration: Number.isFinite(slotData.duration) ? slotData.duration : null,
+          status: 'planned',
+          micropas: slotData.micropas || '',
+          completedAt: null,
+          lastStartedAt: null,
+          focusSessions: [],
+          lastFocusDurationSec: null,
+          lastFocusCompletedAt: null,
+          lastCompletionLatencySec: null,
+          statusChangedAt: null
+        };
+      } else {
+        state.tasks[targetISO][idx] = createEmptyTask();
+      }
+    }
+  }
+  if (!asDraft) {
+    saveState();
+    renderDashboard();
+    refreshWeeklyReviewIfVisible();
+  }
+  return true;
+}
+
+async function relaunchProgramFromSnapshot(program, startISO) {
+  if (!ENABLE_HISTORY || !program || !isValidISODate(startISO)) {
+    return false;
+  }
+  applyProgramSchedule(program, startISO, { asDraft: true });
+  const duration = Number.isFinite(program.durationDays)
+    ? Math.max(1, Math.floor(program.durationDays))
+    : (Array.isArray(program.schedule) ? Math.max(1, program.schedule.length) : 1);
+  const endISO = addDaysToISO(startISO, Math.max(0, duration - 1));
+  state.settings.goalTitle = program.title || state.settings.goalTitle || 'Objectif';
+  state.settings.startISO = startISO;
+  state.settings.deadlineISO = endISO || '';
+  if (program.stats?.templateId) {
+    state.settings.programmeCategoryId = program.stats.templateId;
+  }
+  const meta = {
+    id: computeProgramIdentifier({ title: state.settings.goalTitle, startDate: startISO, endDate: endISO }),
+    title: sanitizeProgramTitle(state.settings.goalTitle),
+    startDate: startISO,
+    endDate: endISO,
+    templateId: program.stats?.templateId || null,
+    templateLabel: program.stats?.templateLabel || null,
+    metadata: { source: 'relaunch', from: program.id || null }
+  };
+  await replaceActivePrograms([meta]);
+  saveState();
+  renderDashboard();
+  refreshWeeklyReviewIfVisible();
+  return true;
+}
+
+function prepareProgramDraft(program, startISO) {
+  if (!ENABLE_HISTORY || !program) {
+    return false;
+  }
+  const start = isValidISODate(startISO) ? startISO : getToday();
+  const applied = applyProgramSchedule(program, start, { asDraft: true });
+  if (!applied) {
+    return false;
+  }
+  renderPlanifier();
+  return true;
+}
+
 function computeBestStreak(days) {
   const unique = sanitizeDaysDoneList(days);
   if (!unique.length) return 0;
@@ -1437,6 +1917,8 @@ let state = {
 };
 
 let audioDBPromise = null;
+let historyDBPromise = null;
+const historyMemoryStore = { active: [], archived: [] };
 let pendingAudioDraft = null;
 let previewAudioState = { audio: null, entryId: null, revoke: null, button: null };
 let modalAudioState = { audio: null, revoke: null };
@@ -1464,7 +1946,7 @@ let socialOverviewCache = null;
 let dailySummaryRuntime = { typingTimeouts: [], hideTimeout: null, isVisible: false };
 let dailySummaryPopupInitialized = false;
 const socialChallengeStatusCache = new Map();
-let activeNotificationsTab = 'alerts';
+const activeNotificationsTabs = {};
 let openSocialMenuUid = null;
 let weeklyHeatmapRange = 'current';
 
@@ -1535,6 +2017,273 @@ function getAudioBlob(id) {
     request.onsuccess = () => resolve(request.result || null);
     request.onerror = () => reject(request.error || new Error('Lecture audio impossible'));
   }));
+}
+
+function historyStorageAvailable() {
+  return ENABLE_HISTORY && typeof window !== 'undefined';
+}
+
+function cloneHistoryEntry(entry) {
+  if (!entry) return null;
+  try {
+    return JSON.parse(JSON.stringify(entry));
+  } catch (error) {
+    return typeof structuredClone === 'function' ? structuredClone(entry) : entry;
+  }
+}
+
+function sortHistoryByArchivedAt(entries) {
+  return entries.slice().sort((a, b) => {
+    const aDate = a?.archivedAt || a?.updatedAt || a?.endDate || '';
+    const bDate = b?.archivedAt || b?.updatedAt || b?.endDate || '';
+    return bDate.localeCompare(aDate);
+  });
+}
+
+function getHistoryDB() {
+  if (!historyStorageAvailable() || !('indexedDB' in window)) {
+    return Promise.resolve(null);
+  }
+
+  if (historyDBPromise) {
+    return historyDBPromise;
+  }
+
+  historyDBPromise = new Promise((resolve, reject) => {
+    const request = indexedDB.open(HISTORY_DB_NAME, HISTORY_DB_VERSION);
+
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(HISTORY_STORE_ACTIVE)) {
+        db.createObjectStore(HISTORY_STORE_ACTIVE, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(HISTORY_STORE_ARCHIVED)) {
+        db.createObjectStore(HISTORY_STORE_ARCHIVED, { keyPath: 'id' });
+      }
+    };
+
+    request.onsuccess = () => {
+      const db = request.result;
+      db.onversionchange = () => {
+        db.close();
+        historyDBPromise = null;
+      };
+      resolve(db);
+    };
+
+    request.onerror = () => {
+      console.warn('IndexedDB historique indisponible', request.error);
+      historyDBPromise = null;
+      resolve(null);
+    };
+  });
+
+  return historyDBPromise;
+}
+
+async function listActivePrograms() {
+  if (!ENABLE_HISTORY) {
+    return [];
+  }
+
+  if (!historyStorageAvailable() || !('indexedDB' in window)) {
+    return historyMemoryStore.active.map(cloneHistoryEntry);
+  }
+
+  try {
+    const db = await getHistoryDB();
+    if (!db) {
+      return historyMemoryStore.active.map(cloneHistoryEntry);
+    }
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(HISTORY_STORE_ACTIVE, 'readonly');
+      const store = tx.objectStore(HISTORY_STORE_ACTIVE);
+      const request = store.getAll();
+      request.onsuccess = () => {
+        const result = Array.isArray(request.result) ? request.result.map(cloneHistoryEntry) : [];
+        resolve(result);
+      };
+      request.onerror = () => reject(request.error || new Error('Lecture des objectifs actifs impossible'));
+    });
+  } catch (error) {
+    console.warn('Impossible de lire les objectifs actifs', error);
+    return historyMemoryStore.active.map(cloneHistoryEntry);
+  }
+}
+
+async function replaceActivePrograms(programs) {
+  if (!ENABLE_HISTORY) {
+    return;
+  }
+  const sanitized = Array.isArray(programs) ? programs.map(cloneHistoryEntry) : [];
+  if (!historyStorageAvailable() || !('indexedDB' in window)) {
+    historyMemoryStore.active = sanitized;
+    return;
+  }
+  try {
+    const db = await getHistoryDB();
+    if (!db) {
+      historyMemoryStore.active = sanitized;
+      return;
+    }
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(HISTORY_STORE_ACTIVE, 'readwrite');
+      const store = tx.objectStore(HISTORY_STORE_ACTIVE);
+      const clearRequest = store.clear();
+      clearRequest.onsuccess = () => {
+        sanitized.forEach(entry => {
+          if (!entry || !entry.id) return;
+          store.put(entry);
+        });
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error('Mise à jour des objectifs actifs impossible'));
+    });
+  } catch (error) {
+    console.warn('Synchronisation des objectifs actifs impossible', error);
+    historyMemoryStore.active = sanitized;
+  }
+}
+
+async function listArchivedPrograms(limit = HISTORY_ARCHIVE_LIMIT) {
+  if (!ENABLE_HISTORY) {
+    return [];
+  }
+
+  const fallback = () => sortHistoryByArchivedAt(historyMemoryStore.archived).slice(0, limit).map(cloneHistoryEntry);
+
+  if (!historyStorageAvailable() || !('indexedDB' in window)) {
+    return fallback();
+  }
+
+  try {
+    const db = await getHistoryDB();
+    if (!db) {
+      return fallback();
+    }
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(HISTORY_STORE_ARCHIVED, 'readonly');
+      const store = tx.objectStore(HISTORY_STORE_ARCHIVED);
+      const request = store.getAll();
+      request.onsuccess = () => {
+        const result = Array.isArray(request.result) ? sortHistoryByArchivedAt(request.result) : [];
+        resolve(result.slice(0, limit).map(cloneHistoryEntry));
+      };
+      request.onerror = () => reject(request.error || new Error('Lecture de l’historique impossible'));
+    });
+  } catch (error) {
+    console.warn('Historique indisponible', error);
+    return fallback();
+  }
+}
+
+async function getArchivedProgramById(id) {
+  if (!ENABLE_HISTORY || !id) {
+    return null;
+  }
+
+  const memoryMatch = historyMemoryStore.archived.find(entry => entry && entry.id === id);
+
+  if (!historyStorageAvailable() || !('indexedDB' in window)) {
+    return cloneHistoryEntry(memoryMatch || null);
+  }
+
+  try {
+    const db = await getHistoryDB();
+    if (!db) {
+      return cloneHistoryEntry(memoryMatch || null);
+    }
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(HISTORY_STORE_ARCHIVED, 'readonly');
+      const store = tx.objectStore(HISTORY_STORE_ARCHIVED);
+      const request = store.get(id);
+      request.onsuccess = () => {
+        if (request.result) {
+          resolve(cloneHistoryEntry(request.result));
+        } else {
+          resolve(cloneHistoryEntry(memoryMatch || null));
+        }
+      };
+      request.onerror = () => reject(request.error || new Error('Lecture du snapshot impossible'));
+    });
+  } catch (error) {
+    console.warn('Lecture snapshot impossible', error);
+    return cloneHistoryEntry(memoryMatch || null);
+  }
+}
+
+async function replaceArchivedPrograms(programs) {
+  if (!ENABLE_HISTORY) {
+    return;
+  }
+
+  const sanitized = Array.isArray(programs) ? sortHistoryByArchivedAt(programs).slice(0, HISTORY_ARCHIVE_LIMIT).map(cloneHistoryEntry) : [];
+
+  if (!historyStorageAvailable() || !('indexedDB' in window)) {
+    historyMemoryStore.archived = sanitized;
+    return;
+  }
+
+  try {
+    const db = await getHistoryDB();
+    if (!db) {
+      historyMemoryStore.archived = sanitized;
+      return;
+    }
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(HISTORY_STORE_ARCHIVED, 'readwrite');
+      const store = tx.objectStore(HISTORY_STORE_ARCHIVED);
+      const clearRequest = store.clear();
+      clearRequest.onsuccess = () => {
+        sanitized.forEach(entry => {
+          if (!entry || !entry.id) return;
+          store.put(entry);
+        });
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error('Mise à jour des archives impossible'));
+    });
+  } catch (error) {
+    console.warn('Impossible de mettre à jour les archives', error);
+    historyMemoryStore.archived = sanitized;
+  }
+}
+
+async function putArchivedProgram(program) {
+  if (!ENABLE_HISTORY || !program || !program.id) {
+    return;
+  }
+  const current = await listArchivedPrograms(HISTORY_ARCHIVE_LIMIT + 5);
+  const filtered = current.filter(entry => entry.id !== program.id);
+  filtered.unshift(cloneHistoryEntry(program));
+  const limited = sortHistoryByArchivedAt(filtered).slice(0, HISTORY_ARCHIVE_LIMIT);
+  await replaceArchivedPrograms(limited);
+}
+
+async function deleteArchivedProgram(id) {
+  if (!ENABLE_HISTORY || !id) {
+    return;
+  }
+  if (!historyStorageAvailable() || !('indexedDB' in window)) {
+    historyMemoryStore.archived = historyMemoryStore.archived.filter(entry => entry && entry.id !== id);
+    return;
+  }
+  try {
+    const db = await getHistoryDB();
+    if (!db) {
+      historyMemoryStore.archived = historyMemoryStore.archived.filter(entry => entry && entry.id !== id);
+      return;
+    }
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(HISTORY_STORE_ARCHIVED, 'readwrite');
+      tx.objectStore(HISTORY_STORE_ARCHIVED).delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error('Suppression impossible'));
+    });
+  } catch (error) {
+    console.warn('Suppression du snapshot impossible', error);
+    historyMemoryStore.archived = historyMemoryStore.archived.filter(entry => entry && entry.id !== id);
+  }
 }
 
 function ensureAudioLibraryState() {
@@ -6256,8 +7005,11 @@ function showView(viewName) {
     } else if (viewName === 'notifications') {
       updateNotificationsForm();
       refreshNotificationPermissionState();
-      if (activeNotificationsTab === 'social') {
+      const historyTab = getActiveNotificationsTab('history');
+      if (historyTab === 'social') {
         refreshSocialOverview({ silent: true });
+      } else if (historyTab === 'history') {
+        renderHistoryList();
       }
     }
 
@@ -6267,43 +7019,602 @@ function showView(viewName) {
   }
 }
 
+function getActiveNotificationsTab(group = 'default') {
+  return activeNotificationsTabs[group] || null;
+}
+
+function setActiveNotificationsTab(group, value) {
+  activeNotificationsTabs[group] = value;
+}
+
 function initNotificationsTabs() {
+  const containers = document.querySelectorAll('[data-notifications-tabs]');
+  if (containers.length) {
+    containers.forEach(container => {
+      const group = container.dataset.notificationsTabs || 'default';
+      const tabs = container.querySelectorAll('.notifications-tab');
+      const panels = document.querySelectorAll(`.notifications-panel[data-group="${group}"]`);
+
+      const activate = (target) => {
+        if (!target) return;
+        setActiveNotificationsTab(group, target);
+        tabs.forEach(tab => {
+          const isActive = tab.dataset.tab === target;
+          tab.classList.toggle('notifications-tab-active', isActive);
+          tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+          tab.setAttribute('tabindex', isActive ? '0' : '-1');
+        });
+
+        panels.forEach(panel => {
+          const isActive = panel.dataset.panel === target;
+          panel.classList.toggle('notifications-panel-active', isActive);
+          panel.toggleAttribute('hidden', !isActive);
+        });
+
+        if (target === 'social') {
+          refreshSocialOverview();
+        } else if (target === 'history') {
+          renderHistoryList();
+        }
+      };
+
+      tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          activate(tab.dataset.tab);
+        });
+      });
+
+      const preset = Array.from(tabs).find(tab => tab.classList.contains('notifications-tab-active'))?.dataset.tab
+        || getActiveNotificationsTab(group)
+        || tabs[0]?.dataset.tab;
+      if (preset) {
+        activate(preset);
+      }
+    });
+    return;
+  }
+
   const tabs = document.querySelectorAll('.notifications-tab');
+  if (!tabs.length) {
+    return;
+  }
   const panels = document.querySelectorAll('.notifications-panel');
 
-  const activate = (target) => {
+  const activateFallback = (target) => {
     if (!target) return;
-    activeNotificationsTab = target;
+    setActiveNotificationsTab('default', target);
     tabs.forEach(tab => {
       const isActive = tab.dataset.tab === target;
       tab.classList.toggle('notifications-tab-active', isActive);
       tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
       tab.setAttribute('tabindex', isActive ? '0' : '-1');
     });
-
     panels.forEach(panel => {
       const isActive = panel.dataset.panel === target;
       panel.classList.toggle('notifications-panel-active', isActive);
       panel.toggleAttribute('hidden', !isActive);
     });
-
     if (target === 'social') {
       refreshSocialOverview();
     }
   };
 
   tabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-      const target = tab.dataset.tab;
-      activate(target);
-    });
+    tab.addEventListener('click', () => activateFallback(tab.dataset.tab));
   });
 
-  const initialTab = Array.from(tabs).find(tab => tab.classList.contains('notifications-tab-active'))?.dataset.tab
-    || activeNotificationsTab
+  const fallbackInitial = Array.from(tabs).find(tab => tab.classList.contains('notifications-tab-active'))?.dataset.tab
+    || getActiveNotificationsTab('default')
     || tabs[0]?.dataset.tab;
-  if (initialTab) {
-    activate(initialTab);
+  if (fallbackInitial) {
+    activateFallback(fallbackInitial);
+  }
+}
+
+async function renderHistoryList() {
+  if (!ENABLE_HISTORY) {
+    return;
+  }
+  const listEl = document.getElementById('history-list');
+  const emptyEl = document.getElementById('history-empty-state');
+  if (!listEl || !emptyEl) {
+    return;
+  }
+  listEl.innerHTML = '';
+  emptyEl.setAttribute('hidden', '');
+  try {
+    const programs = await listArchivedPrograms(HISTORY_ARCHIVE_LIMIT);
+    if (!programs.length) {
+      emptyEl.removeAttribute('hidden');
+      return;
+    }
+    programs.forEach(program => {
+      const card = createHistoryCard(program);
+      if (card) {
+        listEl.appendChild(card);
+      }
+    });
+  } catch (error) {
+    console.warn('Impossible de charger l\'historique', error);
+    emptyEl.removeAttribute('hidden');
+    emptyEl.textContent = 'Historique momentanément indisponible.';
+  }
+}
+
+function formatHistoryDate(dateISO) {
+  if (!isValidISODate(dateISO)) {
+    return '—';
+  }
+  try {
+    return new Date(dateISO).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
+  } catch (error) {
+    return dateISO;
+  }
+}
+
+function formatHistoryDuration(days) {
+  if (!Number.isFinite(days) || days <= 0) {
+    return '1 jour';
+  }
+  const rounded = Math.max(1, Math.round(days));
+  return formatCount(rounded, 'jour', 'jours');
+}
+
+function createHistoryCard(program) {
+  if (!program) {
+    return null;
+  }
+  const card = document.createElement('article');
+  card.className = 'history-card';
+
+  const header = document.createElement('div');
+  header.className = 'history-card-header';
+
+  const headerText = document.createElement('div');
+  const titleEl = document.createElement('h3');
+  titleEl.className = 'history-card-title';
+  titleEl.textContent = program.title || 'Objectif';
+  headerText.appendChild(titleEl);
+
+  const datesEl = document.createElement('p');
+  datesEl.className = 'history-card-dates';
+  const startLabel = formatHistoryDate(program.startDate);
+  const endLabel = formatHistoryDate(program.endDate);
+  const durationLabel = formatHistoryDuration(program.durationDays || (program.schedule ? program.schedule.length : 1));
+  datesEl.textContent = `${startLabel} → ${endLabel} · ${durationLabel}`;
+  headerText.appendChild(datesEl);
+
+  header.appendChild(headerText);
+
+  if (program.badge) {
+    const badgeDef = getHistoryBadgeDefinition(program.badge);
+    if (badgeDef) {
+      const badgeEl = document.createElement('span');
+      badgeEl.className = 'history-card-badge';
+      badgeEl.innerHTML = `${badgeDef.icon || ''} ${badgeDef.label}`;
+      header.appendChild(badgeEl);
+    }
+  }
+
+  card.appendChild(header);
+
+  const progressWrapper = document.createElement('div');
+  progressWrapper.className = 'history-card-progress';
+  progressWrapper.setAttribute('role', 'progressbar');
+  const completion = Number.isFinite(program.stats?.completionRate) ? Math.max(0, Math.min(100, program.stats.completionRate)) : 0;
+  progressWrapper.setAttribute('aria-valuemin', '0');
+  progressWrapper.setAttribute('aria-valuemax', '100');
+  progressWrapper.setAttribute('aria-valuenow', completion.toString());
+  const progressBar = document.createElement('div');
+  progressBar.className = 'history-card-progress-bar';
+  progressBar.style.width = `${completion}%`;
+  progressWrapper.appendChild(progressBar);
+  card.appendChild(progressWrapper);
+
+  const meta = document.createElement('div');
+  meta.className = 'history-card-meta';
+  const completionEl = document.createElement('span');
+  completionEl.innerHTML = `Achèvement <strong>${completion}%</strong>`;
+  meta.appendChild(completionEl);
+  const streak = Number.isFinite(program.stats?.streakMax) ? program.stats.streakMax : 0;
+  const streakEl = document.createElement('span');
+  streakEl.innerHTML = `Streak max <strong>${streak} j</strong>`;
+  meta.appendChild(streakEl);
+  card.appendChild(meta);
+
+  const detailsBtn = document.createElement('button');
+  detailsBtn.type = 'button';
+  detailsBtn.className = 'btn btn-outline history-card-details-btn';
+  detailsBtn.textContent = 'Voir les détails';
+  detailsBtn.setAttribute('data-history-action', 'details');
+  detailsBtn.setAttribute('data-program-id', program.id);
+  card.appendChild(detailsBtn);
+
+  return card;
+}
+
+async function openHistoryDetail(programId) {
+  if (!ENABLE_HISTORY || !programId) {
+    return;
+  }
+  const modal = document.getElementById('modal-overlay');
+  const content = document.getElementById('modal-content');
+  if (!modal || !content) {
+    return;
+  }
+  const program = await getArchivedProgramById(programId);
+  if (!program) {
+    showToast('Archivage introuvable.');
+    return;
+  }
+  renderHistoryDetailModal(program);
+}
+
+function renderHistoryDetailModal(program) {
+  const modal = document.getElementById('modal-overlay');
+  const content = document.getElementById('modal-content');
+  if (!modal || !content) {
+    return;
+  }
+
+  const startLabel = formatHistoryDate(program.startDate);
+  const endLabel = formatHistoryDate(program.endDate);
+  const durationLabel = formatHistoryDuration(program.durationDays || (program.schedule ? program.schedule.length : 1));
+  const completion = Number.isFinite(program.stats?.completionRate) ? Math.max(0, Math.min(100, program.stats.completionRate)) : 0;
+  const microDone = Number.isFinite(program.stats?.microDone) ? program.stats.microDone : 0;
+  const microPlanned = Number.isFinite(program.stats?.microPlanned) ? program.stats.microPlanned : 0;
+  const streak = Number.isFinite(program.stats?.streakMax) ? program.stats.streakMax : 0;
+  const motivation = Number.isFinite(program.stats?.averageMotivation) ? `${program.stats.averageMotivation}%` : '—';
+  const moodLabel = program.stats?.averageMoodLabel || '—';
+  const reportsTotal = Number.isFinite(program.stats?.reportsTotal) ? program.stats.reportsTotal : 0;
+  const dominantReasonLabel = program.stats?.dominantReportLabel || '—';
+  const topAudio = program.stats?.topAudio?.label || null;
+  const templateLabel = program.stats?.templateLabel || null;
+  const badgeDef = program.badge ? getHistoryBadgeDefinition(program.badge) : null;
+
+  const slotEntries = ['morning', 'afternoon', 'evening'];
+  const slotMarkup = slotEntries.map(slotKey => {
+    const slot = program.stats?.slots?.[slotKey];
+    if (!slot) {
+      return '';
+    }
+    const rate = slot.total > 0 ? Math.round((slot.done / slot.total) * 100) : 0;
+    const highlight = program.stats?.bestSlot?.key === slotKey ? ' history-slot-bar-best' : '';
+    return `
+      <div class="history-slot-bar${highlight}">
+        <div class="history-slot-bar-head">
+          <span class="history-slot-bar-label">${slot.label}</span>
+          <span class="history-slot-bar-value">${slot.done}/${slot.total}</span>
+        </div>
+        <div class="history-slot-bar-track">
+          <div class="history-slot-bar-fill" style="width:${rate}%;"></div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  content.classList.remove(
+    'template-wide',
+    'badge-modal-container',
+    'quick-add-modal',
+    'challenge-details-modal',
+    'challenge-setup-modal',
+    'challenge-completion-modal',
+    'heatmap-modal',
+    'inactivity-nudge-modal',
+    'social-modal'
+  );
+  content.classList.add('history-detail-modal');
+
+  const badgeMarkup = badgeDef ? `<span class="history-card-badge">${badgeDef.icon || ''} ${badgeDef.label}</span>` : '';
+  const ritualLabel = topAudio ? topAudio : '—';
+  const templateText = templateLabel || '—';
+
+  content.innerHTML = `
+    <div class="history-detail">
+      <header class="history-detail-header">
+        <div>
+          <h3>${program.title || 'Objectif'}</h3>
+          <p>${startLabel} → ${endLabel} · ${durationLabel}</p>
+        </div>
+        ${badgeMarkup}
+      </header>
+      <div class="history-detail-progress">
+        <div class="history-card-progress" aria-hidden="true">
+          <div class="history-card-progress-bar" style="width:${completion}%"></div>
+        </div>
+        <div class="history-detail-progress-meta">
+          <span><strong>${completion}%</strong> complété</span>
+          <span>${microDone}/${microPlanned} micro-tâches</span>
+        </div>
+      </div>
+      <div class="history-detail-grid">
+        <section class="history-detail-block">
+          <h4>Résumé</h4>
+          <ul>
+            <li>Streak max : <strong>${streak} jours</strong></li>
+            <li>Micro-tâches faites : <strong>${microDone}</strong></li>
+            <li>Micro-tâches prévues : <strong>${microPlanned}</strong></li>
+          </ul>
+        </section>
+        <section class="history-detail-block">
+          <h4>Qualité</h4>
+          <ul>
+            <li>Humeur moyenne : <strong>${moodLabel}</strong></li>
+            <li>Motivation moyenne : <strong>${motivation}</strong></li>
+            <li>Reports : <strong>${reportsTotal}</strong>${dominantReasonLabel !== '—' ? ` · ${dominantReasonLabel}` : ''}</li>
+          </ul>
+        </section>
+        <section class="history-detail-block">
+          <h4>Quand ça marche le mieux</h4>
+          <div class="history-slot-bars">
+            ${slotMarkup}
+          </div>
+        </section>
+        <section class="history-detail-block">
+          <h4>Ce qui aide</h4>
+          <ul>
+            <li>Rituel le plus utilisé : <strong>${ritualLabel}</strong></li>
+            <li>Template d’origine : <strong>${templateText}</strong></li>
+          </ul>
+        </section>
+      </div>
+      <div class="history-detail-actions">
+        <button type="button" class="btn btn-primary" data-history-action="relaunch" data-program-id="${program.id}">Relancer</button>
+        <button type="button" class="btn btn-secondary" data-history-action="duplicate" data-program-id="${program.id}">Dupliquer</button>
+        <button type="button" class="btn btn-outline" data-history-action="export" data-program-id="${program.id}">Exporter (JSON)</button>
+        <button type="button" class="btn btn-outline btn-danger" data-history-action="delete" data-program-id="${program.id}">Supprimer</button>
+      </div>
+    </div>
+  `;
+
+  modal.classList.add('show');
+  setupFocusTrap(content, { modalKey: 'history-detail', initialFocus: content.querySelector('[data-history-action="relaunch"]') });
+
+  content.querySelectorAll('[data-history-action]').forEach(button => {
+    button.addEventListener('click', (event) => handleHistoryDetailAction(event, program));
+  });
+}
+
+function handleHistoryListClick(event) {
+  const target = event.target.closest('[data-history-action]');
+  if (!target) {
+    return;
+  }
+  const programId = target.getAttribute('data-program-id');
+  const action = target.getAttribute('data-history-action');
+  if (action === 'details' && programId) {
+    openHistoryDetail(programId);
+  }
+}
+
+function initHistoryModule() {
+  const secondary = document.getElementById('notifications-secondary');
+  if (secondary) {
+    secondary.toggleAttribute('hidden', !ENABLE_HISTORY);
+  }
+  if (!ENABLE_HISTORY) {
+    return;
+  }
+  const listEl = document.getElementById('history-list');
+  if (listEl) {
+    listEl.addEventListener('click', handleHistoryListClick);
+  }
+  const exportAllBtn = document.getElementById('history-export-all-btn');
+  if (exportAllBtn) {
+    exportAllBtn.addEventListener('click', () => exportGlobalBackup());
+  }
+  const importInput = document.getElementById('history-import-input');
+  if (importInput) {
+    importInput.addEventListener('change', handleHistoryImport);
+  }
+  renderHistoryList();
+}
+
+function handleHistoryDetailAction(event, program) {
+  const button = event.currentTarget;
+  if (!button || !program) {
+    return;
+  }
+  const action = button.getAttribute('data-history-action');
+  if (action === 'relaunch') {
+    openHistoryStartModal(program, { mode: 'relaunch' });
+  } else if (action === 'duplicate') {
+    openHistoryStartModal(program, { mode: 'duplicate' });
+  } else if (action === 'export') {
+    exportProgramSnapshot(program);
+  } else if (action === 'delete') {
+    confirmHistoryDeletion(program);
+  }
+}
+
+function openHistoryStartModal(program, { mode = 'relaunch' } = {}) {
+  const modal = document.getElementById('modal-overlay');
+  const content = document.getElementById('modal-content');
+  if (!modal || !content || !program) {
+    return;
+  }
+
+  const today = getToday();
+  const defaultValue = today;
+  content.classList.remove(
+    'template-wide',
+    'badge-modal-container',
+    'quick-add-modal',
+    'challenge-details-modal',
+    'challenge-setup-modal',
+    'challenge-completion-modal',
+    'heatmap-modal',
+    'inactivity-nudge-modal',
+    'social-modal',
+    'history-detail-modal'
+  );
+  content.classList.add('history-start-modal');
+
+  const title = mode === 'duplicate' ? 'Dupliquer l’objectif' : 'Relancer l’objectif';
+  const confirmLabel = mode === 'duplicate' ? 'Créer le brouillon' : 'Relancer';
+  content.innerHTML = `
+    <div class="history-start">
+      <h3>${title}</h3>
+      <p>Choisissez la nouvelle date de démarrage.</p>
+      <label class="history-start-label">
+        Date de début
+        <input type="date" id="history-start-input" min="${today}" value="${defaultValue}">
+      </label>
+      <div class="history-start-actions">
+        <button type="button" class="btn btn-outline" data-history-start="cancel">Annuler</button>
+        <button type="button" class="btn btn-primary" data-history-start="confirm">${confirmLabel}</button>
+      </div>
+    </div>
+  `;
+
+  modal.classList.add('show');
+  const confirmBtn = content.querySelector('[data-history-start="confirm"]');
+  const cancelBtn = content.querySelector('[data-history-start="cancel"]');
+  const inputEl = content.querySelector('#history-start-input');
+  setupFocusTrap(content, { modalKey: 'history-start', initialFocus: confirmBtn });
+
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', () => openHistoryDetail(program.id));
+  }
+
+  if (confirmBtn) {
+    confirmBtn.addEventListener('click', async () => {
+      const selected = inputEl?.value;
+      if (!isValidISODate(selected)) {
+        showToast('Choisissez une date valide.');
+        return;
+      }
+      if (mode === 'relaunch') {
+        const success = await relaunchProgramFromSnapshot(program, selected);
+        if (success) {
+          closeModal();
+          renderHistoryList();
+          showToast('Objectif relancé.');
+          showView('aujourdhui');
+        }
+      } else {
+        const success = prepareProgramDraft(program, selected);
+        if (success) {
+          closeModal();
+          showToast('Brouillon créé dans Planifier.');
+          showView('planifier');
+        }
+      }
+    });
+  }
+}
+
+async function confirmHistoryDeletion(program) {
+  if (!program || !program.id) {
+    return;
+  }
+  const confirmed = await showConfirmationToast('Supprimer cet objectif archivé ?', {
+    confirmLabel: 'Supprimer',
+    cancelLabel: 'Annuler'
+  });
+  if (!confirmed) {
+    return;
+  }
+  await deleteArchivedProgram(program.id);
+  closeModal();
+  renderHistoryList();
+  showToast('Objectif supprimé.');
+}
+
+function downloadJSON(data, filename) {
+  try {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  } catch (error) {
+    console.warn('Export JSON impossible', error);
+  }
+}
+
+function exportProgramSnapshot(program) {
+  if (!ENABLE_HISTORY || !program) {
+    return;
+  }
+  const slug = slugifyProgramTitle(program.title || 'objectif');
+  const datePart = isValidISODate(program.endDate) ? program.endDate : getToday();
+  const filename = `zeyne-${slug}-${datePart}.json`;
+  downloadJSON(program, filename);
+  showToast('Export JSON généré.');
+}
+
+async function exportGlobalBackup() {
+  try {
+    const stateClone = JSON.parse(JSON.stringify(state));
+    const activePrograms = await listActivePrograms();
+    const archivedPrograms = await listArchivedPrograms(HISTORY_ARCHIVE_LIMIT);
+    const payload = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      state: stateClone,
+      history: {
+        active: activePrograms,
+        archived: archivedPrograms
+      }
+    };
+    const datePart = getToday();
+    downloadJSON(payload, `zeyne-backup-${datePart}.json`);
+    showToast('Sauvegarde exportée.');
+  } catch (error) {
+    console.warn('Export global impossible', error);
+    showToast('Export impossible pour le moment.');
+  }
+}
+
+async function handleHistoryImport(event) {
+  const input = event.target;
+  const file = input?.files?.[0];
+  if (!file) {
+    return;
+  }
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    await importGlobalBackup(data);
+    showToast('Sauvegarde importée.');
+    renderHistoryList();
+    renderDashboard();
+    renderPlanifier();
+    renderProgramme();
+  } catch (error) {
+    console.warn('Import de sauvegarde impossible', error);
+    showToast('Import impossible.');
+  } finally {
+    input.value = '';
+  }
+}
+
+async function importGlobalBackup(payload) {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Format invalide');
+  }
+
+  if (payload.state && typeof localStorage !== 'undefined') {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload.state));
+      loadState();
+      saveState();
+    } catch (error) {
+      console.warn('Impossible de restaurer l\'état local', error);
+    }
+  }
+
+  if (payload.history && ENABLE_HISTORY) {
+    const active = Array.isArray(payload.history.active) ? payload.history.active : [];
+    const archived = Array.isArray(payload.history.archived) ? payload.history.archived : [];
+    await replaceActivePrograms(active);
+    await replaceArchivedPrograms(archived);
   }
 }
 
@@ -6406,6 +7717,7 @@ function renderProgramme() {
   const previewDescription = document.getElementById('programme-preview-description');
   const previewMode = document.getElementById('programme-preview-mode');
   const previewTable = document.getElementById('programme-preview-table');
+  const completeBtn = document.getElementById('complete-program-btn');
 
   if (emailInput) emailInput.value = state.settings.email || '';
   if (goalInput) goalInput.value = state.settings.goalTitle || '';
@@ -6417,6 +7729,50 @@ function renderProgramme() {
   if (conflictSelect && !conflictSelect.value) {
     conflictSelect.value = 'replace';
   }
+
+  const updateCompleteProgramButton = () => {
+    if (!completeBtn) {
+      return;
+    }
+    if (!ENABLE_HISTORY) {
+      completeBtn.setAttribute('hidden', '');
+      completeBtn.disabled = true;
+      completeBtn.onclick = null;
+      return;
+    }
+    const meta = deriveProgramMetaFromSettings();
+    const hasActive = Boolean(meta);
+    completeBtn.toggleAttribute('hidden', !hasActive);
+    completeBtn.disabled = !hasActive;
+    completeBtn.onclick = async () => {
+      const latestMeta = deriveProgramMetaFromSettings();
+      if (!latestMeta) {
+        updateCompleteProgramButton();
+        showToast('Aucun programme actif.');
+        return;
+      }
+      const confirmed = await showConfirmationToast('Terminer ce programme ?', {
+        confirmLabel: 'Terminer',
+        cancelLabel: 'Annuler'
+      });
+      if (!confirmed) {
+        return;
+      }
+      const snapshot = await archiveCurrentProgram({ reason: 'manual', removeActive: true });
+      if (snapshot) {
+        await renderHistoryList();
+        showToast('Programme archivé.');
+        if (deadlineInput) {
+          deadlineInput.value = state.settings.deadlineISO || '';
+        }
+        updateCompleteProgramButton();
+        showView('notifications');
+      } else {
+        showToast('Impossible d’archiver pour le moment.');
+        updateCompleteProgramButton();
+      }
+    };
+  };
 
   const renderPreview = ({ reveal = false } = {}) => {
     if (!previewWrapper || !previewTitle || !previewDescription || !previewMode || !previewTable) {
@@ -6555,6 +7911,7 @@ function renderProgramme() {
   });
 
   updateModeButtons();
+  updateCompleteProgramButton();
 
   if (previewBtn) {
     previewBtn.onclick = () => {
@@ -6615,6 +7972,12 @@ function renderProgramme() {
       }
 
       saveState();
+      updateCompleteProgramButton();
+      if (ENABLE_HISTORY) {
+        syncActiveProgramFromSettings()
+          .then(() => renderHistoryList())
+          .catch(error => console.warn('Impossible de synchroniser le programme actif', error));
+      }
       alert('Programme enregistré !');
       showView('aujourdhui');
     };
@@ -12754,6 +14117,8 @@ function closeModal() {
     content.classList.remove('challenge-completion-modal');
     content.classList.remove('heatmap-modal');
     content.classList.remove('inactivity-nudge-modal');
+    content.classList.remove('history-detail-modal');
+    content.classList.remove('history-start-modal');
     content.innerHTML = '';
   }
   setPlanifierTabsMode('editor');
@@ -12834,7 +14199,6 @@ function launchConfetti() {
 }
 
 loadState();
-loadState();
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('service-worker.js').catch(error => {
@@ -12845,6 +14209,7 @@ if ('serviceWorker' in navigator) {
 initDailySummaryPopup();
 initNotificationsModule();
 initNotificationsTabs();
+initHistoryModule();
 initNavigation();
 initWeeklyTabs();
 initDailyQuickAdd();
@@ -12854,3 +14219,9 @@ const initialView = hasProgramme ? 'aujourdhui' : 'programme';
 showView(initialView);
 maybeShowDailySummaryPopup();
 initInactivityNudge();
+
+if (ENABLE_HISTORY) {
+  syncActiveProgramFromSettings().then(() => maybeAutoArchiveProgram()).catch(error => {
+    console.warn('Initialisation de l’historique impossible', error);
+  });
+}
