@@ -64,6 +64,12 @@ const QUICK_ADD_MOMENT_DEFAULT_TIME = {
   'Soir': '21:45'
 };
 
+const ENABLE_INACTIVITY_NUDGE = true;
+const INACTIVITY_NUDGE_THRESHOLD_MS = 48 * 60 * 60 * 1000;
+const INACTIVITY_NUDGE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+const INACTIVITY_NUDGE_RETRY_MS = 5 * 60 * 1000;
+const INACTIVITY_NUDGE_MIN_DELAY_MS = 60 * 1000;
+
 const ENABLE_CHALLENGE = true;
 const ENABLE_SOCIAL_LIVE = false;
 
@@ -796,6 +802,15 @@ function createDefaultNotificationsState() {
   };
 }
 
+function createDefaultInactivityNudgeState() {
+  return {
+    lastActiveAt: new Date().toISOString(),
+    lastShownAt: null,
+    snoozeUntil: null,
+    muted: false
+  };
+}
+
 function createDefaultFocusAdaptiveState() {
   return {
     enabled: true,
@@ -1413,6 +1428,7 @@ let state = {
   streak: createDefaultStreakState(),
   badges: createDefaultBadgesState(),
   notifications: createDefaultNotificationsState(),
+  inactivityNudge: createDefaultInactivityNudgeState(),
   micropasSuggestionState: {},
   dailySummary: { lastShownDate: null },
   focusAdaptive: createDefaultFocusAdaptiveState(),
@@ -1435,6 +1451,12 @@ let notificationBeepContext = null;
 
 const focusSessionRuntime = {
   activeTimer: false
+};
+
+const inactivityNudgeRuntime = {
+  checkTimeoutId: null,
+  shownThisSession: false,
+  initialized: false
 };
 
 let socialProvider = null;
@@ -1757,6 +1779,477 @@ function ensureNotificationState() {
   }
 
   return changed;
+}
+
+function ensureInactivityNudgeState() {
+  if (!ENABLE_INACTIVITY_NUDGE) {
+    return false;
+  }
+
+  if (!state.inactivityNudge || typeof state.inactivityNudge !== 'object') {
+    state.inactivityNudge = createDefaultInactivityNudgeState();
+    return true;
+  }
+
+  let changed = false;
+  const nudge = state.inactivityNudge;
+
+  if (typeof nudge.muted !== 'boolean') {
+    nudge.muted = Boolean(nudge.muted);
+    changed = true;
+  }
+
+  if (typeof nudge.lastActiveAt !== 'string' || Number.isNaN(new Date(nudge.lastActiveAt).getTime())) {
+    nudge.lastActiveAt = new Date().toISOString();
+    changed = true;
+  }
+
+  if (nudge.lastShownAt !== null && (typeof nudge.lastShownAt !== 'string' || Number.isNaN(new Date(nudge.lastShownAt).getTime()))) {
+    nudge.lastShownAt = null;
+    changed = true;
+  }
+
+  if (nudge.snoozeUntil !== null && (typeof nudge.snoozeUntil !== 'string' || Number.isNaN(new Date(nudge.snoozeUntil).getTime()))) {
+    nudge.snoozeUntil = null;
+    changed = true;
+  }
+
+  return changed;
+}
+
+function parseISOTimestamp(value) {
+  if (typeof value !== 'string' || !value.trim()) {
+    return null;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return date;
+}
+
+function formatDateTimeLabel(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return '—';
+  }
+  try {
+    return new Intl.DateTimeFormat('fr-FR', {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(date);
+  } catch (error) {
+    return date.toLocaleString('fr-FR');
+  }
+}
+
+function scheduleInactivityNudgeCheck(delayMs = INACTIVITY_NUDGE_CHECK_INTERVAL_MS) {
+  if (!ENABLE_INACTIVITY_NUDGE || typeof window === 'undefined') {
+    return;
+  }
+  const normalized = Math.min(
+    MAX_TIMEOUT_DELAY,
+    Math.max(INACTIVITY_NUDGE_MIN_DELAY_MS, Math.floor(Number(delayMs) || INACTIVITY_NUDGE_CHECK_INTERVAL_MS))
+  );
+  if (inactivityNudgeRuntime.checkTimeoutId) {
+    clearTimeout(inactivityNudgeRuntime.checkTimeoutId);
+  }
+  inactivityNudgeRuntime.checkTimeoutId = window.setTimeout(() => {
+    inactivityNudgeRuntime.checkTimeoutId = null;
+    maybeShowInactivityNudge();
+  }, normalized);
+}
+
+function recordUserActivity(reason = 'generic', options = {}) {
+  if (!ENABLE_INACTIVITY_NUDGE) {
+    return;
+  }
+  ensureInactivityNudgeState();
+  const nowISO = new Date().toISOString();
+  state.inactivityNudge.lastActiveAt = nowISO;
+  if (!options.preserveLastShown) {
+    state.inactivityNudge.lastShownAt = null;
+  }
+  saveState();
+  updateInactivityNudgeControlsState();
+  if (!options.skipSchedule) {
+    scheduleInactivityNudgeCheck(INACTIVITY_NUDGE_CHECK_INTERVAL_MS);
+  }
+}
+
+function updateInactivityNudgeControlsState() {
+  if (!ENABLE_INACTIVITY_NUDGE) {
+    const section = document.querySelector('.inactivity-nudge-settings');
+    if (section) {
+      section.setAttribute('hidden', '');
+    }
+    return;
+  }
+
+  ensureInactivityNudgeState();
+
+  const toggle = document.getElementById('notifications-inactivity-toggle');
+  const snooze24 = document.getElementById('notifications-inactivity-snooze-24');
+  const snooze7d = document.getElementById('notifications-inactivity-snooze-7d');
+  const muteBtn = document.getElementById('notifications-inactivity-mute');
+  const statusEl = document.getElementById('notifications-inactivity-status');
+
+  const isActive = state.inactivityNudge.muted !== true;
+
+  if (toggle) {
+    toggle.checked = isActive;
+  }
+
+  [snooze24, snooze7d].forEach(btn => {
+    if (btn) {
+      btn.disabled = !isActive;
+    }
+  });
+
+  if (muteBtn) {
+    muteBtn.textContent = state.inactivityNudge.muted ? 'Réactiver' : 'Désactiver';
+  }
+
+  if (statusEl) {
+    let text = state.inactivityNudge.muted ? 'Rappel désactivé.' : 'Actif.';
+    if (isActive) {
+      const snoozeUntil = parseISOTimestamp(state.inactivityNudge.snoozeUntil);
+      if (snoozeUntil && snoozeUntil.getTime() > Date.now()) {
+        text = `Snoozé jusqu’au ${formatDateTimeLabel(snoozeUntil)}.`;
+      } else {
+        const lastActive = parseISOTimestamp(state.inactivityNudge.lastActiveAt);
+        if (lastActive) {
+          text = `Dernière activité : ${formatRelativeTimeFromNow(lastActive.toISOString())}`;
+        }
+      }
+    }
+    statusEl.textContent = text;
+  }
+}
+
+function applyInactivityNudgeSnooze(durationMs, options = {}) {
+  if (!ENABLE_INACTIVITY_NUDGE) {
+    return false;
+  }
+  ensureInactivityNudgeState();
+
+  if (state.inactivityNudge.muted) {
+    showToast('Réactive le rappel pour utiliser le snooze.');
+    return false;
+  }
+
+  const now = Date.now();
+  const target = new Date(Math.min(now + Math.max(0, durationMs), now + MAX_TIMEOUT_DELAY));
+  state.inactivityNudge.snoozeUntil = target.toISOString();
+  state.inactivityNudge.lastShownAt = new Date().toISOString();
+  inactivityNudgeRuntime.shownThisSession = true;
+  saveState();
+  updateInactivityNudgeControlsState();
+
+  const diff = Math.max(target.getTime() - now, INACTIVITY_NUDGE_MIN_DELAY_MS);
+  scheduleInactivityNudgeCheck(diff);
+
+  if (options.source === 'modal') {
+    closeModal();
+  }
+
+  if (durationMs >= 7 * 24 * 60 * 60 * 1000) {
+    showToast('Rappel snoozé pour 7 jours.');
+  } else {
+    showToast('Rappel snoozé 24 h.');
+  }
+
+  return true;
+}
+
+function handleInactivityNudgeMute(options = {}) {
+  if (!ENABLE_INACTIVITY_NUDGE) {
+    return;
+  }
+  ensureInactivityNudgeState();
+
+  const forceState = typeof options.forceState === 'boolean' ? options.forceState : null;
+  const nextMuted = forceState !== null ? forceState : !state.inactivityNudge.muted;
+  state.inactivityNudge.muted = nextMuted;
+  if (!nextMuted) {
+    state.inactivityNudge.lastShownAt = null;
+  }
+  saveState();
+  updateInactivityNudgeControlsState();
+
+  if (options.source === 'modal') {
+    closeModal();
+  }
+
+  showToast(nextMuted ? 'Rappel désactivé.' : 'Rappel réactivé.');
+  scheduleInactivityNudgeCheck(INACTIVITY_NUDGE_CHECK_INTERVAL_MS);
+}
+
+function maybeShowInactivityNudge(options = {}) {
+  if (!ENABLE_INACTIVITY_NUDGE) {
+    return;
+  }
+
+  ensureInactivityNudgeState();
+  updateInactivityNudgeControlsState();
+
+  if (inactivityNudgeRuntime.shownThisSession) {
+    scheduleInactivityNudgeCheck(INACTIVITY_NUDGE_CHECK_INTERVAL_MS);
+    return;
+  }
+
+  if (state.inactivityNudge.muted) {
+    scheduleInactivityNudgeCheck(INACTIVITY_NUDGE_CHECK_INTERVAL_MS);
+    return;
+  }
+
+  const now = new Date();
+  const snoozeUntil = parseISOTimestamp(state.inactivityNudge.snoozeUntil);
+  if (snoozeUntil && snoozeUntil.getTime() > now.getTime()) {
+    scheduleInactivityNudgeCheck(snoozeUntil.getTime() - now.getTime());
+    return;
+  }
+
+  const lastActive = parseISOTimestamp(state.inactivityNudge.lastActiveAt);
+  if (!lastActive) {
+    scheduleInactivityNudgeCheck(INACTIVITY_NUDGE_CHECK_INTERVAL_MS);
+    return;
+  }
+
+  const inactivityMs = now.getTime() - lastActive.getTime();
+  if (inactivityMs < INACTIVITY_NUDGE_THRESHOLD_MS) {
+    scheduleInactivityNudgeCheck(INACTIVITY_NUDGE_THRESHOLD_MS - inactivityMs);
+    return;
+  }
+
+  const lastShown = parseISOTimestamp(state.inactivityNudge.lastShownAt);
+  if (lastShown && lastActive.getTime() <= lastShown.getTime()) {
+    scheduleInactivityNudgeCheck(INACTIVITY_NUDGE_CHECK_INTERVAL_MS);
+    return;
+  }
+
+  if (typeof isDailySummaryVisible === 'function' && isDailySummaryVisible()) {
+    scheduleInactivityNudgeCheck(INACTIVITY_NUDGE_RETRY_MS);
+    return;
+  }
+
+  if (focusSessionRuntime.activeTimer) {
+    scheduleInactivityNudgeCheck(INACTIVITY_NUDGE_RETRY_MS);
+    return;
+  }
+
+  const modal = document.getElementById('modal-overlay');
+  const activeModalType = modal?.dataset.activeModal || null;
+  const blockingModals = new Set(['timer', 'report', 'challenge-details', 'challenge-setup', 'challenge-completion']);
+  if (modal?.classList.contains('show') && (!activeModalType || blockingModals.has(activeModalType))) {
+    scheduleInactivityNudgeCheck(INACTIVITY_NUDGE_RETRY_MS);
+    return;
+  }
+
+  if (isDateInDnd(now)) {
+    const nextAllowed = adjustDateForDnd(now);
+    if (nextAllowed) {
+      scheduleInactivityNudgeCheck(nextAllowed.getTime() - now.getTime());
+      return;
+    }
+  }
+
+  showInactivityNudgeModal();
+  scheduleInactivityNudgeCheck(INACTIVITY_NUDGE_CHECK_INTERVAL_MS);
+}
+
+function showInactivityNudgeModal() {
+  if (!ENABLE_INACTIVITY_NUDGE) {
+    return;
+  }
+
+  ensureInactivityNudgeState();
+
+  const modal = document.getElementById('modal-overlay');
+  const content = document.getElementById('modal-content');
+  if (!modal || !content) {
+    return;
+  }
+
+  lastFocusBeforeModal = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+  content.classList.remove(
+    'template-wide',
+    'badge-modal-container',
+    'quick-add-modal',
+    'social-modal',
+    'challenge-details-modal',
+    'challenge-setup-modal',
+    'challenge-completion-modal',
+    'heatmap-modal',
+    'inactivity-nudge-modal'
+  );
+  content.classList.add('inactivity-nudge-modal');
+
+  content.innerHTML = `
+    <div class="inactivity-nudge-header">
+      <div class="inactivity-nudge-icon" aria-hidden="true">🌿</div>
+      <button type="button" class="inactivity-nudge-close" id="inactivity-nudge-close" aria-label="Fermer">✕</button>
+    </div>
+    <h3>On reprend en douceur ?</h3>
+    <p class="inactivity-nudge-subtitle">On n’a rien fait ensemble depuis 2 jours. Un petit pas de 10 min pour relancer la machine ?</p>
+    <div class="inactivity-nudge-actions">
+      <button type="button" class="btn btn-primary" id="inactivity-nudge-start">Reprendre 10 min</button>
+      <button type="button" class="btn btn-outline" id="inactivity-nudge-view">Voir mes tâches</button>
+    </div>
+    <div class="inactivity-nudge-links">
+      <button type="button" class="inactivity-nudge-link" data-action="snooze-24">Plus tard (24 h)</button>
+      <button type="button" class="inactivity-nudge-link" data-action="snooze-7d">Semaine prochaine</button>
+      <button type="button" class="inactivity-nudge-link" data-action="mute">Ne plus me rappeler</button>
+    </div>
+  `;
+
+  modal.dataset.activeModal = 'inactivity-nudge';
+  modal.classList.add('show');
+  document.body.classList.add('modal-open');
+  const appContainer = document.querySelector('.app-container');
+  if (appContainer) {
+    appContainer.classList.add('modal-blurred');
+  }
+
+  state.inactivityNudge.lastShownAt = new Date().toISOString();
+  inactivityNudgeRuntime.shownThisSession = true;
+  saveState();
+  updateInactivityNudgeControlsState();
+
+  const startBtn = document.getElementById('inactivity-nudge-start');
+  const viewBtn = document.getElementById('inactivity-nudge-view');
+  const closeBtn = document.getElementById('inactivity-nudge-close');
+  const linkButtons = content.querySelectorAll('.inactivity-nudge-link');
+
+  if (startBtn) {
+    startBtn.addEventListener('click', () => handleInactivityNudgeStart());
+  }
+  if (viewBtn) {
+    viewBtn.addEventListener('click', () => handleInactivityNudgeView());
+  }
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => closeModal());
+  }
+
+  linkButtons.forEach(btn => {
+    const action = btn.dataset.action;
+    if (action === 'snooze-24') {
+      btn.addEventListener('click', () => applyInactivityNudgeSnooze(24 * 60 * 60 * 1000, { source: 'modal' }));
+    } else if (action === 'snooze-7d') {
+      btn.addEventListener('click', () => applyInactivityNudgeSnooze(7 * 24 * 60 * 60 * 1000, { source: 'modal' }));
+    } else if (action === 'mute') {
+      btn.addEventListener('click', () => handleInactivityNudgeMute({ source: 'modal', forceState: true }));
+    }
+  });
+
+  setupFocusTrap(content, { modalKey: 'inactivity-nudge', initialFocus: startBtn || viewBtn || closeBtn || null });
+
+  if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+    showToast('Un sprint de 10 min t’attend ✨');
+  }
+}
+
+function handleInactivityNudgeStart() {
+  closeModal();
+  recordUserActivity('inactivity-nudge-start');
+  showView('aujourdhui');
+
+  const today = getToday();
+  ensureTasksForDate(today);
+  const tasks = state.tasks[today] || [];
+  let targetIdx = tasks.findIndex(task => task && !isTaskEmpty(task) && task.status !== 'done');
+  const hasTask = targetIdx !== -1;
+  if (!hasTask) {
+    targetIdx = 0;
+  }
+
+  if (hasTask) {
+    showTimerModal(targetIdx, { initialDurationSeconds: 10 * 60, autoStart: false });
+  } else {
+    openQuickAddModal({ slotIndex: targetIdx, mode: 'add' });
+    const quickAddBtn = document.getElementById('daily-quick-add-btn');
+    if (quickAddBtn) {
+      quickAddBtn.focus();
+    }
+  }
+}
+
+function handleInactivityNudgeView() {
+  closeModal();
+  recordUserActivity('inactivity-nudge-view');
+  showView('aujourdhui');
+  const quickAddBtn = document.getElementById('daily-quick-add-btn');
+  if (quickAddBtn) {
+    quickAddBtn.focus();
+  }
+}
+
+function initInactivityNudgeControls() {
+  if (!ENABLE_INACTIVITY_NUDGE) {
+    const section = document.querySelector('.inactivity-nudge-settings');
+    if (section) {
+      section.setAttribute('hidden', '');
+    }
+    return;
+  }
+
+  ensureInactivityNudgeState();
+
+  const toggle = document.getElementById('notifications-inactivity-toggle');
+  if (toggle && !toggle.dataset.boundInactivity) {
+    toggle.addEventListener('change', () => {
+      ensureInactivityNudgeState();
+      state.inactivityNudge.muted = !toggle.checked;
+      if (!state.inactivityNudge.muted) {
+        state.inactivityNudge.lastShownAt = null;
+      }
+      saveState();
+      updateInactivityNudgeControlsState();
+      scheduleInactivityNudgeCheck(INACTIVITY_NUDGE_CHECK_INTERVAL_MS);
+    });
+    toggle.dataset.boundInactivity = 'true';
+  }
+
+  const snooze24 = document.getElementById('notifications-inactivity-snooze-24');
+  if (snooze24 && !snooze24.dataset.boundInactivity) {
+    snooze24.addEventListener('click', () => {
+      applyInactivityNudgeSnooze(24 * 60 * 60 * 1000, { source: 'notifications' });
+    });
+    snooze24.dataset.boundInactivity = 'true';
+  }
+
+  const snooze7d = document.getElementById('notifications-inactivity-snooze-7d');
+  if (snooze7d && !snooze7d.dataset.boundInactivity) {
+    snooze7d.addEventListener('click', () => {
+      applyInactivityNudgeSnooze(7 * 24 * 60 * 60 * 1000, { source: 'notifications' });
+    });
+    snooze7d.dataset.boundInactivity = 'true';
+  }
+
+  const muteBtn = document.getElementById('notifications-inactivity-mute');
+  if (muteBtn && !muteBtn.dataset.boundInactivity) {
+    muteBtn.addEventListener('click', () => {
+      handleInactivityNudgeMute({ source: 'notifications' });
+    });
+    muteBtn.dataset.boundInactivity = 'true';
+  }
+
+  updateInactivityNudgeControlsState();
+}
+
+function initInactivityNudge() {
+  if (!ENABLE_INACTIVITY_NUDGE || inactivityNudgeRuntime.initialized) {
+    return;
+  }
+
+  inactivityNudgeRuntime.initialized = true;
+  ensureInactivityNudgeState();
+  updateInactivityNudgeControlsState();
+  maybeShowInactivityNudge({ initial: true });
+  recordUserActivity('app_open', { skipSchedule: true, preserveLastShown: true });
 }
 
 function ensureFocusAdaptiveState() {
@@ -3231,6 +3724,7 @@ function loadState() {
   ensureAudioLibraryState();
   const challengeNormalized = ensureChallengeState();
   const notificationsNormalized = ensureNotificationState();
+  const inactivityNormalized = ensureInactivityNudgeState();
   const focusNormalized = ensureFocusAdaptiveState();
   const momentCleaned = cleanupMomentSuggestionState();
   const outcomesCleaned = cleanupFocusOutcomeHistory();
@@ -3247,7 +3741,8 @@ function loadState() {
     focusNormalized ||
     outcomesCleaned ||
     momentCleaned ||
-    dailySummaryNormalized
+    dailySummaryNormalized ||
+    inactivityNormalized
   ) {
     saveState();
   }
@@ -6259,6 +6754,7 @@ function renderPlanifier() {
         }
       });
 
+      recordUserActivity('planifier-save');
       saveState();
       alert('Planification enregistrée !');
       showView('aujourdhui');
@@ -8280,6 +8776,7 @@ function openQuickAddModal(options = {}) {
       usesDefaultDuration
     };
 
+    recordUserActivity(isReplace ? 'quick-add-replace' : 'quick-add-create');
     tasks[slotValue] = updatedTask;
     saveState();
     closeModal();
@@ -8467,6 +8964,7 @@ function applyMomentSuggestionToTask(dateStr, taskIdx, suggestion, options = {})
 
   state.momentSuggestion.lastComputedDate = null;
   refreshMomentSuggestionIfNeeded(true);
+  recordUserActivity('moment-suggestion');
   saveState();
   return true;
 }
@@ -9167,6 +9665,9 @@ function renderMood() {
     saveState();
     refreshWeeklyReviewIfVisible();
   };
+  slider.addEventListener('change', () => {
+    recordUserActivity('mood-motivation');
+  });
 
   const emojiBtns = document.querySelectorAll('.emoji-btn');
   emojiBtns.forEach(btn => {
@@ -9178,6 +9679,7 @@ function renderMood() {
     }
 
     btn.onclick = () => {
+      recordUserActivity('mood-emoji');
       state.mood.emoji = emoji;
       saveState();
       emojiBtns.forEach(b => b.classList.remove('active'));
@@ -10148,6 +10650,7 @@ function updateNotificationsForm() {
     bannerSnoozeBtn.disabled = !state.notifications.enabled;
   }
 
+  updateInactivityNudgeControlsState();
   refreshNotificationIndicators();
 }
 
@@ -10180,6 +10683,7 @@ function handleNotificationTest() {
 function initNotificationsModule() {
   ensureNotificationState();
 
+  initInactivityNudgeControls();
   initPWAInstallPrompt();
 
   if (notificationsInitialized) {
@@ -10385,6 +10889,7 @@ function startQuickFocus(taskIdx) {
     return;
   }
 
+  recordUserActivity('quick-focus');
   showTimerModal(taskIdx, { initialDurationSeconds: 10 * 60, autoStart: true });
 }
 
@@ -10396,6 +10901,7 @@ window.startTask = async function(taskIdx) {
   const task = state.tasks[today][taskIdx];
   if (!task) return;
 
+  recordUserActivity('start-task');
   const audioId = resolveAudioIdForTask(task);
   if (audioId) {
     await openAudioRitualModal(audioId, task).catch(() => true);
@@ -10410,6 +10916,7 @@ window.toggleTaskCompletion = function(taskIdx) {
   const task = tasksForToday[taskIdx];
   if (!task) return;
 
+  recordUserActivity('toggle-task');
   const wasComplete = tasksForToday.every(t => t.status === 'done');
 
   task.status = task.status === 'done' ? 'planned' : 'done';
@@ -10517,6 +11024,7 @@ async function postponeTaskByOneDay(dateStr, taskIdx) {
   targetTasks[taskIdx] = movedTask;
   tasksForDate[taskIdx] = createEmptyTask();
 
+  recordUserActivity('postpone-task');
   recordFocusOutcomeForTask(dateStr, task, 'reported');
   recordMomentExecutionEvent(dateStr, task, 'defer');
   saveState();
@@ -10750,6 +11258,7 @@ function showTimerModal(taskIdx, options = {}) {
   function startTimer() {
     if (timerRunning) return;
     if (timerInterval) clearInterval(timerInterval);
+    recordUserActivity('timer-start');
     if (!sessionStarted) {
       sessionStarted = true;
       timerSeconds = 0;
@@ -10807,6 +11316,7 @@ function showTimerModal(taskIdx, options = {}) {
   };
 
   finishBtn.onclick = () => {
+    recordUserActivity('timer-finish');
     const result = finalizeSession(false);
     let shouldSave = result.recordedSession;
     const reviewValue = document.getElementById('micro-review-input')?.value?.trim();
@@ -11003,6 +11513,7 @@ function showReportModal(dateStr, taskIdx, options = {}) {
     }
 
     context.appliedReasons.add(reason);
+    recordUserActivity('micropas-apply');
     saveState();
     renderDailyTasks();
     renderOtherDays();
@@ -11063,6 +11574,7 @@ function showReportModal(dateStr, taskIdx, options = {}) {
         state.tasks[dateStr][taskIdx] = createEmptyTask();
       }
 
+      recordUserActivity('report-task-save');
       recordFocusOutcomeForTask(dateStr, task, 'reported');
       recordMomentExecutionEvent(dateStr, task, 'defer');
       finalizeReportModalContext({ taskForLogging: movedTask });
@@ -12224,6 +12736,11 @@ function closeModal() {
     modal.classList.remove('show');
     delete modal.dataset.activeModal;
   }
+  document.body.classList.remove('modal-open');
+  const appContainer = document.querySelector('.app-container');
+  if (appContainer) {
+    appContainer.classList.remove('modal-blurred');
+  }
   if (wasTimerModal) {
     focusSessionRuntime.activeTimer = false;
   }
@@ -12236,6 +12753,7 @@ function closeModal() {
     content.classList.remove('challenge-setup-modal');
     content.classList.remove('challenge-completion-modal');
     content.classList.remove('heatmap-modal');
+    content.classList.remove('inactivity-nudge-modal');
     content.innerHTML = '';
   }
   setPlanifierTabsMode('editor');
@@ -12335,3 +12853,4 @@ const hasProgramme = Boolean((state.settings.goalTitle || '').trim());
 const initialView = hasProgramme ? 'aujourdhui' : 'programme';
 showView(initialView);
 maybeShowDailySummaryPopup();
+initInactivityNudge();
