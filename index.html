@@ -474,6 +474,21 @@
               <p class="notification-hint">Les rappels programmés pendant cette plage seront reportés à la fin du mode silencieux.</p>
             </div>
 
+            <div class="notification-section inactivity-nudge-settings">
+              <label class="toggle-switch">
+                <input type="checkbox" id="notifications-inactivity-toggle">
+                <span class="toggle-slider" aria-hidden="true"></span>
+                <span class="toggle-label">Rappel d’inactivité (48 h)</span>
+              </label>
+              <p class="notification-hint">Affiche un modal doux après 48 h sans action, en dehors des heures calmes.</p>
+              <div class="inactivity-nudge-controls">
+                <button type="button" class="inactivity-nudge-chip" id="notifications-inactivity-snooze-24">Snooze 24 h</button>
+                <button type="button" class="inactivity-nudge-chip" id="notifications-inactivity-snooze-7d">Snooze 7 j</button>
+                <button type="button" class="inactivity-nudge-chip" id="notifications-inactivity-mute">Désactiver</button>
+              </div>
+              <div class="inactivity-nudge-status" id="notifications-inactivity-status" role="status">—</div>
+            </div>
+
             <div class="notification-sound">
               <h3>Son</h3>
               <label class="toggle-switch">
