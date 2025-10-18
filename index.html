@@ -174,7 +174,6 @@
             <div class="programme-preview-table" id="programme-preview-table"></div>
           </div>
           <button class="btn btn-primary" id="save-programme-btn">Enregistrer</button>
-          <button class="btn btn-outline" id="complete-program-btn" type="button" hidden>Terminer le programme</button>
         </div>
       </section>
 
@@ -390,7 +389,12 @@
               <button class="notifications-ios-help-link" id="pwa-ios-help-link" type="button" aria-controls="pwa-ios-help" aria-expanded="false" hidden>Comment installer sur iPhone/iPad</button>
             </div>
           </div>
-          <div class="notifications-alerts" id="notifications-alerts">
+          <div class="notifications-tabs" role="tablist" aria-label="Options de notifications">
+            <button class="notifications-tab notifications-tab-active" type="button" role="tab" aria-selected="true" aria-controls="notifications-panel-alerts" id="notifications-tab-alerts" data-tab="alerts">Rappels</button>
+            <button class="notifications-tab" type="button" role="tab" aria-selected="false" aria-controls="notifications-panel-social" id="notifications-tab-social" data-tab="social">Mes personnes préférées</button>
+          </div>
+
+          <div class="notifications-panel notifications-panel-active" id="notifications-panel-alerts" role="tabpanel" aria-labelledby="notifications-tab-alerts" data-panel="alerts">
             <div class="notifications-install-help" id="pwa-ios-help" hidden tabindex="-1">
               <div class="notifications-install-help-header">
                 <span>Ajouter ZEYNE à l'écran d'accueil</span>
@@ -506,85 +510,56 @@
               <div id="notification-permission-state">Notifications système : —</div>
             </div>
           </div>
-          <div class="notifications-secondary" id="notifications-secondary" data-feature="history" hidden>
-            <div class="notifications-tabs" role="tablist" aria-label="Communauté et archives" data-notifications-tabs="history">
-              <button class="notifications-tab" type="button" role="tab" aria-selected="false" aria-controls="notifications-panel-social" id="notifications-tab-social" data-tab="social">Mes personnes préférées</button>
-              <button class="notifications-tab notifications-tab-active" type="button" role="tab" aria-selected="true" aria-controls="notifications-panel-history" id="notifications-tab-history" data-tab="history">Historique</button>
-              <button class="notifications-tab" type="button" role="tab" aria-selected="false" aria-controls="notifications-panel-backups" id="notifications-tab-backups" data-tab="backups">(Sauvegardes)</button>
+
+          <div class="notifications-panel" id="notifications-panel-social" role="tabpanel" aria-labelledby="notifications-tab-social" data-panel="social" hidden>
+            <div class="social-mode-banner" id="social-mode-banner" hidden>
+              <strong>Le live arrivera bientôt.</strong> Mode démo local.
             </div>
-
-            <div class="notifications-panel" id="notifications-panel-social" role="tabpanel" aria-labelledby="notifications-tab-social" data-group="history" data-panel="social" hidden>
-              <div class="social-mode-banner" id="social-mode-banner" hidden>
-                <strong>Le live arrivera bientôt.</strong> Mode démo local.
-              </div>
-              <div class="social-offline-card" id="social-offline-card" hidden>
-                <div class="social-offline-card-icon" aria-hidden="true">☁️</div>
-                <div>
-                  <p>Fonction sociale momentanément hors-ligne.</p>
-                  <p class="social-offline-card-hint">Réessayez plus tard.</p>
-                </div>
-              </div>
-              <header class="social-header">
-                <div class="social-header-text">
-                  <h3>Mes personnes préférées</h3>
-                  <p>Motivez-vous ensemble, sans partager vos tâches.</p>
-                </div>
-                <div class="social-header-actions">
-                  <button class="btn btn-primary" id="social-add-person-btn" type="button">Ajouter une personne</button>
-                  <button class="btn btn-outline" id="social-share-progress-btn" type="button">Partager ma progression</button>
-                </div>
-              </header>
-
-              <div class="social-friends-wrapper">
-                <div class="social-empty" id="social-empty-state" hidden>
-                  <p>Aucun ami pour le moment. Invitez une personne pour commencer.</p>
-                </div>
-                <div class="social-friends-grid" id="social-friends-grid" aria-live="polite"></div>
-              </div>
-
-              <section class="social-invitations" id="social-invitations-section" hidden aria-live="polite">
-                <h4>Invitations</h4>
-                <div class="social-invitations-list" id="social-invitations-list"></div>
-              </section>
-
-              <section class="challenge-social" id="challenge-social-section" aria-live="polite">
-                <h4>Défis</h4>
-                <p class="challenge-social-empty" id="challenge-social-empty">Aucun défi pour le moment.</p>
-                <div class="challenge-social-list" id="challenge-social-list"></div>
-              </section>
-
-              <section class="social-privacy" aria-labelledby="social-privacy-title">
-                <h4 id="social-privacy-title">Confidentialité</h4>
-                <label class="toggle-switch social-privacy-toggle">
-                  <input type="checkbox" id="social-sharing-toggle" checked>
-                  <span class="toggle-slider" aria-hidden="true"></span>
-                  <span class="toggle-label">Partager mon score et mon streak</span>
-                </label>
-                <p class="social-privacy-note">Vos titres de tâches et notes ne sont jamais partagés.</p>
-              </section>
-            </div>
-
-            <div class="notifications-panel notifications-panel-active" id="notifications-panel-history" role="tabpanel" aria-labelledby="notifications-tab-history" data-group="history" data-panel="history">
-              <div class="history-empty" id="history-empty-state" hidden>
-                <p>Aucun objectif archivé pour le moment. Terminez un programme pour le retrouver ici.</p>
-              </div>
-              <div class="history-list" id="history-list"></div>
-            </div>
-
-            <div class="notifications-panel" id="notifications-panel-backups" role="tabpanel" aria-labelledby="notifications-tab-backups" data-group="history" data-panel="backups" hidden>
-              <div class="history-backups">
-                <h3>Sauvegardes</h3>
-                <p>Exportez un instantané complet de vos données ZEYNE ou importez un fichier sauvegardé.</p>
-                <div class="history-backups-actions">
-                  <button class="btn btn-secondary" type="button" id="history-export-all-btn">Exporter mes données</button>
-                  <label class="history-import-label" for="history-import-input">
-                    <span class="btn btn-outline" role="button" tabindex="0">Importer un fichier</span>
-                    <input type="file" id="history-import-input" accept="application/json" hidden>
-                  </label>
-                </div>
-                <p class="history-backups-hint">Les sauvegardes restent sur votre appareil. Nous n’envoyons rien sur un serveur.</p>
+            <div class="social-offline-card" id="social-offline-card" hidden>
+              <div class="social-offline-card-icon" aria-hidden="true">☁️</div>
+              <div>
+                <p>Fonction sociale momentanément hors-ligne.</p>
+                <p class="social-offline-card-hint">Réessayez plus tard.</p>
               </div>
             </div>
+            <header class="social-header">
+              <div class="social-header-text">
+                <h3>Mes personnes préférées</h3>
+                <p>Motivez-vous ensemble, sans partager vos tâches.</p>
+              </div>
+              <div class="social-header-actions">
+                <button class="btn btn-primary" id="social-add-person-btn" type="button">Ajouter une personne</button>
+                <button class="btn btn-outline" id="social-share-progress-btn" type="button">Partager ma progression</button>
+              </div>
+            </header>
+
+            <div class="social-friends-wrapper">
+              <div class="social-empty" id="social-empty-state" hidden>
+                <p>Aucun ami pour le moment. Invitez une personne pour commencer.</p>
+              </div>
+              <div class="social-friends-grid" id="social-friends-grid" aria-live="polite"></div>
+            </div>
+
+            <section class="social-invitations" id="social-invitations-section" hidden aria-live="polite">
+              <h4>Invitations</h4>
+              <div class="social-invitations-list" id="social-invitations-list"></div>
+            </section>
+
+            <section class="challenge-social" id="challenge-social-section" aria-live="polite">
+              <h4>Défis</h4>
+              <p class="challenge-social-empty" id="challenge-social-empty">Aucun défi pour le moment.</p>
+              <div class="challenge-social-list" id="challenge-social-list"></div>
+            </section>
+
+            <section class="social-privacy" aria-labelledby="social-privacy-title">
+              <h4 id="social-privacy-title">Confidentialité</h4>
+              <label class="toggle-switch social-privacy-toggle">
+                <input type="checkbox" id="social-sharing-toggle" checked>
+                <span class="toggle-slider" aria-hidden="true"></span>
+                <span class="toggle-label">Partager mon score et mon streak</span>
+              </label>
+              <p class="social-privacy-note">Vos titres de tâches et notes ne sont jamais partagés.</p>
+            </section>
           </div>
         </div>
       </section>
