@@ -95,6 +95,8 @@ const SOCIAL_LOCAL_STORAGE_KEY = 'ZEYNE_SOCIAL_V1';
 const SOCIAL_DEFAULT_CHALLENGE_TYPE = 'streak3';
 const SOCIAL_MIN_STREAK_FOR_CHALLENGE = 3;
 
+const HISTORY_STORAGE_KEY = 'zeyne.history';
+
 const FOCUS_MOMENT_KEYS = ['morning', 'afternoon', 'evening'];
 const FOCUS_DURATION_LIMITS = { min: 5, max: 45, step: 5 };
 const FOCUS_DEFAULT_DURATION = { morning: 25, afternoon: 25, evening: 25 };
@@ -1467,6 +1469,12 @@ const socialChallengeStatusCache = new Map();
 let activeNotificationsTab = 'alerts';
 let openSocialMenuUid = null;
 let weeklyHeatmapRange = 'current';
+
+let historyEntries = [];
+let historySelectedEntryId = null;
+let historyInitialized = false;
+let historyMemoryFallback = [];
+let historyEventsBound = false;
 
 const pwaInstallRuntime = {
   deferredPrompt: null,
@@ -6258,6 +6266,8 @@ function showView(viewName) {
       refreshNotificationPermissionState();
       if (activeNotificationsTab === 'social') {
         refreshSocialOverview({ silent: true });
+      } else if (activeNotificationsTab === 'history') {
+        refreshHistoryView({ keepSelection: true });
       }
     }
 
@@ -6289,6 +6299,8 @@ function initNotificationsTabs() {
 
     if (target === 'social') {
       refreshSocialOverview();
+    } else if (target === 'history') {
+      refreshHistoryView();
     }
   };
 
@@ -6305,6 +6317,503 @@ function initNotificationsTabs() {
   if (initialTab) {
     activate(initialTab);
   }
+}
+
+function getHistoryStorage() {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  try {
+    return window.localStorage;
+  } catch (error) {
+    return null;
+  }
+}
+
+function normalizeHistoryDate(dateValue) {
+  if (!dateValue) {
+    return null;
+  }
+  if (typeof dateValue === 'string') {
+    const trimmed = dateValue.trim();
+    if (!trimmed) {
+      return null;
+    }
+    if (isValidISODate(trimmed)) {
+      return trimmed;
+    }
+    const parsed = new Date(trimmed);
+    if (!Number.isNaN(parsed.getTime())) {
+      parsed.setHours(0, 0, 0, 0);
+      return parsed.toISOString().split('T')[0];
+    }
+  } else if (dateValue instanceof Date && !Number.isNaN(dateValue.getTime())) {
+    const clone = new Date(dateValue.getTime());
+    clone.setHours(0, 0, 0, 0);
+    return clone.toISOString().split('T')[0];
+  }
+  return null;
+}
+
+function normalizeHistoryEntry(entry) {
+  if (!entry || typeof entry !== 'object') {
+    return null;
+  }
+  const id = typeof entry.id === 'string' && entry.id.trim()
+    ? entry.id.trim()
+    : `history-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const title = typeof entry.title === 'string' && entry.title.trim()
+    ? entry.title.trim()
+    : 'Objectif terminé';
+  const startDate = normalizeHistoryDate(entry.startDate) || getToday();
+  const endDate = normalizeHistoryDate(entry.endDate) || startDate;
+  const durationRaw = Number(entry.estimatedDuration);
+  const estimatedDuration = Number.isFinite(durationRaw) && durationRaw >= 0
+    ? Math.round(durationRaw)
+    : 0;
+  const completionRaw = Number(entry.completionRate);
+  const completionRate = Number.isFinite(completionRaw)
+    ? Math.max(0, Math.min(100, Math.round(completionRaw)))
+    : 0;
+  const streakRaw = Number(entry.streak);
+  const streak = Number.isFinite(streakRaw) && streakRaw > 0 ? Math.round(streakRaw) : 0;
+  const badgeId = typeof entry.badgeId === 'string' && entry.badgeId.trim()
+    ? entry.badgeId.trim()
+    : null;
+  let archivedAt = null;
+  if (typeof entry.archivedAt === 'string') {
+    const parsed = Date.parse(entry.archivedAt);
+    if (!Number.isNaN(parsed)) {
+      archivedAt = new Date(parsed).toISOString();
+    }
+  }
+  if (!archivedAt) {
+    const fallback = new Date(`${endDate}T00:00:00Z`);
+    archivedAt = Number.isNaN(fallback.getTime()) ? new Date().toISOString() : fallback.toISOString();
+  }
+  return { id, title, startDate, endDate, estimatedDuration, completionRate, badgeId, streak, archivedAt };
+}
+
+function normalizeHistoryEntries(entries) {
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+  const seen = new Set();
+  const normalized = [];
+  entries.forEach(entry => {
+    const normalizedEntry = normalizeHistoryEntry(entry);
+    if (!normalizedEntry) {
+      return;
+    }
+    if (seen.has(normalizedEntry.id)) {
+      return;
+    }
+    seen.add(normalizedEntry.id);
+    normalized.push(normalizedEntry);
+  });
+  normalized.sort((a, b) => {
+    const aTime = Date.parse(a.archivedAt || `${a.endDate}T00:00:00Z`) || 0;
+    const bTime = Date.parse(b.archivedAt || `${b.endDate}T00:00:00Z`) || 0;
+    return bTime - aTime;
+  });
+  return normalized;
+}
+
+function loadHistoryEntriesFromStorage() {
+  const storage = getHistoryStorage();
+  if (!storage) {
+    return normalizeHistoryEntries(historyMemoryFallback);
+  }
+  try {
+    const raw = storage.getItem(HISTORY_STORAGE_KEY);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw);
+    return normalizeHistoryEntries(parsed);
+  } catch (error) {
+    console.warn('Historique corrompu, réinitialisation.', error);
+    return [];
+  }
+}
+
+function saveHistoryEntriesToStorage(entries) {
+  const normalized = normalizeHistoryEntries(entries);
+  const storage = getHistoryStorage();
+  if (!storage) {
+    historyMemoryFallback = normalized.map(entry => ({ ...entry }));
+    return;
+  }
+  try {
+    storage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(normalized));
+  } catch (error) {
+    console.warn('Impossible d’enregistrer l’historique.', error);
+  }
+  historyMemoryFallback = normalized.map(entry => ({ ...entry }));
+}
+
+function ensureHistoryStateLoaded() {
+  if (historyInitialized) {
+    return;
+  }
+  historyEntries = loadHistoryEntriesFromStorage();
+  historyInitialized = true;
+}
+
+function computeHistoryEstimatedDurationForDay(dayStr) {
+  if (!dayStr || !state.tasks) {
+    return 0;
+  }
+  const tasks = Array.isArray(state.tasks[dayStr]) ? state.tasks[dayStr] : [];
+  if (!tasks.length) {
+    return 0;
+  }
+  return tasks.reduce((total, task) => {
+    if (!task) {
+      return total;
+    }
+    const effective = getEffectiveTaskDuration(task);
+    if (Number.isFinite(effective) && effective > 0) {
+      return total + effective;
+    }
+    const raw = Number(task.duration);
+    if (Number.isFinite(raw) && raw > 0) {
+      return total + raw;
+    }
+    return total + 25;
+  }, 0);
+}
+
+function computeHistoryCompletionRateForDay(dayStr) {
+  if (!dayStr || !state.tasks) {
+    return 0;
+  }
+  const tasks = Array.isArray(state.tasks[dayStr]) ? state.tasks[dayStr] : [];
+  if (!tasks.length) {
+    return 0;
+  }
+  const completed = tasks.filter(task => task && task.status === 'done').length;
+  return Math.round((completed / tasks.length) * 100);
+}
+
+function formatHistoryDateLabel(dateStr) {
+  if (!dateStr) {
+    return '—';
+  }
+  try {
+    const date = new Date(dateStr);
+    if (Number.isNaN(date.getTime())) {
+      return '—';
+    }
+    return new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }).format(date);
+  } catch (error) {
+    return dateStr;
+  }
+}
+
+function formatHistoryDateRange(entry) {
+  const startLabel = formatHistoryDateLabel(entry.startDate);
+  const endLabel = formatHistoryDateLabel(entry.endDate);
+  if (!startLabel || startLabel === '—') {
+    return endLabel;
+  }
+  if (!endLabel || endLabel === '—') {
+    return startLabel;
+  }
+  if (startLabel === endLabel) {
+    return startLabel;
+  }
+  return `${startLabel} → ${endLabel}`;
+}
+
+function formatHistoryDurationLabel(minutes) {
+  if (!Number.isFinite(minutes) || minutes <= 0) {
+    return '—';
+  }
+  const normalized = Math.round(minutes);
+  const hours = Math.floor(normalized / 60);
+  const mins = normalized % 60;
+  const parts = [];
+  if (hours > 0) {
+    parts.push(`${hours} h`);
+  }
+  if (mins > 0) {
+    parts.push(`${mins} min`);
+  }
+  if (!parts.length) {
+    parts.push('0 min');
+  }
+  return parts.join(' ');
+}
+
+function renderHistoryList() {
+  ensureHistoryStateLoaded();
+  const listEl = document.getElementById('history-list');
+  const emptyEl = document.getElementById('history-empty');
+  if (!listEl || !emptyEl) {
+    return;
+  }
+  listEl.innerHTML = '';
+  if (!historyEntries.length) {
+    emptyEl.removeAttribute('hidden');
+    return;
+  }
+  emptyEl.setAttribute('hidden', '');
+  historyEntries.forEach(entry => {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'history-item';
+    item.dataset.entryId = entry.id;
+    item.setAttribute('role', 'listitem');
+
+    const header = document.createElement('div');
+    header.className = 'history-item-header';
+
+    const titleEl = document.createElement('h3');
+    titleEl.className = 'history-item-title';
+    titleEl.textContent = entry.title;
+    header.appendChild(titleEl);
+
+    const completionEl = document.createElement('span');
+    completionEl.className = 'history-item-completion';
+    completionEl.textContent = `${entry.completionRate} %`;
+    header.appendChild(completionEl);
+
+    item.appendChild(header);
+
+    const meta = document.createElement('div');
+    meta.className = 'history-item-meta';
+
+    const datesEl = document.createElement('span');
+    datesEl.textContent = formatHistoryDateRange(entry);
+    meta.appendChild(datesEl);
+
+    const durationLabel = formatHistoryDurationLabel(entry.estimatedDuration);
+    if (durationLabel !== '—') {
+      const durationEl = document.createElement('span');
+      durationEl.textContent = `Durée estimée : ${durationLabel}`;
+      meta.appendChild(durationEl);
+    }
+
+    const badgeDef = entry.badgeId ? getBadgeDefinitionById(entry.badgeId) : null;
+    const streakValue = Number(entry.streak) || 0;
+    if (streakValue > 0 || badgeDef) {
+      const parts = [];
+      if (streakValue > 0) {
+        parts.push(`Streak ${streakValue}`);
+      }
+      if (badgeDef) {
+        parts.push(`${badgeDef.icon} ${badgeDef.label}`);
+      }
+      const streakEl = document.createElement('span');
+      streakEl.textContent = parts.join(' • ');
+      meta.appendChild(streakEl);
+    }
+
+    item.appendChild(meta);
+    listEl.appendChild(item);
+  });
+}
+
+function renderHistoryDetail(entry) {
+  const detailCard = document.getElementById('history-detail-card');
+  if (!detailCard) {
+    return;
+  }
+  detailCard.innerHTML = '';
+
+  const titleEl = document.createElement('h3');
+  titleEl.className = 'history-detail-title';
+  titleEl.textContent = entry.title;
+  detailCard.appendChild(titleEl);
+
+  const datesEl = document.createElement('p');
+  datesEl.className = 'history-detail-dates';
+  datesEl.textContent = formatHistoryDateRange(entry);
+  detailCard.appendChild(datesEl);
+
+  const metrics = document.createElement('div');
+  metrics.className = 'history-detail-metrics';
+
+  const addMetric = (label, value) => {
+    const metric = document.createElement('div');
+    metric.className = 'history-detail-metric';
+    metric.setAttribute('role', 'group');
+
+    const labelSpan = document.createElement('span');
+    labelSpan.textContent = label;
+    metric.appendChild(labelSpan);
+
+    const valueSpan = document.createElement('span');
+    if (value instanceof Node) {
+      valueSpan.appendChild(value);
+    } else {
+      valueSpan.textContent = value;
+    }
+    metric.appendChild(valueSpan);
+
+    metrics.appendChild(metric);
+  };
+
+  addMetric('Durée estimée', formatHistoryDurationLabel(entry.estimatedDuration));
+  addMetric('Taux de complétion', `${entry.completionRate} %`);
+
+  const streakValue = Number(entry.streak) || 0;
+  addMetric('Streak', streakValue > 0 ? `Streak ${streakValue}` : '—');
+
+  const badgeDef = entry.badgeId ? getBadgeDefinitionById(entry.badgeId) : null;
+  if (badgeDef) {
+    const badgeChip = document.createElement('span');
+    badgeChip.className = 'history-badge-chip';
+
+    const iconSpan = document.createElement('span');
+    iconSpan.textContent = badgeDef.icon;
+    badgeChip.appendChild(iconSpan);
+
+    const labelSpan = document.createElement('span');
+    labelSpan.textContent = badgeDef.label;
+    badgeChip.appendChild(labelSpan);
+
+    addMetric('Badge', badgeChip);
+  } else {
+    addMetric('Badge', '—');
+  }
+
+  detailCard.appendChild(metrics);
+}
+
+function showHistoryList() {
+  const listWrapper = document.getElementById('history-list-wrapper');
+  const detail = document.getElementById('history-detail');
+  if (detail) {
+    detail.setAttribute('hidden', '');
+  }
+  if (listWrapper) {
+    listWrapper.removeAttribute('hidden');
+  }
+  historySelectedEntryId = null;
+}
+
+function showHistoryDetail(entryId) {
+  ensureHistoryStateLoaded();
+  const entry = historyEntries.find(item => item.id === entryId);
+  const listWrapper = document.getElementById('history-list-wrapper');
+  const detail = document.getElementById('history-detail');
+  if (!entry || !detail || !listWrapper) {
+    showHistoryList();
+    return;
+  }
+  historySelectedEntryId = entryId;
+  renderHistoryDetail(entry);
+  listWrapper.setAttribute('hidden', '');
+  detail.removeAttribute('hidden');
+  const backBtn = document.getElementById('history-back-btn');
+  if (backBtn) {
+    backBtn.focus();
+  }
+}
+
+function refreshHistoryView({ keepSelection = false } = {}) {
+  renderHistoryList();
+  if (keepSelection && historySelectedEntryId) {
+    showHistoryDetail(historySelectedEntryId);
+  } else {
+    showHistoryList();
+  }
+}
+
+function createHistoryEntryFromState(dayStr, badge) {
+  const referenceDay = isValidISODate(dayStr) ? dayStr : getToday();
+  const goalTitle = (state.settings?.goalTitle || '').trim();
+  const titleParts = [];
+  if (goalTitle) {
+    titleParts.push(goalTitle);
+  } else {
+    titleParts.push('Objectif du jour');
+  }
+  titleParts.push(formatHistoryDateLabel(referenceDay));
+  const estimatedDuration = computeHistoryEstimatedDurationForDay(referenceDay);
+  const completionRate = computeHistoryCompletionRateForDay(referenceDay);
+  const startDate = isValidISODate(state.settings?.startISO) ? state.settings.startISO : referenceDay;
+  const badgeId = badge?.id || (getBadgeForStreak(state.streak?.current)?.id ?? null);
+  const entry = {
+    id: `daily-${referenceDay}`,
+    title: titleParts.join(' • '),
+    startDate,
+    endDate: referenceDay,
+    estimatedDuration,
+    completionRate,
+    badgeId,
+    streak: Number(state.streak?.current) || 0,
+    archivedAt: new Date().toISOString()
+  };
+  return normalizeHistoryEntry(entry);
+}
+
+function ensureHistoryPrefill() {
+  ensureHistoryStateLoaded();
+  if (historyEntries.length > 0) {
+    return;
+  }
+  const today = getToday();
+  const badge = getBadgeForStreak(state?.streak?.current);
+  const entry = createHistoryEntryFromState(today, badge);
+  if (entry) {
+    historyEntries = [entry];
+    saveHistoryEntriesToStorage(historyEntries);
+    historyEntries = normalizeHistoryEntries(historyEntries);
+  }
+}
+
+function registerHistoryEntryForCompletion({ badge } = {}) {
+  const entry = createHistoryEntryFromState(getToday(), badge);
+  if (!entry) {
+    return;
+  }
+  ensureHistoryStateLoaded();
+  const existingIndex = historyEntries.findIndex(item => item.id === entry.id);
+  if (existingIndex !== -1) {
+    historyEntries[existingIndex] = { ...historyEntries[existingIndex], ...entry };
+  } else {
+    historyEntries = [entry, ...historyEntries];
+  }
+  saveHistoryEntriesToStorage(historyEntries);
+  historyEntries = normalizeHistoryEntries(historyEntries);
+  const keepSelection = historySelectedEntryId === entry.id;
+  refreshHistoryView({ keepSelection });
+}
+
+function initHistoryModule() {
+  ensureHistoryPrefill();
+  if (!historyEventsBound) {
+    const listEl = document.getElementById('history-list');
+    if (listEl) {
+      listEl.addEventListener('click', (event) => {
+        const target = event.target.closest('.history-item');
+        if (!target) {
+          return;
+        }
+        const entryId = target.dataset.entryId;
+        if (entryId) {
+          showHistoryDetail(entryId);
+        }
+      });
+    }
+    const backBtn = document.getElementById('history-back-btn');
+    if (backBtn) {
+      backBtn.addEventListener('click', () => {
+        showHistoryList();
+        const firstItem = document.querySelector('#history-list .history-item');
+        if (firstItem) {
+          firstItem.focus();
+        } else {
+          backBtn.blur();
+        }
+      });
+    }
+    historyEventsBound = true;
+  }
+  refreshHistoryView();
 }
 
 function initWeeklyTabs() {
@@ -10967,6 +11476,7 @@ window.toggleTaskCompletion = function(taskIdx) {
   refreshWeeklyReviewIfVisible();
 
   if (!wasComplete && isNowComplete) {
+    registerHistoryEntryForCompletion({ badge: newlyUnlockedBadge });
     handleDailyCompletionFeedback(streakResult?.current || state.streak.current || 0, newlyUnlockedBadge);
   }
 };
@@ -12843,6 +13353,7 @@ if ('serviceWorker' in navigator) {
 }
 
 initDailySummaryPopup();
+initHistoryModule();
 initNotificationsModule();
 initNotificationsTabs();
 initNavigation();

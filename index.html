@@ -392,6 +392,7 @@
           <div class="notifications-tabs" role="tablist" aria-label="Options de notifications">
             <button class="notifications-tab notifications-tab-active" type="button" role="tab" aria-selected="true" aria-controls="notifications-panel-alerts" id="notifications-tab-alerts" data-tab="alerts">Rappels</button>
             <button class="notifications-tab" type="button" role="tab" aria-selected="false" aria-controls="notifications-panel-social" id="notifications-tab-social" data-tab="social">Mes personnes préférées</button>
+            <button class="notifications-tab" type="button" role="tab" aria-selected="false" aria-controls="notifications-panel-history" id="notifications-tab-history" data-tab="history">Historique</button>
           </div>
 
           <div class="notifications-panel notifications-panel-active" id="notifications-panel-alerts" role="tabpanel" aria-labelledby="notifications-tab-alerts" data-panel="alerts">
@@ -560,6 +561,21 @@
               </label>
               <p class="social-privacy-note">Vos titres de tâches et notes ne sont jamais partagés.</p>
             </section>
+          </div>
+          <div class="notifications-panel" id="notifications-panel-history" role="tabpanel" aria-labelledby="notifications-tab-history" data-panel="history" hidden>
+            <div class="history-panel" id="history-panel">
+              <div class="history-list-wrapper" id="history-list-wrapper">
+                <div class="history-empty" id="history-empty" hidden>
+                  <p class="history-empty-title">Aucun historique pour l’instant.</p>
+                  <p class="history-empty-note">Vos objectifs terminés apparaîtront ici.</p>
+                </div>
+                <div class="history-list" id="history-list" role="list"></div>
+              </div>
+              <div class="history-detail" id="history-detail" hidden>
+                <button type="button" class="history-back-btn" id="history-back-btn">← Retour</button>
+                <div class="history-detail-card" id="history-detail-card"></div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
