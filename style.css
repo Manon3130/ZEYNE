@@ -1838,6 +1838,348 @@ h6 {
   align-self: flex-start;
 }
 
+.aide-infos-card {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.aide-infos-tabs {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.aide-infos-tab {
+  background: rgba(234, 196, 175, 0.28);
+  color: var(--text);
+  border: none;
+  border-radius: 999px;
+  padding: 10px 22px;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.aide-infos-tab:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.aide-infos-tab-active,
+.aide-infos-tab:hover {
+  background: var(--primary);
+  color: var(--white);
+}
+
+.aide-infos-panels {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.aide-infos-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.aide-infos-panel[hidden] {
+  display: none;
+}
+
+.aide-intro {
+  font-weight: 400;
+  font-size: 1.05rem;
+  text-align: center;
+}
+
+.aide-faq {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.aide-accordion {
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 16px;
+  padding: 12px 18px;
+  border: 1px solid rgba(234, 196, 175, 0.35);
+}
+
+.aide-accordion[open] {
+  background: rgba(249, 216, 214, 0.35);
+}
+
+.aide-accordion summary {
+  cursor: pointer;
+  font-weight: 600;
+  list-style: none;
+  position: relative;
+}
+
+.aide-accordion summary::marker,
+.aide-accordion summary::-webkit-details-marker {
+  display: none;
+}
+
+.aide-accordion summary::after {
+  content: '+';
+  position: absolute;
+  right: 0;
+  top: 0;
+  color: var(--text);
+}
+
+.aide-accordion[open] summary::after {
+  content: '−';
+}
+
+.aide-accordion p {
+  margin-top: 10px;
+  color: rgba(166, 128, 118, 0.85);
+}
+
+.aide-contact {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.aide-contact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.aide-contact-actions .btn {
+  border-radius: 999px;
+  padding: 10px 20px;
+}
+
+.aide-contact-hint {
+  font-size: 0.9rem;
+  color: rgba(166, 128, 118, 0.75);
+}
+
+.aide-contact-fallback {
+  background: rgba(255, 255, 255, 0.75);
+  border-radius: 18px;
+  padding: 18px;
+  border: 1px solid rgba(234, 196, 175, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.aide-contact-fallback[hidden] {
+  display: none;
+}
+
+.aide-contact-fallback-header h3 {
+  font-size: 1.05rem;
+  margin-bottom: 4px;
+}
+
+.aide-contact-fallback-header p {
+  font-size: 0.9rem;
+  color: rgba(166, 128, 118, 0.8);
+}
+
+.aide-contact-fallback .form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.aide-contact-fallback label {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.aide-contact-fallback input,
+.aide-contact-fallback textarea {
+  border-radius: 12px;
+  border: 1px solid rgba(234, 196, 175, 0.45);
+  padding: 8px 12px;
+  font-family: 'Open Sans', sans-serif;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--text);
+}
+
+.aide-contact-fallback textarea {
+  resize: vertical;
+}
+
+.aide-contact-fallback-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.aide-contact-fallback .btn-ghost {
+  border-radius: 999px;
+}
+
+.aide-privacy {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.aide-privacy h3 {
+  font-size: 1.3rem;
+}
+
+.aide-privacy p {
+  color: rgba(166, 128, 118, 0.9);
+}
+
+.aide-privacy-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.aide-privacy-actions .btn {
+  border-radius: 999px;
+  padding: 10px 20px;
+}
+
+.aide-reset {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.aide-reset-btn {
+  align-self: flex-start;
+  padding: 8px 18px;
+  border-radius: 999px;
+}
+
+.aide-reset-note {
+  font-size: 0.85rem;
+  color: rgba(166, 128, 118, 0.7);
+}
+
+.aide-infos-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(166, 128, 118, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 2000;
+}
+
+.aide-infos-modal[hidden] {
+  display: none;
+}
+
+.aide-infos-modal-dialog {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 24px;
+  padding: 28px;
+  max-width: 640px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
+}
+
+.aide-infos-modal-close {
+  align-self: flex-end;
+  background: transparent;
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.aide-infos-modal-close:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+
+.aide-infos-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: rgba(166, 128, 118, 0.95);
+}
+
+body.aide-infos-modal-open {
+  overflow: hidden;
+}
+
+.analytics-banner {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 18px;
+  padding: 18px 22px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.12);
+  z-index: 2100;
+  max-width: 520px;
+  width: calc(100% - 32px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.analytics-banner[hidden] {
+  display: none;
+}
+
+.analytics-banner-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: relative;
+}
+
+.analytics-banner-inner p {
+  font-size: 0.95rem;
+  color: rgba(166, 128, 118, 0.95);
+}
+
+.analytics-banner-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.analytics-banner-actions .btn {
+  border-radius: 999px;
+  padding: 10px 20px;
+}
+
+.analytics-banner-close {
+  position: absolute;
+  top: 0;
+  right: 0;
+  background: transparent;
+  border: none;
+  font-size: 1.1rem;
+  cursor: pointer;
+  color: rgba(166, 128, 118, 0.8);
+}
+
+.analytics-banner-close:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+
+.analytics-banner-hide {
+  opacity: 0;
+  transform: translate(-50%, 20px);
+  pointer-events: none;
+}
+
 .notifications-calendar-note,
 .notifications-calendar-hint {
   font-size: 0.85rem;

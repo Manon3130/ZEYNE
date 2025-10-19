@@ -27,6 +27,7 @@
         <a href="#" data-view="hebdo">Voir ma semaine</a>
         <a href="#" data-view="notifications">Notifications</a>
         <a href="#" data-view="vignettes">Vignettes</a>
+        <a href="#" data-view="aide-infos">Aide &amp; Infos</a>
       </nav>
     </header>
 
@@ -610,7 +611,113 @@
           </div>
         </div>
       </section>
+
+      <section id="view-aide-infos" class="view">
+        <div class="card aide-infos-card">
+          <div class="aide-infos-tabs" role="tablist" aria-label="Navigation aide et informations">
+            <button type="button" class="aide-infos-tab aide-infos-tab-active" id="aide-tab-help" data-tab="help" role="tab" aria-selected="true" aria-controls="aide-panel-help">Aide</button>
+            <button type="button" class="aide-infos-tab" id="aide-tab-privacy" data-tab="privacy" role="tab" aria-selected="false" aria-controls="aide-panel-privacy">Confidentialité</button>
+          </div>
+
+          <div class="aide-infos-panels">
+            <div class="aide-infos-panel aide-infos-panel-active" id="aide-panel-help" data-panel="help" role="tabpanel" aria-labelledby="aide-tab-help">
+              <p class="aide-intro">Besoin d’un coup de main ? Voici les réponses rapides.</p>
+
+              <div class="aide-faq">
+                <details class="aide-accordion">
+                  <summary>Notifications</summary>
+                  <p>Activez les rappels dans l’onglet Notifications : choisissez vos créneaux et adaptez vos préférences iOS ou Android. (Texte placeholder)</p>
+                </details>
+                <details class="aide-accordion">
+                  <summary>Installer l’app (PWA)</summary>
+                  <p>Ajoutez ZEYNE sur votre écran d’accueil en suivant les étapes iOS ou Android. (Texte placeholder)</p>
+                </details>
+                <details class="aide-accordion">
+                  <summary>Exporter au calendrier (ICS)</summary>
+                  <p>Générez un fichier ICS depuis l’onglet Notifications puis importez-le dans votre agenda favori. (Texte placeholder)</p>
+                </details>
+                <details class="aide-accordion">
+                  <summary>Bibliothèque audio</summary>
+                  <p>Importez vos propres fichiers, assignez-les à vos rituels et gérez vos catégories. (Texte placeholder)</p>
+                </details>
+                <details class="aide-accordion">
+                  <summary>Problèmes courants</summary>
+                  <p>Pas de son ou pop-up bloquées ? Vérifiez le volume, autorisez les notifications et rafraîchissez la page. (Texte placeholder)</p>
+                </details>
+              </div>
+
+              <div class="aide-contact">
+                <div class="aide-contact-actions">
+                  <button type="button" class="btn btn-primary btn-rounded aide-mail-btn" data-subject="Bug ZEYNE">Signaler un bug</button>
+                  <button type="button" class="btn btn-secondary btn-rounded aide-mail-btn" data-subject="Suggestion ZEYNE">Suggérer une idée</button>
+                </div>
+                <p class="aide-contact-hint">Si la messagerie ne s’ouvre pas, utilisez le mini-formulaire ci-dessous.</p>
+                <div class="aide-contact-fallback" id="aide-contact-fallback" hidden>
+                  <div class="aide-contact-fallback-header">
+                    <h3>Mini-formulaire</h3>
+                    <p id="aide-contact-fallback-subject">Sujet : Bug ZEYNE</p>
+                  </div>
+                  <form id="aide-contact-form">
+                    <div class="form-row">
+                      <label for="aide-fallback-name">Nom</label>
+                      <input type="text" id="aide-fallback-name" name="name" placeholder="Votre nom">
+                    </div>
+                    <div class="form-row">
+                      <label for="aide-fallback-email">Email</label>
+                      <input type="email" id="aide-fallback-email" name="email" placeholder="vous@email.com">
+                    </div>
+                    <div class="form-row">
+                      <label for="aide-fallback-message">Message</label>
+                      <textarea id="aide-fallback-message" name="message" rows="4" placeholder="Expliquez votre besoin"></textarea>
+                    </div>
+                    <div class="aide-contact-fallback-actions">
+                      <button type="submit" class="btn btn-primary btn-rounded">Ouvrir mon client mail</button>
+                      <button type="button" class="btn btn-ghost" id="aide-contact-fallback-close">Fermer</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+            <div class="aide-infos-panel" id="aide-panel-privacy" data-panel="privacy" role="tabpanel" aria-labelledby="aide-tab-privacy" hidden>
+              <div class="aide-privacy">
+                <h3>Confidentialité &amp; Conditions</h3>
+                <p>Données locales par défaut. Pas de compte, pas d’envoi serveur.</p>
+                <p>Notifications et export calendrier (ICS) sont facultatifs.</p>
+                <p>Vous pouvez réinitialiser vos données à tout moment.</p>
+                <div class="aide-privacy-actions">
+                  <button type="button" class="btn btn-primary btn-rounded aide-modal-btn" data-aide-modal="privacy">Politique de confidentialité</button>
+                  <button type="button" class="btn btn-secondary btn-rounded aide-modal-btn" data-aide-modal="terms">Conditions d’utilisation</button>
+                </div>
+                <div class="aide-reset">
+                  <button type="button" class="btn btn-ghost aide-reset-btn" id="aide-reset-btn">Réinitialiser mes données locales</button>
+                  <p class="aide-reset-note" id="aide-reset-note" hidden>Disponible prochainement.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
     </main>
+  </div>
+
+  <div class="aide-infos-modal" id="aide-infos-modal" hidden aria-hidden="true">
+    <div class="aide-infos-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="aide-infos-modal-title">
+      <button type="button" class="aide-infos-modal-close" id="aide-infos-modal-close" aria-label="Fermer">✕</button>
+      <h3 id="aide-infos-modal-title"></h3>
+      <div class="aide-infos-modal-body" id="aide-infos-modal-body"></div>
+    </div>
+  </div>
+
+  <div class="analytics-banner" id="analytics-consent-banner" hidden>
+    <div class="analytics-banner-inner">
+      <p>ZEYNE utilise uniquement des cookies techniques. Autoriser des statistiques anonymes pour améliorer l’app&nbsp;?</p>
+      <div class="analytics-banner-actions">
+        <button type="button" class="btn btn-primary btn-rounded" id="analytics-allow-btn">Autoriser</button>
+        <button type="button" class="btn btn-secondary btn-rounded" id="analytics-later-btn">Plus tard</button>
+      </div>
+      <button type="button" class="analytics-banner-close" id="analytics-close-btn" aria-label="Plus tard">✕</button>
+    </div>
   </div>
 
   <div id="daily-summary-overlay" class="daily-summary-overlay" hidden aria-hidden="true">
