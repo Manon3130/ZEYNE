@@ -98,6 +98,7 @@ const SOCIAL_MIN_STREAK_FOR_CHALLENGE = 3;
 const HISTORY_STORAGE_KEY = 'zeyne.history';
 const SUPPORT_EMAIL = 'support@zeyne.app';
 const ANALYTICS_CONSENT_KEY = 'analytics_consent';
+const PRIVACY_LAST_UPDATE = '05/06/2024';
 let analyticsBannerRevealPending = false;
 
 const FOCUS_MOMENT_KEYS = ['morning', 'afternoon', 'evening'];
@@ -115,6 +116,10 @@ const MOMENT_SUGGESTION_PREFILL_DAYS = 7;
 
 let activeAideInfosTab = 'help';
 let aideInfosModalEscapeHandler = null;
+let aideInfosModalFocusTrapCleanup = null;
+let aideInfosModalPreviousActive = null;
+let aideInfosModalInertRecords = [];
+let aideInfosModalCleanup = null;
 
 const PROGRAMME_CATEGORIES = [
   {
@@ -6280,11 +6285,397 @@ function setActiveAideInfosTab(target) {
   activeAideInfosTab = normalized;
 }
 
-function handleAideInfosReset() {
-  const userConfirmed = window.confirm('Réinitialiser toutes les données locales ZEYNE ?');
-  if (!userConfirmed) {
+const AIDE_INFOS_MODAL_FOCUSABLE_SELECTOR = 'a[href], area[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, details summary, [tabindex]:not([tabindex="-1"])';
+
+function getFocusableElements(container) {
+  if (!container) {
+    return [];
+  }
+  const nodes = Array.from(container.querySelectorAll(AIDE_INFOS_MODAL_FOCUSABLE_SELECTOR));
+  return nodes.filter(element => {
+    if (element.hasAttribute('disabled')) {
+      return false;
+    }
+    const tabIndex = element.getAttribute('tabindex');
+    if (tabIndex && Number(tabIndex) < 0) {
+      return false;
+    }
+    if (element.getAttribute('aria-hidden') === 'true') {
+      return false;
+    }
+    if (element.hasAttribute('hidden') || element.closest('[hidden]')) {
+      return false;
+    }
+    if (element.offsetParent !== null) {
+      return true;
+    }
+    const rect = element.getBoundingClientRect?.();
+    return Boolean(rect && rect.width > 0 && rect.height > 0);
+  });
+}
+
+function trapFocusInDialog(dialog) {
+  if (!dialog) {
+    return () => {};
+  }
+
+  const handleKeyDown = (event) => {
+    if (event.key !== 'Tab') {
+      return;
+    }
+    const focusable = getFocusableElements(dialog);
+    if (!focusable.length) {
+      event.preventDefault();
+      dialog.focus({ preventScroll: true });
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (event.shiftKey) {
+      if (active === first || !dialog.contains(active)) {
+        event.preventDefault();
+        last.focus({ preventScroll: true });
+      }
+    } else if (active === last) {
+      event.preventDefault();
+      first.focus({ preventScroll: true });
+    }
+  };
+
+  const handleFocusIn = (event) => {
+    if (!dialog.contains(event.target)) {
+      const focusable = getFocusableElements(dialog);
+      const target = focusable[0] || dialog;
+      target.focus({ preventScroll: true });
+    }
+  };
+
+  dialog.addEventListener('keydown', handleKeyDown);
+  document.addEventListener('focusin', handleFocusIn);
+
+  const initial = getFocusableElements(dialog);
+  if (initial.length) {
+    initial[0].focus({ preventScroll: true });
+  } else {
+    dialog.focus({ preventScroll: true });
+  }
+
+  return () => {
+    dialog.removeEventListener('keydown', handleKeyDown);
+    document.removeEventListener('focusin', handleFocusIn);
+  };
+}
+
+function setAideInfosModalBackgroundInert(enable) {
+  const modal = document.getElementById('aide-infos-modal');
+  if (!modal) {
     return;
   }
+  if (enable) {
+    aideInfosModalInertRecords = [];
+    const siblings = Array.from(document.body.children);
+    siblings.forEach(element => {
+      if (element === modal) {
+        return;
+      }
+      aideInfosModalInertRecords.push({
+        element,
+        ariaHidden: element.getAttribute('aria-hidden'),
+        inert: 'inert' in element ? element.inert : undefined
+      });
+      element.setAttribute('aria-hidden', 'true');
+      if ('inert' in element) {
+        element.inert = true;
+      }
+    });
+  } else if (aideInfosModalInertRecords.length) {
+    aideInfosModalInertRecords.forEach(record => {
+      if (record.ariaHidden === null) {
+        record.element.removeAttribute('aria-hidden');
+      } else {
+        record.element.setAttribute('aria-hidden', record.ariaHidden);
+      }
+      if ('inert' in record.element && record.inert !== undefined) {
+        record.element.inert = Boolean(record.inert);
+      }
+    });
+    aideInfosModalInertRecords = [];
+  }
+}
+
+function tryReadStoredAnalyticsConsent(options = {}) {
+  const { withWarning = false } = options;
+  try {
+    const stored = localStorage.getItem(ANALYTICS_CONSENT_KEY);
+    if (stored === 'true') {
+      return true;
+    }
+    if (stored === 'false') {
+      return false;
+    }
+  } catch (error) {
+    if (withWarning) {
+      console.warn('Lecture du consentement analytics impossible', error);
+    }
+  }
+  return null;
+}
+
+function applyAnalyticsConsent(value) {
+  analyticsBannerRevealPending = false;
+  try {
+    localStorage.setItem(ANALYTICS_CONSENT_KEY, value ? 'true' : 'false');
+  } catch (error) {
+    console.warn('Sauvegarde du consentement analytics impossible', error);
+  }
+  document.body.dataset.analyticsConsent = value ? 'granted' : 'declined';
+}
+
+function hideAnalyticsBannerElement() {
+  const banner = document.getElementById('analytics-consent-banner');
+  if (!banner) {
+    analyticsBannerRevealPending = false;
+    return;
+  }
+  analyticsBannerRevealPending = false;
+  if (banner.hidden) {
+    banner.setAttribute('aria-hidden', 'true');
+    banner.classList.remove('analytics-banner-hide');
+    return;
+  }
+  banner.classList.add('analytics-banner-hide');
+  setTimeout(() => {
+    banner.hidden = true;
+    banner.setAttribute('aria-hidden', 'true');
+    banner.classList.remove('analytics-banner-hide');
+  }, 260);
+}
+
+function getEffectiveAnalyticsConsent() {
+  const datasetValue = document.body?.dataset?.analyticsConsent;
+  if (datasetValue === 'granted') {
+    return { checked: true, isDefault: false };
+  }
+  if (datasetValue === 'declined') {
+    return { checked: false, isDefault: false };
+  }
+  const stored = tryReadStoredAnalyticsConsent();
+  if (stored === true) {
+    return { checked: true, isDefault: false };
+  }
+  if (stored === false) {
+    return { checked: false, isDefault: false };
+  }
+  return { checked: false, isDefault: true };
+}
+
+function buildPrivacyModalMarkup(paragraphs) {
+  const bodyHtml = Array.isArray(paragraphs)
+    ? paragraphs.map(paragraph => `<p>${paragraph}</p>`).join('')
+    : '';
+  return `
+    <div class="privacy-modal-main">
+      ${bodyHtml}
+      <p class="privacy-modal-date">Dernière mise à jour&nbsp;: ${PRIVACY_LAST_UPDATE}</p>
+      <div class="privacy-modal-transparency">
+        <span class="privacy-modal-transparency-label">Transparence</span>
+        <span>Export calendrier (.ics) et notifications&nbsp;: tout est généré/traité localement sur votre appareil.</span>
+      </div>
+      <div class="privacy-modal-links">
+        <a href="#" class="privacy-modal-link" id="privacy-terms-link">Voir les Conditions d’utilisation</a>
+        <a href="mailto:${SUPPORT_EMAIL}" class="privacy-modal-link" id="privacy-contact-link">Nous contacter</a>
+      </div>
+    </div>
+    <section class="privacy-panel" id="privacy-consent-panel" role="region" aria-labelledby="privacy-consent-title" hidden aria-hidden="true">
+      <div class="privacy-panel-header">
+        <h4 class="privacy-panel-title" id="privacy-consent-title">Préférences de confidentialité</h4>
+        <button type="button" class="privacy-panel-close" id="privacy-consent-close" aria-label="Fermer les préférences">✕</button>
+      </div>
+      <p class="privacy-panel-subtitle">Choisissez si ZEYNE peut collecter des statistiques anonymes pour améliorer l’expérience.</p>
+      <div class="privacy-consent-status" id="privacy-consent-status" aria-live="polite">Statistiques anonymes désactivées (par défaut).</div>
+      <div class="privacy-toggle">
+        <div class="privacy-toggle-text">
+          <span class="privacy-toggle-title" id="privacy-consent-toggle-label">Statistiques anonymes</span>
+          <span class="privacy-toggle-hint">Partage uniquement de tendances d’utilisation globales.</span>
+        </div>
+        <label class="privacy-toggle-switch" for="privacy-consent-toggle">
+          <input type="checkbox" id="privacy-consent-toggle" role="switch" aria-labelledby="privacy-consent-toggle-label privacy-consent-status">
+          <span class="privacy-toggle-slider" aria-hidden="true"></span>
+        </label>
+      </div>
+    </section>
+    <section class="privacy-panel" id="privacy-reset-confirm" role="region" aria-labelledby="privacy-reset-title" hidden aria-hidden="true">
+      <div class="privacy-panel-header">
+        <h4 class="privacy-panel-title" id="privacy-reset-title">Effacer les données locales</h4>
+        <button type="button" class="privacy-panel-close" id="privacy-reset-close" aria-label="Fermer le dialogue de confirmation">✕</button>
+      </div>
+      <p class="privacy-reset-text">Cette action supprime vos micro-tâches, préférences et historique locaux. Continuer&nbsp;?</p>
+      <div class="privacy-reset-actions">
+        <button type="button" class="privacy-modal-action privacy-modal-action-danger" id="privacy-reset-confirm-btn">Oui</button>
+        <button type="button" class="privacy-modal-action" id="privacy-reset-cancel-btn">Annuler</button>
+      </div>
+    </section>
+    <footer class="privacy-modal-footer">
+      <button type="button" class="privacy-modal-action" id="privacy-consent-btn" aria-controls="privacy-consent-panel" aria-expanded="false">Gérer mon consentement</button>
+      <button type="button" class="privacy-modal-action privacy-modal-action-danger" id="privacy-reset-btn-modal" aria-controls="privacy-reset-confirm" aria-expanded="false">Effacer mes données locales</button>
+    </footer>
+  `;
+}
+
+function setupPrivacyModal(dialog) {
+  if (!dialog) {
+    return () => {};
+  }
+
+  const consentPanel = dialog.querySelector('#privacy-consent-panel');
+  const consentBtn = dialog.querySelector('#privacy-consent-btn');
+  const consentClose = dialog.querySelector('#privacy-consent-close');
+  const consentToggle = dialog.querySelector('#privacy-consent-toggle');
+  const consentStatus = dialog.querySelector('#privacy-consent-status');
+  const resetPanel = dialog.querySelector('#privacy-reset-confirm');
+  const resetBtn = dialog.querySelector('#privacy-reset-btn-modal');
+  const resetClose = dialog.querySelector('#privacy-reset-close');
+  const resetCancel = dialog.querySelector('#privacy-reset-cancel-btn');
+  const resetConfirm = dialog.querySelector('#privacy-reset-confirm-btn');
+  const termsLink = dialog.querySelector('#privacy-terms-link');
+
+  const bindings = [];
+  const bind = (element, type, handler) => {
+    if (!element) {
+      return;
+    }
+    element.addEventListener(type, handler);
+    bindings.push({ element, type, handler });
+  };
+
+  const updateConsentStatus = (state) => {
+    if (!consentStatus) {
+      return;
+    }
+    if (state.checked) {
+      consentStatus.textContent = 'Statistiques anonymes activées.';
+    } else if (state.isDefault) {
+      consentStatus.textContent = 'Statistiques anonymes désactivées (par défaut).';
+    } else {
+      consentStatus.textContent = 'Statistiques anonymes désactivées.';
+    }
+  };
+
+  const syncConsentToggle = () => {
+    if (!consentToggle) {
+      return;
+    }
+    const state = getEffectiveAnalyticsConsent();
+    consentToggle.checked = state.checked;
+    consentToggle.setAttribute('aria-checked', state.checked ? 'true' : 'false');
+    updateConsentStatus(state);
+  };
+
+  syncConsentToggle();
+  consentPanel?.setAttribute('aria-hidden', 'true');
+  resetPanel?.setAttribute('aria-hidden', 'true');
+  consentBtn?.setAttribute('aria-expanded', 'false');
+  resetBtn?.setAttribute('aria-expanded', 'false');
+
+  let activePanel = null;
+  let activeTrigger = null;
+
+  const hidePanel = (panel, trigger, options = {}) => {
+    if (!panel) {
+      return;
+    }
+    panel.hidden = true;
+    panel.setAttribute('aria-hidden', 'true');
+    if (trigger) {
+      trigger.setAttribute('aria-expanded', 'false');
+      if (options.returnFocus !== false) {
+        trigger.focus({ preventScroll: true });
+      }
+    }
+    if (activePanel === panel) {
+      activePanel = null;
+      activeTrigger = null;
+    }
+  };
+
+  const showPanel = (panel, trigger, focusTarget) => {
+    if (!panel) {
+      return;
+    }
+    if (activePanel && activePanel !== panel) {
+      hidePanel(activePanel, activeTrigger, { returnFocus: false });
+    }
+    panel.hidden = false;
+    panel.setAttribute('aria-hidden', 'false');
+    if (trigger) {
+      trigger.setAttribute('aria-expanded', 'true');
+      activeTrigger = trigger;
+    }
+    activePanel = panel;
+    const focusable = getFocusableElements(panel);
+    const target = focusTarget || focusable[0];
+    if (target) {
+      target.focus({ preventScroll: true });
+    }
+  };
+
+  bind(consentBtn, 'click', () => {
+    syncConsentToggle();
+    showPanel(consentPanel, consentBtn, consentToggle);
+  });
+
+  bind(consentClose, 'click', () => hidePanel(consentPanel, consentBtn));
+
+  bind(consentToggle, 'change', () => {
+    if (!consentToggle) {
+      return;
+    }
+    const isChecked = consentToggle.checked;
+    consentToggle.setAttribute('aria-checked', isChecked ? 'true' : 'false');
+    updateConsentStatus({ checked: isChecked, isDefault: false });
+    applyAnalyticsConsent(isChecked);
+    hideAnalyticsBannerElement();
+    if (typeof showToast === 'function') {
+      showToast(isChecked ? 'Statistiques anonymes activées.' : 'Statistiques anonymes désactivées.');
+    }
+  });
+
+  bind(resetBtn, 'click', () => {
+    showPanel(resetPanel, resetBtn, resetConfirm);
+  });
+
+  bind(resetClose, 'click', () => hidePanel(resetPanel, resetBtn));
+  bind(resetCancel, 'click', () => hidePanel(resetPanel, resetBtn));
+
+  bind(resetConfirm, 'click', () => {
+    hidePanel(resetPanel, resetBtn, { returnFocus: false });
+    performLocalDataErase();
+  });
+
+  bind(termsLink, 'click', (event) => {
+    event.preventDefault();
+    openAideInfosModal('terms');
+  });
+
+  return () => {
+    bindings.forEach(({ element, type, handler }) => {
+      element.removeEventListener(type, handler);
+    });
+    if (consentPanel) {
+      consentPanel.hidden = true;
+      consentPanel.setAttribute('aria-hidden', 'true');
+    }
+    if (resetPanel) {
+      resetPanel.hidden = true;
+      resetPanel.setAttribute('aria-hidden', 'true');
+    }
+    consentBtn?.setAttribute('aria-expanded', 'false');
+    resetBtn?.setAttribute('aria-expanded', 'false');
+  };
+}
+
+function performLocalDataErase() {
   try {
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(HISTORY_STORAGE_KEY);
@@ -6300,35 +6691,80 @@ function handleAideInfosReset() {
       console.warn('Impossible de supprimer la base audio locale', error);
     }
   }
+  delete document.body.dataset.analyticsConsent;
+  hideAnalyticsBannerElement();
+  closeAideInfosModal();
   if (typeof showToast === 'function') {
-    showToast('Données locales réinitialisées.');
+    showToast('Données locales effacées.');
   }
   setTimeout(() => {
     window.location.reload();
-  }, 600);
+  }, 800);
+}
+
+async function handleAideInfosReset() {
+  let confirmed = true;
+  if (typeof showConfirmationToast === 'function') {
+    confirmed = await showConfirmationToast('Cette action supprime vos micro-tâches, préférences et historique locaux. Continuer&nbsp;?', {
+      confirmLabel: 'Oui',
+      cancelLabel: 'Annuler',
+      timeout: 0
+    });
+  } else {
+    confirmed = window.confirm('Cette action supprime vos micro-tâches, préférences et historique locaux. Continuer ?');
+  }
+  if (!confirmed) {
+    return;
+  }
+  performLocalDataErase();
 }
 
 function openAideInfosModal(key) {
   const modal = document.getElementById('aide-infos-modal');
+  const dialog = modal?.querySelector('.aide-infos-modal-dialog');
   const title = document.getElementById('aide-infos-modal-title');
   const body = document.getElementById('aide-infos-modal-body');
   const content = AIDE_INFOS_MODAL_CONTENT[key];
-  if (!modal || !title || !body || !content) {
+  if (!modal || !dialog || !title || !body || !content) {
     return;
   }
+
+  if (typeof aideInfosModalCleanup === 'function') {
+    aideInfosModalCleanup();
+    aideInfosModalCleanup = null;
+  }
+
   title.textContent = content.title;
-  body.innerHTML = content.body.map(paragraph => `<p>${paragraph}</p>`).join('');
+  if (key === 'privacy') {
+    body.innerHTML = buildPrivacyModalMarkup(content.body);
+    aideInfosModalCleanup = setupPrivacyModal(dialog);
+  } else {
+    body.innerHTML = content.body.map(paragraph => `<p>${paragraph}</p>`).join('');
+    aideInfosModalCleanup = null;
+  }
+
+  const wasHidden = modal.hidden || modal.getAttribute('aria-hidden') === 'true';
+
   modal.hidden = false;
   modal.setAttribute('aria-hidden', 'false');
   modal.dataset.active = key;
   document.body.classList.add('aide-infos-modal-open');
-  const closeBtn = document.getElementById('aide-infos-modal-close');
-  if (closeBtn) {
-    closeBtn.focus();
+
+  if (wasHidden) {
+    aideInfosModalPreviousActive = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setAideInfosModalBackgroundInert(true);
   }
+
+  if (aideInfosModalFocusTrapCleanup) {
+    aideInfosModalFocusTrapCleanup();
+    aideInfosModalFocusTrapCleanup = null;
+  }
+  aideInfosModalFocusTrapCleanup = trapFocusInDialog(dialog);
+
   if (!aideInfosModalEscapeHandler) {
     aideInfosModalEscapeHandler = (event) => {
       if (event.key === 'Escape') {
+        event.preventDefault();
         closeAideInfosModal();
       }
     };
@@ -6338,16 +6774,37 @@ function openAideInfosModal(key) {
 
 function closeAideInfosModal() {
   const modal = document.getElementById('aide-infos-modal');
-  if (!modal) {
+  const dialog = modal?.querySelector('.aide-infos-modal-dialog');
+  if (!modal || !dialog) {
     return;
   }
+
+  if (typeof aideInfosModalCleanup === 'function') {
+    aideInfosModalCleanup();
+    aideInfosModalCleanup = null;
+  }
+
   modal.hidden = true;
   modal.setAttribute('aria-hidden', 'true');
   delete modal.dataset.active;
   document.body.classList.remove('aide-infos-modal-open');
+
+  if (aideInfosModalFocusTrapCleanup) {
+    aideInfosModalFocusTrapCleanup();
+    aideInfosModalFocusTrapCleanup = null;
+  }
+
+  setAideInfosModalBackgroundInert(false);
+
   if (aideInfosModalEscapeHandler) {
     document.removeEventListener('keydown', aideInfosModalEscapeHandler);
     aideInfosModalEscapeHandler = null;
+  }
+
+  const restoreTarget = aideInfosModalPreviousActive;
+  aideInfosModalPreviousActive = null;
+  if (restoreTarget && typeof restoreTarget.focus === 'function') {
+    restoreTarget.focus({ preventScroll: true });
   }
 }
 
@@ -6498,20 +6955,17 @@ function initAnalyticsBanner() {
   if (!banner) {
     return;
   }
-  let storedChoice = null;
-  try {
-    storedChoice = localStorage.getItem(ANALYTICS_CONSENT_KEY);
-  } catch (error) {
-    console.warn('Lecture du consentement analytics impossible', error);
-  }
-  if (storedChoice === 'true') {
-    document.body.dataset.analyticsConsent = 'granted';
+  const storedChoice = tryReadStoredAnalyticsConsent({ withWarning: true });
+  if (storedChoice === true) {
+    applyAnalyticsConsent(true);
     banner.hidden = true;
+    banner.setAttribute('aria-hidden', 'true');
     return;
   }
-  if (storedChoice === 'false') {
-    document.body.dataset.analyticsConsent = 'declined';
+  if (storedChoice === false) {
+    applyAnalyticsConsent(false);
     banner.hidden = true;
+    banner.setAttribute('aria-hidden', 'true');
     return;
   }
   analyticsBannerRevealPending = true;
@@ -6521,18 +6975,8 @@ function initAnalyticsBanner() {
   const laterBtn = document.getElementById('analytics-later-btn');
   const closeBtn = document.getElementById('analytics-close-btn');
   const handleChoice = (value) => {
-    try {
-      localStorage.setItem(ANALYTICS_CONSENT_KEY, value ? 'true' : 'false');
-      document.body.dataset.analyticsConsent = value ? 'granted' : 'declined';
-    } catch (error) {
-      console.warn('Sauvegarde du consentement analytics impossible', error);
-    }
-    analyticsBannerRevealPending = false;
-    banner.classList.add('analytics-banner-hide');
-    setTimeout(() => {
-      banner.hidden = true;
-      banner.classList.remove('analytics-banner-hide');
-    }, 260);
+    applyAnalyticsConsent(value);
+    hideAnalyticsBannerElement();
   };
 
   allowBtn?.addEventListener('click', () => handleChoice(true));
@@ -6560,6 +7004,7 @@ function maybeRevealAnalyticsBanner() {
   analyticsBannerRevealPending = false;
   banner.hidden = false;
   banner.classList.remove('analytics-banner-hide');
+  banner.setAttribute('aria-hidden', 'false');
 }
 
 function initNavigation() {
