@@ -98,6 +98,7 @@ const SOCIAL_MIN_STREAK_FOR_CHALLENGE = 3;
 const HISTORY_STORAGE_KEY = 'zeyne.history';
 const SUPPORT_EMAIL = 'support@zeyne.app';
 const ANALYTICS_CONSENT_KEY = 'analytics_consent';
+let analyticsBannerRevealPending = false;
 
 const FOCUS_MOMENT_KEYS = ['morning', 'afternoon', 'evening'];
 const FOCUS_DURATION_LIMITS = { min: 5, max: 45, step: 5 };
@@ -6234,17 +6235,20 @@ const AIDE_INFOS_MODAL_CONTENT = {
   privacy: {
     title: 'Politique de confidentialité',
     body: [
-      'ZEYNE fonctionne principalement hors connexion : vos micro-tâches et préférences restent stockées sur cet appareil.',
-      'Aucune donnée personnelle n’est transmise à un serveur tant que vous n’activez pas d’option nécessitant une synchronisation.',
-      'Lorsque vous autoriserez les statistiques anonymes, seules des tendances globales seront mesurées (fonctionnalité à venir).'
+      'ZEYNE fonctionne par défaut en local : vos tâches, votre humeur et vos réglages sont conservés sur l’appareil que vous utilisez.',
+      'Aucune création de compte n’est requise et aucune donnée n’est envoyée vers nos serveurs tant que vous n’activez pas une fonctionnalité optionnelle telle que les notifications ou l’export calendrier (ICS).',
+      'Les statistiques anonymes restent désactivées tant que vous n’avez pas donné votre accord dans le bandeau prévu à cet effet. Lorsque vous les autorisez, seules des tendances globales sont collectées.',
+      'Vous pouvez nettoyer l’ensemble de vos données locales à tout moment depuis la section Confidentialité.',
+      'Pour toute question, contactez-nous à support@zeyne.app.'
     ]
   },
   terms: {
     title: 'Conditions d’utilisation',
     body: [
-      'ZEYNE vous aide à structurer vos micro-tâches quotidiennes et à suivre votre progression.',
-      'Vous restez propriétaire de vos contenus, imports audio et exports calendrier : utilisez-les de manière responsable.',
-      'Contactez l’équipe via la section Aide pour toute question, suggestion ou problème rencontré.'
+      'ZEYNE est conçu pour vous aider à organiser vos micro-tâches quotidiennes et suivre votre progression personnelle.',
+      'Vous demeurez propriétaire de vos contenus, imports audio et exports calendrier : veillez à les utiliser et les partager de manière responsable.',
+      'Les fonctionnalités optionnelles comme les notifications ou l’export ICS nécessitent votre action explicite et peuvent être désactivées à tout moment.',
+      'En cas de problème ou pour toute suggestion, contactez l’équipe via support@zeyne.app ou la section Aide.'
     ]
   }
 };
@@ -6510,8 +6514,8 @@ function initAnalyticsBanner() {
     banner.hidden = true;
     return;
   }
-  banner.hidden = false;
-  banner.classList.remove('analytics-banner-hide');
+  analyticsBannerRevealPending = true;
+  maybeRevealAnalyticsBanner();
 
   const allowBtn = document.getElementById('analytics-allow-btn');
   const laterBtn = document.getElementById('analytics-later-btn');
@@ -6523,6 +6527,7 @@ function initAnalyticsBanner() {
     } catch (error) {
       console.warn('Sauvegarde du consentement analytics impossible', error);
     }
+    analyticsBannerRevealPending = false;
     banner.classList.add('analytics-banner-hide');
     setTimeout(() => {
       banner.hidden = true;
@@ -6533,6 +6538,28 @@ function initAnalyticsBanner() {
   allowBtn?.addEventListener('click', () => handleChoice(true));
   laterBtn?.addEventListener('click', () => handleChoice(false));
   closeBtn?.addEventListener('click', () => handleChoice(false));
+}
+
+function maybeRevealAnalyticsBanner() {
+  if (!analyticsBannerRevealPending) {
+    return;
+  }
+  const banner = document.getElementById('analytics-consent-banner');
+  if (!banner) {
+    analyticsBannerRevealPending = false;
+    return;
+  }
+  if (typeof isDailySummaryVisible === 'function' && isDailySummaryVisible()) {
+    return;
+  }
+  const dailySummaryOverlay = document.getElementById('daily-summary-overlay');
+  const overlayActive = dailySummaryOverlay && !dailySummaryOverlay.hasAttribute('hidden') && dailySummaryOverlay.getAttribute('aria-hidden') !== 'true';
+  if (overlayActive) {
+    return;
+  }
+  analyticsBannerRevealPending = false;
+  banner.hidden = false;
+  banner.classList.remove('analytics-banner-hide');
 }
 
 function initNavigation() {
@@ -10042,6 +10069,7 @@ function hideDailySummaryPopup() {
   dailySummaryRuntime.hideTimeout = setTimeout(() => {
     overlay.setAttribute('hidden', '');
     dailySummaryRuntime.hideTimeout = null;
+    maybeRevealAnalyticsBanner();
   }, 220);
 }
 
@@ -13812,9 +13840,9 @@ initWeeklyTabs();
 initDailyQuickAdd();
 initSocialModule();
 initAideInfosView();
-initAnalyticsBanner();
 const hasProgramme = Boolean((state.settings.goalTitle || '').trim());
 const initialView = hasProgramme ? 'aujourdhui' : 'programme';
 showView(initialView);
 maybeShowDailySummaryPopup();
+initAnalyticsBanner();
 initInactivityNudge();
