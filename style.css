@@ -4086,6 +4086,133 @@ body.aide-infos-modal-open {
   color: var(--text);
 }
 
+.planifier-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.planifier-actions > .btn {
+  align-self: flex-start;
+}
+
+.planifier-calendar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+  width: 100%;
+}
+
+.planifier-calendar-buttons {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.planifier-calendar-btn {
+  padding: 10px 22px;
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--text);
+  box-shadow: 0 8px 22px rgba(234, 196, 175, 0.28);
+}
+
+.planifier-calendar-btn:not(:disabled):hover {
+  transform: translateY(-1px);
+  background: #fff8f5;
+}
+
+.planifier-calendar-badge {
+  background: rgba(234, 196, 175, 0.28);
+  color: var(--text);
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  box-shadow: 0 4px 14px rgba(234, 196, 175, 0.25);
+}
+
+.planifier-calendar-note {
+  font-size: 0.8rem;
+  color: rgba(166, 128, 118, 0.72);
+  max-width: 360px;
+}
+
+.planifier-calendar-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 16px);
+  background: rgba(255, 255, 255, 0.96);
+  border-radius: 22px;
+  padding: 16px 18px;
+  box-shadow: 0 16px 32px rgba(166, 128, 118, 0.28);
+  border: 1px solid rgba(234, 196, 175, 0.45);
+  min-width: 260px;
+  z-index: 12;
+}
+
+.planifier-calendar-popover::after {
+  content: '';
+  position: absolute;
+  bottom: -10px;
+  right: 36px;
+  border-width: 10px 10px 0 10px;
+  border-style: solid;
+  border-color: rgba(255, 255, 255, 0.96) transparent transparent transparent;
+  filter: drop-shadow(0 6px 8px rgba(166, 128, 118, 0.18));
+}
+
+.planifier-calendar-popover-text {
+  margin-bottom: 12px;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.planifier-calendar-popover-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.planifier-calendar-popover .btn {
+  box-shadow: none;
+}
+
+@media (min-width: 720px) {
+  .planifier-actions {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: space-between;
+  }
+
+  .planifier-calendar {
+    align-items: flex-end;
+    max-width: 360px;
+  }
+
+  .planifier-calendar-note {
+    text-align: right;
+  }
+
+  .planifier-calendar-popover {
+    right: -6px;
+  }
+}
+
+@media (max-width: 600px) {
+  .planifier-calendar-popover {
+    right: auto;
+    left: 0;
+  }
+
+  .planifier-calendar-popover::after {
+    right: auto;
+    left: 40px;
+  }
+}
+
 .upload-group {
   margin-bottom: 20px;
 }

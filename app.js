@@ -64,6 +64,16 @@ const QUICK_ADD_MOMENT_DEFAULT_TIME = {
   'Soir': '21:45'
 };
 
+const PLANIFIER_CALENDAR_SLOT_DEFAULTS = {
+  'Matin': '09:00',
+  'Après-midi': '14:00',
+  'Soir': '19:00'
+};
+
+const PLANIFIER_CALENDAR_PRODID = '-//ZEYNE//Planning Export//FR';
+const PLANIFIER_CALENDAR_NAME = 'ZEYNE — Planning';
+const PLANIFIER_CALENDAR_ALARM_MINUTES = 5;
+
 const ENABLE_INACTIVITY_NUDGE = true;
 const INACTIVITY_NUDGE_THRESHOLD_MS = 48 * 60 * 60 * 1000;
 const INACTIVITY_NUDGE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
@@ -1446,7 +1456,12 @@ let state = {
   dailySummary: { lastShownDate: null },
   focusAdaptive: createDefaultFocusAdaptiveState(),
   momentSuggestion: createDefaultMomentSuggestionState(),
-  challenge: createDefaultChallengeState()
+  challenge: createDefaultChallengeState(),
+  planifierCalendar: {
+    sequences: {},
+    lastExportSnapshot: null,
+    lastExportedAt: null
+  }
 };
 
 let audioDBPromise = null;
@@ -1491,6 +1506,22 @@ const pwaInstallRuntime = {
   deferredPrompt: null,
   initialized: false,
   displayModeQuery: null
+};
+
+const planifierCalendarRuntime = {
+  lastSnapshot: '',
+  pendingUpdate: false,
+  popoverTimerId: null,
+  expectImmediatePopover: false,
+  ignoreNextSnapshotChange: false,
+  snoozed: false,
+  snoozedSnapshot: null,
+  hasTasks: false,
+  popoverVisible: false,
+  pendingShowPopover: false,
+  exportButton: null,
+  badgeElement: null,
+  popoverElement: null
 };
 
 let lastTemplateApplication = null;
@@ -3735,6 +3766,12 @@ function loadState() {
       if (!state.micropasSuggestionState || typeof state.micropasSuggestionState !== 'object') {
         state.micropasSuggestionState = {};
       }
+      if (!state.planifierCalendar || typeof state.planifierCalendar !== 'object') {
+        state.planifierCalendar = { sequences: {}, lastExportSnapshot: null, lastExportedAt: null };
+      }
+      if (!state.planifierCalendar.sequences || typeof state.planifierCalendar.sequences !== 'object') {
+        state.planifierCalendar.sequences = {};
+      }
     } catch (e) {
       console.error('Error loading state:', e);
     }
@@ -3754,6 +3791,12 @@ function loadState() {
   cleanupReportHistory();
   cleanupMicropasSuggestionState();
 
+  planifierCalendarRuntime.lastSnapshot = buildPlanifierTasksSnapshot(state.tasks);
+  planifierCalendarRuntime.hasTasks = checkHasPlannedTasks();
+  const planState = ensurePlanifierCalendarState();
+  const exportSnapshot = planState.lastExportSnapshot || '';
+  planifierCalendarRuntime.pendingUpdate = planifierCalendarRuntime.lastSnapshot !== exportSnapshot;
+
   if (
     challengeNormalized ||
     notificationsNormalized ||
@@ -3769,6 +3812,200 @@ function loadState() {
 
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  handlePlanifierStateSaved();
+}
+
+function ensurePlanifierCalendarState() {
+  if (!state.planifierCalendar || typeof state.planifierCalendar !== 'object') {
+    state.planifierCalendar = { sequences: {}, lastExportSnapshot: null, lastExportedAt: null };
+  }
+  if (!state.planifierCalendar.sequences || typeof state.planifierCalendar.sequences !== 'object') {
+    state.planifierCalendar.sequences = {};
+  }
+  return state.planifierCalendar;
+}
+
+function buildPlanifierTasksSnapshot(tasks = state.tasks) {
+  if (!tasks || typeof tasks !== 'object') {
+    return '';
+  }
+  const dates = Object.keys(tasks).filter(Boolean).sort();
+  const serialized = dates.map(dateStr => {
+    const dayTasks = Array.isArray(tasks[dateStr]) ? tasks[dateStr] : [];
+    const entries = dayTasks.map(task => {
+      if (!task) return '';
+      return [
+        (task.title || '').trim(),
+        (task.moment || '').trim(),
+        (task.time || '').trim(),
+        normalizeAudioValue(task.audio || ''),
+        task.usesDefaultDuration === false ? 'custom' : 'default',
+        task.usesDefaultDuration === false ? String(Number(task.duration) || '') : '',
+        (task.micropas || '').trim(),
+        task.id || ''
+      ].join('§');
+    }).join('|');
+    return `${dateStr}→${entries}`;
+  });
+  return serialized.join('¶');
+}
+
+function checkHasPlannedTasks() {
+  if (!state.tasks || typeof state.tasks !== 'object') {
+    return false;
+  }
+  return Object.values(state.tasks).some(dayTasks => {
+    if (!Array.isArray(dayTasks)) return false;
+    return dayTasks.some(task => task && !isTaskEmpty(task));
+  });
+}
+
+function cancelPlanifierCalendarPopoverTimer() {
+  if (planifierCalendarRuntime.popoverTimerId) {
+    window.clearTimeout(planifierCalendarRuntime.popoverTimerId);
+    planifierCalendarRuntime.popoverTimerId = null;
+  }
+}
+
+function applyPlanifierCalendarButtonState() {
+  const exportBtn = document.getElementById('planifier-calendar-export-btn');
+  if (!exportBtn) {
+    planifierCalendarRuntime.exportButton = null;
+    return;
+  }
+  planifierCalendarRuntime.exportButton = exportBtn;
+  const disabled = !planifierCalendarRuntime.hasTasks;
+  exportBtn.disabled = disabled;
+  exportBtn.setAttribute('aria-disabled', String(disabled));
+}
+
+function applyPlanifierCalendarBadge() {
+  const badge = document.getElementById('planifier-calendar-update-badge');
+  if (!badge) {
+    planifierCalendarRuntime.badgeElement = null;
+    return;
+  }
+  planifierCalendarRuntime.badgeElement = badge;
+  const shouldShow = planifierCalendarRuntime.pendingUpdate && !planifierCalendarRuntime.popoverVisible;
+  badge.hidden = !shouldShow;
+}
+
+function showPlanifierCalendarPopover({ focusButton = true } = {}) {
+  if (!planifierCalendarRuntime.pendingUpdate || planifierCalendarRuntime.snoozed) {
+    planifierCalendarRuntime.popoverVisible = false;
+    applyPlanifierCalendarBadge();
+    return;
+  }
+  const popover = document.getElementById('planifier-calendar-popover');
+  if (!popover) {
+    planifierCalendarRuntime.popoverElement = null;
+    planifierCalendarRuntime.pendingShowPopover = true;
+    return;
+  }
+  cancelPlanifierCalendarPopoverTimer();
+  planifierCalendarRuntime.popoverElement = popover;
+  popover.hidden = false;
+  popover.setAttribute('aria-hidden', 'false');
+  planifierCalendarRuntime.popoverVisible = true;
+  planifierCalendarRuntime.pendingShowPopover = false;
+  if (planifierCalendarRuntime.badgeElement) {
+    planifierCalendarRuntime.badgeElement.hidden = true;
+  }
+  if (focusButton) {
+    const updateBtn = document.getElementById('planifier-calendar-update-now-btn');
+    if (updateBtn && typeof updateBtn.focus === 'function') {
+      updateBtn.focus();
+    }
+  }
+}
+
+function hidePlanifierCalendarPopover() {
+  cancelPlanifierCalendarPopoverTimer();
+  const popover = document.getElementById('planifier-calendar-popover');
+  if (popover) {
+    popover.hidden = true;
+    popover.setAttribute('aria-hidden', 'true');
+  }
+  planifierCalendarRuntime.popoverVisible = false;
+  planifierCalendarRuntime.pendingShowPopover = false;
+}
+
+function schedulePlanifierCalendarPopover() {
+  if (!planifierCalendarRuntime.pendingUpdate || planifierCalendarRuntime.snoozed) {
+    return;
+  }
+  cancelPlanifierCalendarPopoverTimer();
+  planifierCalendarRuntime.popoverTimerId = window.setTimeout(() => {
+    planifierCalendarRuntime.popoverTimerId = null;
+    if (!planifierCalendarRuntime.pendingUpdate || planifierCalendarRuntime.snoozed) {
+      return;
+    }
+    showPlanifierCalendarPopover({ focusButton: false });
+  }, 2000);
+}
+
+function handlePlanifierStateSaved() {
+  const planState = ensurePlanifierCalendarState();
+  planifierCalendarRuntime.hasTasks = checkHasPlannedTasks();
+  const snapshot = buildPlanifierTasksSnapshot(state.tasks);
+  const snapshotChanged = snapshot !== planifierCalendarRuntime.lastSnapshot;
+  planifierCalendarRuntime.lastSnapshot = snapshot;
+  const exportSnapshot = planState.lastExportSnapshot || '';
+  planifierCalendarRuntime.pendingUpdate = snapshot !== exportSnapshot;
+  const immediate = planifierCalendarRuntime.expectImmediatePopover;
+  planifierCalendarRuntime.expectImmediatePopover = false;
+
+  if (planifierCalendarRuntime.ignoreNextSnapshotChange) {
+    planifierCalendarRuntime.ignoreNextSnapshotChange = false;
+    if (!planifierCalendarRuntime.pendingUpdate) {
+      planifierCalendarRuntime.snoozed = false;
+      planifierCalendarRuntime.snoozedSnapshot = null;
+      hidePlanifierCalendarPopover();
+    }
+    applyPlanifierCalendarButtonState();
+    applyPlanifierCalendarBadge();
+    return;
+  }
+
+  applyPlanifierCalendarButtonState();
+
+  if (!snapshotChanged) {
+    if (!planifierCalendarRuntime.pendingUpdate) {
+      planifierCalendarRuntime.snoozed = false;
+      planifierCalendarRuntime.snoozedSnapshot = null;
+      hidePlanifierCalendarPopover();
+    } else if (planifierCalendarRuntime.popoverVisible) {
+      showPlanifierCalendarPopover({ focusButton: false });
+    }
+    applyPlanifierCalendarBadge();
+    return;
+  }
+
+  if (!planifierCalendarRuntime.pendingUpdate) {
+    planifierCalendarRuntime.snoozed = false;
+    planifierCalendarRuntime.snoozedSnapshot = null;
+    hidePlanifierCalendarPopover();
+    applyPlanifierCalendarBadge();
+    return;
+  }
+
+  if (planifierCalendarRuntime.snoozed) {
+    if (snapshot === planifierCalendarRuntime.snoozedSnapshot) {
+      applyPlanifierCalendarBadge();
+      return;
+    }
+    planifierCalendarRuntime.snoozed = false;
+    planifierCalendarRuntime.snoozedSnapshot = null;
+  }
+
+  if (immediate) {
+    hidePlanifierCalendarPopover();
+    showPlanifierCalendarPopover({ focusButton: true });
+  } else {
+    schedulePlanifierCalendarPopover();
+  }
+
+  applyPlanifierCalendarBadge();
 }
 
 function getTodayDateObj() {
@@ -7916,6 +8153,50 @@ function renderProgramme() {
   renderPreview({ reveal: false });
 }
 
+function initPlanifierCalendarControls() {
+  const exportBtn = document.getElementById('planifier-calendar-export-btn');
+  if (exportBtn) {
+    exportBtn.onclick = () => {
+      if (exportBtn.disabled) {
+        return;
+      }
+      exportPlanifierCalendar();
+    };
+  }
+
+  const updateBtn = document.getElementById('planifier-calendar-update-now-btn');
+  if (updateBtn) {
+    updateBtn.onclick = () => {
+      exportPlanifierCalendar();
+    };
+  }
+
+  const laterBtn = document.getElementById('planifier-calendar-later-btn');
+  if (laterBtn) {
+    laterBtn.onclick = () => {
+      planifierCalendarRuntime.snoozed = true;
+      planifierCalendarRuntime.snoozedSnapshot = planifierCalendarRuntime.lastSnapshot;
+      hidePlanifierCalendarPopover();
+      applyPlanifierCalendarBadge();
+    };
+  }
+
+  applyPlanifierCalendarButtonState();
+  applyPlanifierCalendarBadge();
+
+  if (planifierCalendarRuntime.pendingUpdate && !planifierCalendarRuntime.snoozed) {
+    if (planifierCalendarRuntime.popoverVisible || planifierCalendarRuntime.pendingShowPopover) {
+      window.setTimeout(() => {
+        if (planifierCalendarRuntime.pendingUpdate && !planifierCalendarRuntime.snoozed) {
+          showPlanifierCalendarPopover({ focusButton: planifierCalendarRuntime.popoverVisible });
+        }
+      }, 60);
+    }
+  } else {
+    hidePlanifierCalendarPopover();
+  }
+}
+
 function renderPlanifier() {
   const container = document.getElementById('planifier-days');
   if (!container) return;
@@ -8047,12 +8328,19 @@ function renderPlanifier() {
         }
       });
 
+      planifierCalendarRuntime.expectImmediatePopover = true;
+      planifierCalendarRuntime.snoozed = false;
+      planifierCalendarRuntime.snoozedSnapshot = null;
+      planifierCalendarRuntime.pendingShowPopover = false;
+
       recordUserActivity('planifier-save');
       saveState();
       alert('Planification enregistrée !');
       showView('aujourdhui');
     };
   }
+
+  initPlanifierCalendarControls();
 }
 
 function setPlanifierTabsMode(mode) {
@@ -11725,6 +12013,282 @@ function addMinutesToParts(parts, minutesToAdd) {
   };
 }
 
+function buildCalendarFilename(prefix = 'zeyne-rappels') {
+  const now = new Date();
+  const datePart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  return `${prefix}-${datePart}.ics`;
+}
+
+function generateCalendarICS({ entries, timezone, calendarName, prodId }) {
+  const tz = timezone || CALENDAR_EXPORT_TIMEZONE;
+  const name = calendarName || 'ZEYNE';
+  const producer = prodId || '-//ZEYNE//Calendar Export//FR';
+  const dtstamp = formatICSDateTimeUTC(new Date());
+
+  const calendarLines = foldICSLines([
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    `PRODID:${producer}`,
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    `X-WR-CALNAME:${name}`,
+    `X-WR-TIMEZONE:${tz}`
+  ]);
+
+  const timezoneLines = tz === CALENDAR_EXPORT_TIMEZONE ? foldICSLines(CALENDAR_EXPORT_VTIMEZONE_LINES) : [];
+  const eventLines = [];
+
+  entries.forEach(entry => {
+    const lines = [
+      'BEGIN:VEVENT',
+      `UID:${entry.uid}`,
+      `DTSTAMP:${dtstamp}`,
+      `SEQUENCE:${Number.isFinite(entry.sequence) ? entry.sequence : 0}`,
+      `SUMMARY:${escapeICSText(entry.summary || '')}`,
+      `DESCRIPTION:${escapeICSText(entry.description || '')}`,
+      `DTSTART;TZID=${tz}:${formatICSDateTimeFromParts(entry.startParts)}`,
+      `DTEND;TZID=${tz}:${formatICSDateTimeFromParts(entry.endParts)}`
+    ];
+
+    if (Array.isArray(entry.alarms)) {
+      entry.alarms.forEach(alarm => {
+        const minutes = Number(alarm.triggerMinutes);
+        if (!Number.isFinite(minutes)) {
+          return;
+        }
+        const absMinutes = Math.abs(Math.round(minutes));
+        const prefix = minutes <= 0 ? '-' : '';
+        const trigger = absMinutes > 0 ? `${prefix}PT${absMinutes}M` : 'PT0M';
+        const alarmDescription = alarm.description || entry.summary || 'Notification ZEYNE';
+        lines.push('BEGIN:VALARM');
+        lines.push(`TRIGGER:${trigger}`);
+        lines.push('ACTION:DISPLAY');
+        lines.push(`DESCRIPTION:${escapeICSText(alarmDescription)}`);
+        lines.push('END:VALARM');
+      });
+    }
+
+    lines.push('END:VEVENT');
+    eventLines.push(...foldICSLines(lines));
+  });
+
+  const footerLines = foldICSLines(['END:VCALENDAR']);
+  return [...calendarLines, ...timezoneLines, ...eventLines, ...footerLines].join('\r\n');
+}
+
+function downloadCalendarICS(entries, { timezone, calendarName, prodId, filename, successMessage } = {}) {
+  if (!Array.isArray(entries) || !entries.length) {
+    return false;
+  }
+
+  try {
+    const tz = timezone || CALENDAR_EXPORT_TIMEZONE;
+    const effectiveFilename = filename || buildCalendarFilename();
+    const content = generateCalendarICS({ entries, timezone: tz, calendarName, prodId });
+    const blob = new Blob([content], { type: 'text/calendar;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', effectiveFilename);
+    if (isIOSDevice()) {
+      link.setAttribute('target', '_blank');
+    }
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    if (successMessage) {
+      showToast(successMessage);
+    }
+    return true;
+  } catch (error) {
+    console.error('Export .ics impossible', error);
+    showToast('Export .ics impossible pour le moment.');
+    return false;
+  }
+}
+
+function resolvePlanifierTaskTimeParts(task) {
+  if (!task) {
+    return { hour: 9, minute: 0 };
+  }
+  const explicit = parseTimeFromString(task.time || '');
+  if (explicit) {
+    return { hour: explicit.hours, minute: explicit.minutes };
+  }
+  const fromMoment = parseTimeFromString(task.moment || '');
+  if (fromMoment) {
+    return { hour: fromMoment.hours, minute: fromMoment.minutes };
+  }
+  const slot = categorizeMomentSlot(task.moment);
+  const fallbackLabel = slot && PLANIFIER_CALENDAR_SLOT_DEFAULTS[slot]
+    ? PLANIFIER_CALENDAR_SLOT_DEFAULTS[slot]
+    : PLANIFIER_CALENDAR_SLOT_DEFAULTS['Matin'];
+  const parsedFallback = parseTimeFromString(fallbackLabel);
+  if (parsedFallback) {
+    return { hour: parsedFallback.hours, minute: parsedFallback.minutes };
+  }
+  return { hour: 9, minute: 0 };
+}
+
+function buildPlanifierCalendarSummary(task) {
+  const baseTitle = (task?.title || '').trim() || 'Micro-tâche ZEYNE';
+  const audio = normalizeAudioValue(task?.audio || '');
+  if (audio === 'builtin-etirements') {
+    return `${baseTitle} (Étirements)`;
+  }
+  if (audio === 'builtin-respiration') {
+    return `${baseTitle} (Respiration)`;
+  }
+  return baseTitle;
+}
+
+function buildPlanifierCalendarDescription(task, effectiveDuration) {
+  const parts = [];
+  const momentLabel = (task?.moment || '').trim();
+  if (momentLabel) {
+    parts.push(`Créneau : ${momentLabel}`);
+  }
+
+  if (Number.isFinite(effectiveDuration) && effectiveDuration > 0) {
+    parts.push(`Durée prévue : ${effectiveDuration} min`);
+  }
+
+  const audioValue = normalizeAudioValue(task?.audio || '');
+  const audioLabel = formatTaskAudioLabel(task);
+  if (audioLabel) {
+    parts.push(`Audio : ${audioLabel}`);
+  } else if (audioValue === 'builtin-respiration') {
+    parts.push('Audio : Respiration');
+  } else if (audioValue === 'builtin-etirements') {
+    parts.push('Audio : Étirements');
+  }
+
+  const micropas = (task?.micropas || '').trim();
+  if (micropas) {
+    parts.push(`Notes : ${micropas}`);
+  }
+
+  const linkKeys = ['link', 'url', 'resource', 'app', 'appLink'];
+  linkKeys.forEach(key => {
+    const raw = task && typeof task[key] === 'string' ? task[key].trim() : '';
+    if (!raw) {
+      return;
+    }
+    const label = key === 'app' ? 'App' : 'Lien';
+    parts.push(`${label} : ${raw}`);
+  });
+
+  return parts.join('\n\n');
+}
+
+function buildPlanifierCalendarEntries({ forExport = false } = {}) {
+  ensurePlanifierCalendarState();
+  const sequencesState = state.planifierCalendar.sequences;
+  const sequencesToPersist = {};
+  const entries = [];
+  const dates = Object.keys(state.tasks || {}).filter(Boolean).sort();
+
+  dates.forEach(dateStr => {
+    const parts = dateStr.split('-').map(part => Number.parseInt(part, 10));
+    if (parts.length !== 3 || parts.some(num => !Number.isFinite(num))) {
+      return;
+    }
+    const [year, month, day] = parts;
+    const tasksForDay = Array.isArray(state.tasks[dateStr]) ? state.tasks[dateStr] : [];
+    tasksForDay.forEach((task, idx) => {
+      if (!task || isTaskEmpty(task)) {
+        return;
+      }
+
+      if (!task.id) {
+        task.id = generateTaskId();
+      }
+
+      const timeParts = resolvePlanifierTaskTimeParts(task);
+      const startParts = {
+        year,
+        month,
+        day,
+        hour: timeParts.hour,
+        minute: timeParts.minute
+      };
+
+      const effectiveDuration = getEffectiveTaskDuration(task);
+      const durationMinutes = Number.isFinite(effectiveDuration) && effectiveDuration > 0
+        ? effectiveDuration
+        : 25;
+      const endParts = addMinutesToParts(startParts, durationMinutes);
+      const summary = buildPlanifierCalendarSummary(task);
+      const description = buildPlanifierCalendarDescription(task, effectiveDuration);
+      const normalizedId = (task.id || `tsk-${idx}`).toString().replace(/[^a-zA-Z0-9-]/g, '');
+      const uid = `zeyne-plan-${dateStr}-${normalizedId}@zeyne.app`;
+      const currentSequence = Number.isFinite(Number(sequencesState[uid])) ? Number(sequencesState[uid]) : 0;
+      const sequence = forExport ? currentSequence + 1 : currentSequence;
+      if (forExport) {
+        sequencesToPersist[uid] = sequence;
+      }
+
+      entries.push({
+        startParts,
+        endParts,
+        summary,
+        description,
+        uid,
+        sequence,
+        alarms: [{ triggerMinutes: -PLANIFIER_CALENDAR_ALARM_MINUTES }],
+        startSortKey: Date.UTC(year, month - 1, day, startParts.hour, startParts.minute)
+      });
+    });
+  });
+
+  entries.sort((a, b) => a.startSortKey - b.startSortKey);
+  return { entries, sequencesToPersist };
+}
+
+function exportPlanifierCalendar() {
+  const { entries, sequencesToPersist } = buildPlanifierCalendarEntries({ forExport: true });
+  if (!entries.length) {
+    showToast('Planifie au moins une tâche pour exporter le calendrier.');
+    return false;
+  }
+
+  const timezone = (state.notifications?.timezone && typeof state.notifications.timezone === 'string'
+    && state.notifications.timezone)
+    ? state.notifications.timezone
+    : CALENDAR_EXPORT_TIMEZONE;
+
+  const success = downloadCalendarICS(entries, {
+    timezone,
+    calendarName: PLANIFIER_CALENDAR_NAME,
+    prodId: PLANIFIER_CALENDAR_PRODID,
+    filename: buildCalendarFilename(),
+    successMessage: 'Calendrier mis à jour.'
+  });
+
+  if (!success) {
+    return false;
+  }
+
+  const planState = ensurePlanifierCalendarState();
+  Object.entries(sequencesToPersist).forEach(([uid, sequence]) => {
+    planState.sequences[uid] = sequence;
+  });
+  planState.lastExportSnapshot = buildPlanifierTasksSnapshot(state.tasks);
+  planState.lastExportedAt = new Date().toISOString();
+
+  planifierCalendarRuntime.pendingUpdate = false;
+  planifierCalendarRuntime.snoozed = false;
+  planifierCalendarRuntime.snoozedSnapshot = null;
+  hidePlanifierCalendarPopover();
+  applyPlanifierCalendarBadge();
+
+  planifierCalendarRuntime.ignoreNextSnapshotChange = true;
+  saveState();
+  applyPlanifierCalendarButtonState();
+  return true;
+}
+
 function buildReminderCalendarEntries() {
   ensureNotificationState();
   const entries = [];
@@ -11772,6 +12336,7 @@ function buildReminderCalendarEntries() {
         summary: `ZEYNE – Rappel (${slotDetails.label})`,
         description: REMINDER_CALENDAR_DESCRIPTION,
         uid: `zeyne-reminder-${dateStr}-${slotKey}-${normalizedTime.replace(':', '')}@zeyne.app`,
+        sequence: 0,
         startSortKey: Date.UTC(startParts.year, startParts.month - 1, startParts.day, startParts.hour, startParts.minute)
       });
     });
@@ -11781,63 +12346,24 @@ function buildReminderCalendarEntries() {
   return entries;
 }
 
-function generateReminderCalendarICS(entries) {
-  const timezone = (state.notifications?.timezone && typeof state.notifications.timezone === 'string' && state.notifications.timezone)
-    ? state.notifications.timezone
-    : CALENDAR_EXPORT_TIMEZONE;
-  const dtstamp = formatICSDateTimeUTC(new Date());
-  const calendarLines = foldICSLines([
-    'BEGIN:VCALENDAR',
-    'VERSION:2.0',
-    'PRODID:-//ZEYNE//Reminders Export//FR',
-    'CALSCALE:GREGORIAN',
-    'METHOD:PUBLISH',
-    'X-WR-CALNAME:ZEYNE — Rappels',
-    `X-WR-TIMEZONE:${timezone}`
-  ]);
-
-  const timezoneLines = timezone === CALENDAR_EXPORT_TIMEZONE ? foldICSLines(CALENDAR_EXPORT_VTIMEZONE_LINES) : [];
-  const eventLines = [];
-
-  entries.forEach(entry => {
-    const lines = [
-      'BEGIN:VEVENT',
-      `UID:${entry.uid}`,
-      `DTSTAMP:${dtstamp}`,
-      `SUMMARY:${escapeICSText(entry.summary)}`,
-      `DESCRIPTION:${escapeICSText(entry.description)}`,
-      `DTSTART;TZID=${timezone}:${formatICSDateTimeFromParts(entry.startParts)}`,
-      `DTEND;TZID=${timezone}:${formatICSDateTimeFromParts(entry.endParts)}`,
-      'END:VEVENT'
-    ];
-    eventLines.push(...foldICSLines(lines));
-  });
-
-  const footerLines = foldICSLines(['END:VCALENDAR']);
-  return [...calendarLines, ...timezoneLines, ...eventLines, ...footerLines].join('\r\n');
-}
-
 function downloadReminderCalendarICS() {
   const entries = buildReminderCalendarEntries();
   if (!entries.length) {
     showToast('Active au moins un rappel pour exporter ton calendrier.');
-    return;
+    return false;
   }
 
-  const icsContent = generateReminderCalendarICS(entries);
-  const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.setAttribute('download', 'ZEYNE-rappels.ics');
-  if (isIOSDevice()) {
-    link.setAttribute('target', '_blank');
-  }
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
-  showToast('Fichier .ics des rappels généré.');
+  const timezone = (state.notifications?.timezone && typeof state.notifications.timezone === 'string' && state.notifications.timezone)
+    ? state.notifications.timezone
+    : CALENDAR_EXPORT_TIMEZONE;
+
+  return downloadCalendarICS(entries, {
+    timezone,
+    calendarName: 'ZEYNE — Rappels',
+    prodId: '-//ZEYNE//Reminders Export//FR',
+    filename: buildCalendarFilename(),
+    successMessage: 'Fichier .ics des rappels généré.'
+  });
 }
 
 function updateNotificationsCalendarExportState() {
