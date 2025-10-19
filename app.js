@@ -1527,6 +1527,12 @@ const planifierCalendarRuntime = {
 let lastTemplateApplication = null;
 let releaseFocusTrapCallback = null;
 let lastFocusBeforeModal = null;
+const TEMPLATE_MODAL_KEY = 'planifier-template';
+const templateModalState = {
+  selectedTemplateId: null,
+  trigger: null
+};
+let templateModalOverlayListenerAttached = false;
 let taskIdCounter = 0;
 let currentReportModalContext = null;
 
@@ -5767,7 +5773,7 @@ function isTaskScheduleLate(task) {
   return candidate.getTime() < now.getTime();
 }
 
-function setupFocusTrap(container, { modalKey = null, initialFocus = null } = {}) {
+function setupFocusTrap(container, { modalKey = null, initialFocus = null, onEscape = null } = {}) {
   releaseFocusTrap();
   if (!container) return;
 
@@ -5789,10 +5795,18 @@ function setupFocusTrap(container, { modalKey = null, initialFocus = null } = {}
       return;
     }
 
-    if (event.key === 'Escape' && modalKey === 'quick-add') {
-      event.preventDefault();
-      closeModal();
-      return;
+    if (event.key === 'Escape') {
+      if (modalKey === 'quick-add') {
+        event.preventDefault();
+        closeModal();
+        return;
+      }
+
+      if (typeof onEscape === 'function') {
+        event.preventDefault();
+        onEscape();
+        return;
+      }
     }
 
     if (event.key !== 'Tab') {
@@ -8361,6 +8375,67 @@ function setPlanifierTabsMode(mode) {
   }
 }
 
+function ensureTemplateModalOverlayDismissal(modal) {
+  if (!modal || templateModalOverlayListenerAttached) {
+    return;
+  }
+
+  modal.addEventListener('click', (event) => {
+    if (event.target !== modal) {
+      return;
+    }
+
+    if (modal.dataset.activeModal === TEMPLATE_MODAL_KEY) {
+      closeTemplateModal();
+    }
+  });
+
+  templateModalOverlayListenerAttached = true;
+}
+
+function prepareTemplateModal() {
+  const modal = document.getElementById('modal-overlay');
+  const content = document.getElementById('modal-content');
+  if (!modal || !content) {
+    return { modal: null, content: null };
+  }
+
+  content.classList.remove(
+    'template-wide',
+    'badge-modal-container',
+    'quick-add-modal',
+    'social-modal',
+    'challenge-details-modal',
+    'challenge-setup-modal',
+    'challenge-completion-modal',
+    'heatmap-modal',
+    'inactivity-nudge-modal'
+  );
+  content.classList.add('template-modal-container');
+
+  content.setAttribute('role', 'dialog');
+  content.setAttribute('aria-modal', 'true');
+
+  modal.dataset.activeModal = TEMPLATE_MODAL_KEY;
+  modal.classList.add('show');
+
+  document.body.classList.add('modal-open');
+  const appContainer = document.querySelector('.app-container');
+  if (appContainer) {
+    appContainer.classList.add('modal-blurred');
+  }
+
+  ensureTemplateModalOverlayDismissal(modal);
+
+  return { modal, content };
+}
+
+function closeTemplateModal() {
+  closeModal();
+  templateModalState.selectedTemplateId = null;
+  templateModalState.trigger = null;
+}
+
 function getTemplateById(templateId) {
   return TEMPLATE_LIBRARY.find(t => t.id === templateId);
 }
@@ -8456,69 +8531,147 @@ function resolveTemplateApplication(template, period, conflict, options = {}) {
 }
 
 function openTemplateLibrary() {
-  const modal = document.getElementById('modal-overlay');
-  const content = document.getElementById('modal-content');
+  const { modal, content } = prepareTemplateModal();
   if (!modal || !content) return;
 
   setPlanifierTabsMode('templates');
   content.classList.remove('template-wide');
-  content.classList.remove('challenge-details-modal');
-  content.classList.remove('challenge-setup-modal');
-  content.classList.remove('challenge-completion-modal');
+
+  const triggerButton = document.getElementById('planifier-template-tab');
+  if (!templateModalState.trigger && triggerButton instanceof HTMLElement) {
+    templateModalState.trigger = triggerButton;
+  }
+  if (templateModalState.trigger instanceof HTMLElement) {
+    lastFocusBeforeModal = templateModalState.trigger;
+  }
 
   content.innerHTML = `
-    <div class="template-library">
-      <div class="template-library-header">
-        <h3>Templates</h3>
-        <p>Accélérez votre démarrage avec des routines prêtes en 3 micro-tâches par jour.</p>
+    <div class="template-modal-shell template-library" data-template-view="library">
+      <div class="template-modal-header">
+        <h3 id="template-modal-title">Templates</h3>
+        <button type="button" class="template-modal-close" id="template-modal-close" aria-label="Fermer">
+          <span aria-hidden="true">✕</span>
+        </button>
       </div>
-      <div class="template-library-grid">
-        ${TEMPLATE_LIBRARY.map(template => `
-          <div class="template-card" data-template-id="${template.id}">
-            <h4>${template.name}</h4>
-            <p>${template.description}</p>
-            <div class="template-meta">
-              <span class="template-badge">🕒 ${template.duration}</span>
-              <span class="template-badge">✨ ${template.ritual}</span>
-            </div>
-            <div class="template-actions">
-              <button class="btn btn-secondary" data-action="preview" data-template="${template.id}">Prévisualiser</button>
-              <button class="btn btn-primary" data-action="apply" data-template="${template.id}">Appliquer</button>
-            </div>
-          </div>
-        `).join('')}
+      <div class="template-modal-body">
+        <p class="template-modal-subtitle">Accélérez votre démarrage avec des routines prêtes en 3 micro-tâches par jour.</p>
+        <div class="template-library-grid" role="radiogroup" aria-label="Templates disponibles">
+          ${TEMPLATE_LIBRARY.map(template => `
+            <article class="template-card" data-template-id="${template.id}" role="radio" aria-checked="false" tabindex="0">
+              <div>
+                <h4>${template.name}</h4>
+                <p>${template.description}</p>
+              </div>
+              <div class="template-meta">
+                <span class="template-badge">🕒 ${template.duration}</span>
+                <span class="template-badge">✨ ${template.ritual}</span>
+              </div>
+              <div class="template-actions">
+                <button type="button" class="btn btn-secondary template-card-preview" data-template="${template.id}">Prévisualiser</button>
+              </div>
+            </article>
+          `).join('')}
+        </div>
+      </div>
+      <div class="template-modal-footer">
+        <div class="template-modal-footer-left">
+          <button type="button" class="btn btn-secondary" id="template-cancel-btn">Annuler</button>
+        </div>
+        <div class="template-modal-footer-right">
+          <button type="button" class="btn btn-primary" id="template-apply-selected-btn" disabled>Appliquer ce template</button>
+        </div>
       </div>
     </div>
   `;
 
-  modal.classList.add('show');
+  content.setAttribute('aria-labelledby', 'template-modal-title');
 
-  content.querySelectorAll('[data-action="preview"]').forEach(btn => {
-    btn.onclick = () => {
-      const template = getTemplateById(btn.getAttribute('data-template'));
-      if (template) {
-        showTemplatePreview(template);
+  const closeBtn = content.querySelector('#template-modal-close');
+  const cancelBtn = content.querySelector('#template-cancel-btn');
+  const applyBtn = content.querySelector('#template-apply-selected-btn');
+  const cards = Array.from(content.querySelectorAll('.template-card'));
+  const previewButtons = content.querySelectorAll('.template-card-preview');
+
+  const setSelection = (templateId, { focusCard = false } = {}) => {
+    templateModalState.selectedTemplateId = templateId;
+    cards.forEach(card => {
+      const isActive = card.dataset.templateId === templateId;
+      card.classList.toggle('template-card-selected', isActive);
+      card.setAttribute('aria-checked', isActive ? 'true' : 'false');
+      if (isActive && focusCard) {
+        card.focus();
       }
-    };
+    });
+    if (applyBtn) {
+      applyBtn.disabled = !templateId;
+    }
+  };
+
+  cards.forEach(card => {
+    card.addEventListener('click', (event) => {
+      if (event.target.closest('.template-card-preview')) {
+        return;
+      }
+      setSelection(card.dataset.templateId);
+    });
+
+    card.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        setSelection(card.dataset.templateId);
+      }
+    });
   });
 
-  content.querySelectorAll('[data-action="apply"]').forEach(btn => {
-    btn.onclick = () => {
+  previewButtons.forEach(btn => {
+    btn.addEventListener('click', (event) => {
+      event.stopPropagation();
       const template = getTemplateById(btn.getAttribute('data-template'));
+      if (template) {
+        setSelection(template.id);
+        showTemplatePreview(template);
+      }
+    });
+  });
+
+  if (templateModalState.selectedTemplateId) {
+    setSelection(templateModalState.selectedTemplateId, { focusCard: true });
+  }
+
+  const closeHandlers = [closeBtn, cancelBtn];
+  closeHandlers.forEach(btn => {
+    if (btn) {
+      btn.addEventListener('click', () => closeTemplateModal());
+    }
+  });
+
+  if (applyBtn) {
+    applyBtn.addEventListener('click', () => {
+      if (!templateModalState.selectedTemplateId) {
+        return;
+      }
+      const template = getTemplateById(templateModalState.selectedTemplateId);
       if (template) {
         showTemplateApply(template);
       }
-    };
+    });
+  }
+
+  setupFocusTrap(content, {
+    modalKey: TEMPLATE_MODAL_KEY,
+    initialFocus: closeBtn || cancelBtn || applyBtn || cards[0] || null,
+    onEscape: () => closeTemplateModal()
   });
 }
 
 function showTemplatePreview(template) {
-  const modal = document.getElementById('modal-overlay');
-  const content = document.getElementById('modal-content');
+  const { modal, content } = prepareTemplateModal();
   if (!modal || !content) return;
 
   setPlanifierTabsMode('templates');
   content.classList.add('template-wide');
+
+  templateModalState.selectedTemplateId = template?.id || templateModalState.selectedTemplateId;
 
   const baseDate = new Date();
   baseDate.setHours(0, 0, 0, 0);
@@ -8533,104 +8686,147 @@ function showTemplatePreview(template) {
   });
 
   content.innerHTML = `
-    <div class="template-preview">
-      <div class="template-preview-header">
-        <h3>${template.name}</h3>
-        <p>${template.description}</p>
-        <div class="template-meta">
-          <span class="template-badge">🕒 ${template.duration}</span>
-          <span class="template-badge">✨ Rituel : ${template.ritual}</span>
+    <div class="template-modal-shell template-preview" data-template-view="preview">
+      <div class="template-modal-header">
+        <h3 id="template-preview-title">${template.name}</h3>
+        <button type="button" class="template-modal-close" id="template-modal-close" aria-label="Fermer">
+          <span aria-hidden="true">✕</span>
+        </button>
+      </div>
+      <div class="template-modal-body">
+        <div class="template-preview-header">
+          <p>${template.description}</p>
+          <div class="template-meta">
+            <span class="template-badge">🕒 ${template.duration}</span>
+            <span class="template-badge">✨ Rituel : ${template.ritual}</span>
+          </div>
+        </div>
+        <div class="template-preview-grid">
+          ${previewDays.map(day => `
+            <div class="preview-day">
+              <div class="preview-day-header">
+                <strong>${day.label} · ${day.formatted}</strong>
+                <span class="preview-day-ritual">Rituel : ${template.ritual}</span>
+              </div>
+              ${template.tasks.slice(0, 3).map(task => `
+                <div class="preview-task">
+                  <strong>${task.moment}</strong>
+                  <span>${task.title}</span>
+                </div>
+              `).join('')}
+            </div>
+          `).join('')}
         </div>
       </div>
-      <div class="template-preview-grid">
-        ${previewDays.map(day => `
-          <div class="preview-day">
-            <div class="preview-day-header">
-              <strong>${day.label} · ${day.formatted}</strong>
-              <span class="preview-day-ritual">Rituel : ${template.ritual}</span>
-            </div>
-            ${template.tasks.slice(0, 3).map(task => `
-              <div class="preview-task">
-                <strong>${task.moment}</strong>
-                <span>${task.title}</span>
-              </div>
-            `).join('')}
-          </div>
-        `).join('')}
-      </div>
-      <div class="template-preview-footer">
-        <button class="btn btn-secondary" id="template-preview-back">Retour</button>
-        <button class="btn btn-primary" id="template-preview-apply">Appliquer</button>
+      <div class="template-modal-footer">
+        <div class="template-modal-footer-left">
+          <button type="button" class="btn btn-secondary" id="template-preview-cancel">Annuler</button>
+          <button type="button" class="btn btn-outline" id="template-preview-back">Retour aux templates</button>
+        </div>
+        <div class="template-modal-footer-right">
+          <button type="button" class="btn btn-primary" id="template-preview-apply">Appliquer ce template</button>
+        </div>
       </div>
     </div>
   `;
 
-  modal.classList.add('show');
+  content.setAttribute('aria-labelledby', 'template-preview-title');
 
+  const closeBtn = content.querySelector('#template-modal-close');
+  const cancelBtn = content.querySelector('#template-preview-cancel');
   const backBtn = content.querySelector('#template-preview-back');
   const applyBtn = content.querySelector('#template-preview-apply');
 
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => closeTemplateModal());
+  }
+
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', () => closeTemplateModal());
+  }
+
   if (backBtn) {
-    backBtn.onclick = () => openTemplateLibrary();
+    backBtn.addEventListener('click', () => openTemplateLibrary());
   }
 
   if (applyBtn) {
-    applyBtn.onclick = () => showTemplateApply(template);
+    applyBtn.addEventListener('click', () => showTemplateApply(template));
   }
+
+  setupFocusTrap(content, {
+    modalKey: TEMPLATE_MODAL_KEY,
+    initialFocus: closeBtn || cancelBtn || backBtn || applyBtn || null,
+    onEscape: () => closeTemplateModal()
+  });
 }
 
 function showTemplateApply(template) {
-  const modal = document.getElementById('modal-overlay');
-  const content = document.getElementById('modal-content');
+  const { modal, content } = prepareTemplateModal();
   if (!modal || !content) return;
 
   setPlanifierTabsMode('templates');
   content.classList.remove('template-wide');
 
+  templateModalState.selectedTemplateId = template?.id || templateModalState.selectedTemplateId;
+
   content.innerHTML = `
-    <div class="template-apply">
-      <h3>Appliquer « ${template.name} »</h3>
-      <div class="template-apply-options">
-        <div>
-          <h4>Période</h4>
-          <div class="template-radio-group">
-            <label class="template-radio-option">
-              <input type="radio" name="template-period" value="this-week" checked>
-              <span>Cette semaine (dès aujourd'hui)</span>
-            </label>
-            <label class="template-radio-option">
-              <input type="radio" name="template-period" value="next-week">
-              <span>Semaine prochaine (à partir de lundi)</span>
-            </label>
-          </div>
-        </div>
-        <div>
-          <h4>Conflits</h4>
-          <div class="template-radio-group">
-            <label class="template-radio-option">
-              <input type="radio" name="template-conflict" value="replace" checked>
-              <span>Remplacer les micro-tâches planifiées (hors tâches validées)</span>
-            </label>
-            <label class="template-radio-option">
-              <input type="radio" name="template-conflict" value="fill-empty">
-              <span>Compléter uniquement les cases vides</span>
-            </label>
-          </div>
-        </div>
+    <div class="template-modal-shell template-apply" data-template-view="apply">
+      <div class="template-modal-header">
+        <h3 id="template-apply-title">Appliquer « ${template.name} »</h3>
+        <button type="button" class="template-modal-close" id="template-modal-close" aria-label="Fermer">
+          <span aria-hidden="true">✕</span>
+        </button>
       </div>
-      <div class="template-summary" id="template-summary"></div>
-      <div class="modal-buttons">
-        <button class="btn btn-secondary" id="template-back-btn">Retour</button>
-        <button class="btn btn-primary" id="template-confirm-btn">Confirmer</button>
+      <div class="template-modal-body">
+        <div class="template-apply-options">
+          <div>
+            <h4>Période</h4>
+            <div class="template-radio-group">
+              <label class="template-radio-option">
+                <input type="radio" name="template-period" value="this-week" checked>
+                <span>Cette semaine (dès aujourd'hui)</span>
+              </label>
+              <label class="template-radio-option">
+                <input type="radio" name="template-period" value="next-week">
+                <span>Semaine prochaine (à partir de lundi)</span>
+              </label>
+            </div>
+          </div>
+          <div>
+            <h4>Conflits</h4>
+            <div class="template-radio-group">
+              <label class="template-radio-option">
+                <input type="radio" name="template-conflict" value="replace" checked>
+                <span>Remplacer les micro-tâches planifiées (hors tâches validées)</span>
+              </label>
+              <label class="template-radio-option">
+                <input type="radio" name="template-conflict" value="fill-empty">
+                <span>Compléter uniquement les cases vides</span>
+              </label>
+            </div>
+          </div>
+        </div>
+        <div class="template-summary" id="template-summary"></div>
+      </div>
+      <div class="template-modal-footer">
+        <div class="template-modal-footer-left">
+          <button type="button" class="btn btn-secondary" id="template-apply-cancel">Annuler</button>
+          <button type="button" class="btn btn-outline" id="template-back-btn">Retour aux templates</button>
+        </div>
+        <div class="template-modal-footer-right">
+          <button type="button" class="btn btn-primary" id="template-confirm-btn">Appliquer ce template</button>
+        </div>
       </div>
     </div>
   `;
 
-  modal.classList.add('show');
+  content.setAttribute('aria-labelledby', 'template-apply-title');
 
-  const summaryEl = content.querySelector('#template-summary');
-  const confirmBtn = content.querySelector('#template-confirm-btn');
+  const closeBtn = content.querySelector('#template-modal-close');
+  const cancelBtn = content.querySelector('#template-apply-cancel');
   const backBtn = content.querySelector('#template-back-btn');
+  const confirmBtn = content.querySelector('#template-confirm-btn');
+  const summaryEl = content.querySelector('#template-summary');
 
   let currentPlan = resolveTemplateApplication(template, 'this-week', 'replace');
 
@@ -8663,18 +8859,34 @@ function showTemplateApply(template) {
     input.onchange = updateSummary;
   });
 
+  updateSummary();
+
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => closeTemplateModal());
+  }
+
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', () => closeTemplateModal());
+  }
+
   if (backBtn) {
-    backBtn.onclick = () => openTemplateLibrary();
+    backBtn.addEventListener('click', () => openTemplateLibrary());
   }
 
   if (confirmBtn) {
-    confirmBtn.onclick = () => {
-      if (!currentPlan || currentPlan.stats.daysUpdated === 0) return;
+    confirmBtn.addEventListener('click', () => {
+      if (!currentPlan || currentPlan.stats.daysUpdated === 0) {
+        return;
+      }
       applyTemplatePlan(template, currentPlan);
-    };
+    });
   }
 
-  updateSummary();
+  setupFocusTrap(content, {
+    modalKey: TEMPLATE_MODAL_KEY,
+    initialFocus: closeBtn || cancelBtn || backBtn || confirmBtn || null,
+    onEscape: () => closeTemplateModal()
+  });
 }
 
 function applyTemplatePlan(template, plan, options = {}) {
@@ -8726,9 +8938,25 @@ function showTemplateAppliedMessage(template, stats) {
   setPlanifierTabsMode('templates');
   content.classList.remove('template-wide');
 
+  modal.dataset.activeModal = TEMPLATE_MODAL_KEY;
+  document.body.classList.add('modal-open');
+  const appContainer = document.querySelector('.app-container');
+  if (appContainer) {
+    appContainer.classList.add('modal-blurred');
+  }
+  ensureTemplateModalOverlayDismissal(modal);
+  content.setAttribute('role', 'dialog');
+  content.setAttribute('aria-modal', 'true');
+
+  if (templateModalState.trigger instanceof HTMLElement) {
+    lastFocusBeforeModal = templateModalState.trigger;
+  }
+
+  templateModalState.selectedTemplateId = null;
+
   content.innerHTML = `
     <div class="template-applied">
-      <h3>${template.name} appliqué</h3>
+      <h3 id="template-applied-title">${template.name} appliqué</h3>
       <p>Vos micro-tâches sont planifiées pour la période choisie.</p>
       <div class="stats">
         <span>${formatCount(stats.daysUpdated, 'jour mis à jour', 'jours mis à jour')}</span>
@@ -8742,18 +8970,25 @@ function showTemplateAppliedMessage(template, stats) {
     </div>
   `;
 
+  content.setAttribute('aria-labelledby', 'template-applied-title');
   modal.classList.add('show');
 
   const closeBtn = content.querySelector('#template-close-btn');
   const undoBtn = content.querySelector('#template-undo-btn');
 
   if (closeBtn) {
-    closeBtn.onclick = () => closeModal();
+    closeBtn.onclick = () => closeTemplateModal();
   }
 
   if (undoBtn) {
     undoBtn.onclick = () => undoLastTemplateApplication();
   }
+
+  setupFocusTrap(content, {
+    modalKey: TEMPLATE_MODAL_KEY,
+    initialFocus: closeBtn || undoBtn || null,
+    onEscape: () => closeTemplateModal()
+  });
 }
 
 function undoLastTemplateApplication() {
@@ -8782,9 +9017,11 @@ function undoLastTemplateApplication() {
 
   setPlanifierTabsMode('templates');
   content.classList.remove('template-wide');
+  templateModalState.selectedTemplateId = null;
+
   content.innerHTML = `
     <div class="template-applied">
-      <h3>Application annulée</h3>
+      <h3 id="template-undo-title">Application annulée</h3>
       <p>La période a été restaurée comme avant le template.</p>
       <div class="modal-buttons">
         <button class="btn btn-primary" id="template-undo-close-btn">Fermer</button>
@@ -8792,12 +9029,31 @@ function undoLastTemplateApplication() {
     </div>
   `;
 
+  content.setAttribute('aria-labelledby', 'template-undo-title');
+  modal.dataset.activeModal = TEMPLATE_MODAL_KEY;
+  document.body.classList.add('modal-open');
+  const appContainer = document.querySelector('.app-container');
+  if (appContainer) {
+    appContainer.classList.add('modal-blurred');
+  }
+  ensureTemplateModalOverlayDismissal(modal);
+  content.setAttribute('role', 'dialog');
+  content.setAttribute('aria-modal', 'true');
+  if (templateModalState.trigger instanceof HTMLElement) {
+    lastFocusBeforeModal = templateModalState.trigger;
+  }
   modal.classList.add('show');
 
   const closeBtn = content.querySelector('#template-undo-close-btn');
   if (closeBtn) {
-    closeBtn.onclick = () => closeModal();
+    closeBtn.onclick = () => closeTemplateModal();
   }
+
+  setupFocusTrap(content, {
+    modalKey: TEMPLATE_MODAL_KEY,
+    initialFocus: closeBtn || null,
+    onEscape: () => closeTemplateModal()
+  });
 }
 
 function renderDashboard() {
@@ -14714,10 +14970,15 @@ function closeModal() {
     content.classList.remove('challenge-completion-modal');
     content.classList.remove('heatmap-modal');
     content.classList.remove('inactivity-nudge-modal');
+    content.classList.remove('template-modal-container');
+    content.removeAttribute('role');
+    content.removeAttribute('aria-modal');
+    content.removeAttribute('aria-labelledby');
+    content.removeAttribute('aria-describedby');
     content.innerHTML = '';
   }
   setPlanifierTabsMode('editor');
-  if (wasQuickAdd && lastFocusBeforeModal && typeof lastFocusBeforeModal.focus === 'function') {
+  if (lastFocusBeforeModal && typeof lastFocusBeforeModal.focus === 'function') {
     lastFocusBeforeModal.focus();
   }
   lastFocusBeforeModal = null;
