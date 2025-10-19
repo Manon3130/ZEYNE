@@ -503,7 +503,14 @@
               <button class="btn btn-secondary" id="notifications-snooze-btn" type="button">Rappeler dans 10 min</button>
               <button class="btn btn-primary" id="notifications-test-btn" type="button">Tester</button>
               <button class="btn btn-outline" id="enable-notifications-btn" type="button">Autoriser les notifications</button>
-              <button class="btn btn-outline" id="notifications-ics-btn" type="button">Ajouter au calendrier (ICS)</button>
+            </div>
+
+            <div class="notifications-calendar-export">
+              <button class="btn btn-primary btn-rounded" id="notifications-calendar-export-btn" type="button" disabled aria-disabled="true">
+                Ajouter mes rappels au calendrier (.ics)
+              </button>
+              <p class="notifications-calendar-hint" id="notifications-calendar-export-hint" hidden>Planifie ta semaine pour activer l’export.</p>
+              <p class="notifications-calendar-note">Export instantané (ré-importer après modifications).</p>
             </div>
 
             <div class="notification-status">

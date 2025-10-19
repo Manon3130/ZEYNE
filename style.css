@@ -1788,6 +1788,10 @@ h6 {
   color: var(--white);
 }
 
+.btn-rounded {
+  border-radius: 999px;
+}
+
 .btn-primary:hover {
   opacity: 0.9;
   transform: translateY(-1px);
@@ -1821,6 +1825,28 @@ h6 {
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.notifications-calendar-export {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.notifications-calendar-export .btn {
+  align-self: flex-start;
+}
+
+.notifications-calendar-note,
+.notifications-calendar-hint {
+  font-size: 0.85rem;
+  color: rgba(166, 128, 118, 0.7);
+  margin: 0;
+}
+
+.notifications-calendar-note {
+  font-style: italic;
 }
 
 .btn-validate {
