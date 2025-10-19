@@ -96,6 +96,8 @@ const SOCIAL_DEFAULT_CHALLENGE_TYPE = 'streak3';
 const SOCIAL_MIN_STREAK_FOR_CHALLENGE = 3;
 
 const HISTORY_STORAGE_KEY = 'zeyne.history';
+const SUPPORT_EMAIL = 'support@zeyne.app';
+const ANALYTICS_CONSENT_KEY = 'analytics_consent';
 
 const FOCUS_MOMENT_KEYS = ['morning', 'afternoon', 'evening'];
 const FOCUS_DURATION_LIMITS = { min: 5, max: 45, step: 5 };
@@ -109,6 +111,9 @@ const MOMENT_SUGGESTION_SNOOZE_DAYS = 7;
 const MOMENT_SUGGESTION_MUTE_DAYS = 30;
 const MOMENT_SUGGESTION_MIN_EXECUTIONS = 5;
 const MOMENT_SUGGESTION_PREFILL_DAYS = 7;
+
+let activeAideInfosTab = 'help';
+let aideInfosModalEscapeHandler = null;
 
 const PROGRAMME_CATEGORIES = [
   {
@@ -6225,6 +6230,311 @@ function refreshWeeklyReviewIfVisible() {
   }
 }
 
+const AIDE_INFOS_MODAL_CONTENT = {
+  privacy: {
+    title: 'Politique de confidentialité',
+    body: [
+      'ZEYNE fonctionne principalement hors connexion : vos micro-tâches et préférences restent stockées sur cet appareil.',
+      'Aucune donnée personnelle n’est transmise à un serveur tant que vous n’activez pas d’option nécessitant une synchronisation.',
+      'Lorsque vous autoriserez les statistiques anonymes, seules des tendances globales seront mesurées (fonctionnalité à venir).'
+    ]
+  },
+  terms: {
+    title: 'Conditions d’utilisation',
+    body: [
+      'ZEYNE vous aide à structurer vos micro-tâches quotidiennes et à suivre votre progression.',
+      'Vous restez propriétaire de vos contenus, imports audio et exports calendrier : utilisez-les de manière responsable.',
+      'Contactez l’équipe via la section Aide pour toute question, suggestion ou problème rencontré.'
+    ]
+  }
+};
+
+function buildMailto(subject, bodyText = '') {
+  const subjectEncoded = encodeURIComponent(subject);
+  const bodyEncoded = bodyText ? `&body=${encodeURIComponent(bodyText)}` : '';
+  return `mailto:${SUPPORT_EMAIL}?subject=${subjectEncoded}${bodyEncoded}`;
+}
+
+function setActiveAideInfosTab(target) {
+  const tabs = document.querySelectorAll('.aide-infos-tab');
+  const panels = document.querySelectorAll('.aide-infos-panel');
+  if (!tabs.length || !panels.length) {
+    return;
+  }
+  const normalized = target === 'privacy' ? 'privacy' : 'help';
+  tabs.forEach(tab => {
+    const isActive = (tab.dataset.tab || '') === normalized;
+    tab.classList.toggle('aide-infos-tab-active', isActive);
+    tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    tab.setAttribute('tabindex', isActive ? '0' : '-1');
+  });
+  panels.forEach(panel => {
+    const isActive = (panel.dataset.panel || '') === normalized;
+    panel.classList.toggle('aide-infos-panel-active', isActive);
+    panel.toggleAttribute('hidden', !isActive);
+  });
+  activeAideInfosTab = normalized;
+}
+
+function handleAideInfosReset() {
+  const userConfirmed = window.confirm('Réinitialiser toutes les données locales ZEYNE ?');
+  if (!userConfirmed) {
+    return;
+  }
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(HISTORY_STORAGE_KEY);
+    localStorage.removeItem(SOCIAL_LOCAL_STORAGE_KEY);
+    localStorage.removeItem(ANALYTICS_CONSENT_KEY);
+  } catch (error) {
+    console.warn('Impossible de nettoyer le stockage local', error);
+  }
+  if (window.indexedDB) {
+    try {
+      window.indexedDB.deleteDatabase(AUDIO_DB_NAME);
+    } catch (error) {
+      console.warn('Impossible de supprimer la base audio locale', error);
+    }
+  }
+  if (typeof showToast === 'function') {
+    showToast('Données locales réinitialisées.');
+  }
+  setTimeout(() => {
+    window.location.reload();
+  }, 600);
+}
+
+function openAideInfosModal(key) {
+  const modal = document.getElementById('aide-infos-modal');
+  const title = document.getElementById('aide-infos-modal-title');
+  const body = document.getElementById('aide-infos-modal-body');
+  const content = AIDE_INFOS_MODAL_CONTENT[key];
+  if (!modal || !title || !body || !content) {
+    return;
+  }
+  title.textContent = content.title;
+  body.innerHTML = content.body.map(paragraph => `<p>${paragraph}</p>`).join('');
+  modal.hidden = false;
+  modal.setAttribute('aria-hidden', 'false');
+  modal.dataset.active = key;
+  document.body.classList.add('aide-infos-modal-open');
+  const closeBtn = document.getElementById('aide-infos-modal-close');
+  if (closeBtn) {
+    closeBtn.focus();
+  }
+  if (!aideInfosModalEscapeHandler) {
+    aideInfosModalEscapeHandler = (event) => {
+      if (event.key === 'Escape') {
+        closeAideInfosModal();
+      }
+    };
+    document.addEventListener('keydown', aideInfosModalEscapeHandler);
+  }
+}
+
+function closeAideInfosModal() {
+  const modal = document.getElementById('aide-infos-modal');
+  if (!modal) {
+    return;
+  }
+  modal.hidden = true;
+  modal.setAttribute('aria-hidden', 'true');
+  delete modal.dataset.active;
+  document.body.classList.remove('aide-infos-modal-open');
+  if (aideInfosModalEscapeHandler) {
+    document.removeEventListener('keydown', aideInfosModalEscapeHandler);
+    aideInfosModalEscapeHandler = null;
+  }
+}
+
+function initAideInfosView() {
+  const tabs = document.querySelectorAll('.aide-infos-tab');
+  const panels = document.querySelectorAll('.aide-infos-panel');
+  if (!tabs.length || !panels.length) {
+    return;
+  }
+  const fallback = document.getElementById('aide-contact-fallback');
+  const fallbackSubject = document.getElementById('aide-contact-fallback-subject');
+  const fallbackForm = document.getElementById('aide-contact-form');
+  const fallbackClose = document.getElementById('aide-contact-fallback-close');
+  const updateFallbackSubject = (subject) => {
+    if (fallbackSubject) {
+      fallbackSubject.textContent = `Sujet : ${subject}`;
+    }
+    if (fallbackForm) {
+      fallbackForm.dataset.subject = subject;
+    }
+  };
+  updateFallbackSubject('Bug ZEYNE');
+  if (fallback) {
+    fallback.hidden = true;
+  }
+
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const target = tab.dataset.tab || 'help';
+      setActiveAideInfosTab(target);
+    });
+  });
+  setActiveAideInfosTab(activeAideInfosTab);
+
+  const mailButtons = document.querySelectorAll('.aide-mail-btn');
+  mailButtons.forEach(button => {
+    button.addEventListener('click', () => {
+      const subject = button.dataset.subject || 'Message ZEYNE';
+      const mailto = buildMailto(subject);
+      try {
+        window.location.href = mailto;
+      } catch (error) {
+        console.warn('Impossible d’ouvrir le client mail', error);
+      }
+      updateFallbackSubject(subject);
+      if (fallback) {
+        fallback.hidden = false;
+      }
+    });
+  });
+
+  fallbackClose?.addEventListener('click', () => {
+    if (fallback) {
+      fallback.hidden = true;
+    }
+    fallbackForm?.reset();
+    updateFallbackSubject('Bug ZEYNE');
+  });
+
+  fallbackForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const formData = new FormData(fallbackForm);
+    const subject = fallbackForm.dataset.subject || 'Message ZEYNE';
+    const name = (formData.get('name') || '').toString().trim();
+    const email = (formData.get('email') || '').toString().trim();
+    const message = (formData.get('message') || '').toString().trim();
+    const lines = [];
+    if (name) {
+      lines.push(`Nom : ${name}`);
+    }
+    if (email) {
+      lines.push(`Email : ${email}`);
+    }
+    if (lines.length > 0) {
+      lines.push('');
+    }
+    lines.push(message || 'Message : (vide)');
+    const mailto = buildMailto(subject, lines.join('\n'));
+    try {
+      window.location.href = mailto;
+    } catch (error) {
+      console.warn('Impossible d’ouvrir le client mail via le formulaire', error);
+      if (typeof showToast === 'function') {
+        showToast(`Copiez l’adresse ${SUPPORT_EMAIL} dans votre client mail.`);
+      }
+    }
+  });
+
+  const modalButtons = document.querySelectorAll('[data-aide-modal]');
+  modalButtons.forEach(button => {
+    button.addEventListener('click', () => {
+      const key = button.dataset.aideModal;
+      openAideInfosModal(key);
+    });
+  });
+
+  const modal = document.getElementById('aide-infos-modal');
+  const modalClose = document.getElementById('aide-infos-modal-close');
+  modal?.addEventListener('click', (event) => {
+    if (event.target === modal) {
+      closeAideInfosModal();
+    }
+  });
+  modalClose?.addEventListener('click', () => closeAideInfosModal());
+
+  const resetBtn = document.getElementById('aide-reset-btn');
+  const resetNote = document.getElementById('aide-reset-note');
+  const externalReset = typeof window.resetZeyneData === 'function'
+    ? window.resetZeyneData
+    : (typeof window.resetLocalData === 'function' ? window.resetLocalData : null);
+  if (resetBtn) {
+    if (externalReset) {
+      resetBtn.addEventListener('click', () => externalReset());
+      if (resetNote) {
+        resetNote.hidden = true;
+      }
+    } else {
+      resetBtn.addEventListener('click', () => handleAideInfosReset());
+      if (resetNote) {
+        resetNote.hidden = true;
+      }
+    }
+  }
+}
+
+function renderAideInfosView() {
+  setActiveAideInfosTab(activeAideInfosTab);
+  const fallback = document.getElementById('aide-contact-fallback');
+  const fallbackForm = document.getElementById('aide-contact-form');
+  const fallbackSubject = document.getElementById('aide-contact-fallback-subject');
+  if (fallback) {
+    fallback.hidden = true;
+  }
+  if (fallbackForm) {
+    fallbackForm.reset();
+    const subject = fallbackForm.dataset.subject || 'Bug ZEYNE';
+    fallbackForm.dataset.subject = subject;
+    if (fallbackSubject) {
+      fallbackSubject.textContent = `Sujet : ${subject}`;
+    }
+  } else if (fallbackSubject) {
+    fallbackSubject.textContent = 'Sujet : Bug ZEYNE';
+  }
+}
+
+function initAnalyticsBanner() {
+  const banner = document.getElementById('analytics-consent-banner');
+  if (!banner) {
+    return;
+  }
+  let storedChoice = null;
+  try {
+    storedChoice = localStorage.getItem(ANALYTICS_CONSENT_KEY);
+  } catch (error) {
+    console.warn('Lecture du consentement analytics impossible', error);
+  }
+  if (storedChoice === 'true') {
+    document.body.dataset.analyticsConsent = 'granted';
+    banner.hidden = true;
+    return;
+  }
+  if (storedChoice === 'false') {
+    document.body.dataset.analyticsConsent = 'declined';
+    banner.hidden = true;
+    return;
+  }
+  banner.hidden = false;
+  banner.classList.remove('analytics-banner-hide');
+
+  const allowBtn = document.getElementById('analytics-allow-btn');
+  const laterBtn = document.getElementById('analytics-later-btn');
+  const closeBtn = document.getElementById('analytics-close-btn');
+  const handleChoice = (value) => {
+    try {
+      localStorage.setItem(ANALYTICS_CONSENT_KEY, value ? 'true' : 'false');
+      document.body.dataset.analyticsConsent = value ? 'granted' : 'declined';
+    } catch (error) {
+      console.warn('Sauvegarde du consentement analytics impossible', error);
+    }
+    banner.classList.add('analytics-banner-hide');
+    setTimeout(() => {
+      banner.hidden = true;
+      banner.classList.remove('analytics-banner-hide');
+    }, 260);
+  };
+
+  allowBtn?.addEventListener('click', () => handleChoice(true));
+  laterBtn?.addEventListener('click', () => handleChoice(false));
+  closeBtn?.addEventListener('click', () => handleChoice(false));
+}
+
 function initNavigation() {
   const navLinks = document.querySelectorAll('.nav-menu a');
   navLinks.forEach(link => {
@@ -6259,6 +6569,8 @@ function showView(viewName) {
       renderAudioLibrary();
     } else if (viewName === 'vignettes') {
       renderVignettes();
+    } else if (viewName === 'aide-infos') {
+      renderAideInfosView();
     } else if (viewName === 'hebdo') {
       renderWeeklyReview();
     } else if (viewName === 'notifications') {
@@ -13499,6 +13811,8 @@ initNavigation();
 initWeeklyTabs();
 initDailyQuickAdd();
 initSocialModule();
+initAideInfosView();
+initAnalyticsBanner();
 const hasProgramme = Boolean((state.settings.goalTitle || '').trim());
 const initialView = hasProgramme ? 'aujourdhui' : 'programme';
 showView(initialView);
