@@ -13347,7 +13347,7 @@ loadState();
 loadState();
 
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('service-worker.js').catch(error => {
+  navigator.serviceWorker.register('./sw.js').catch(error => {
     console.warn('Enregistrement du service worker impossible', error);
   });
 }
