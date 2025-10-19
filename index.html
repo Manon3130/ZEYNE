@@ -681,17 +681,27 @@
 
             <div class="aide-infos-panel" id="aide-panel-privacy" data-panel="privacy" role="tabpanel" aria-labelledby="aide-tab-privacy" hidden>
               <div class="aide-privacy">
-                <h3>Confidentialité &amp; Conditions</h3>
-                <p>Données locales par défaut. Pas de compte, pas d’envoi serveur.</p>
-                <p>Notifications et export calendrier (ICS) sont facultatifs.</p>
-                <p>Vous pouvez réinitialiser vos données à tout moment.</p>
-                <div class="aide-privacy-actions">
-                  <button type="button" class="btn btn-primary btn-rounded aide-modal-btn" data-aide-modal="privacy">Politique de confidentialité</button>
-                  <button type="button" class="btn btn-secondary btn-rounded aide-modal-btn" data-aide-modal="terms">Conditions d’utilisation</button>
-                </div>
-                <div class="aide-reset">
-                  <button type="button" class="btn btn-ghost aide-reset-btn" id="aide-reset-btn">Réinitialiser mes données locales</button>
-                  <p class="aide-reset-note" id="aide-reset-note" hidden>Disponible prochainement.</p>
+                <div class="aide-privacy-card">
+                  <div class="aide-privacy-header">
+                    <h3>Confidentialité &amp; Conditions</h3>
+                    <p class="aide-privacy-lead">ZEYNE respecte votre vie privée.</p>
+                  </div>
+                  <ul class="aide-privacy-summary">
+                    <li>Données locales par défaut&nbsp;: vos tâches, humeur et réglages restent sur votre appareil.</li>
+                    <li>Aucun compte requis, aucun envoi vers nos serveurs.</li>
+                    <li>Notifications et export calendrier (ICS)&nbsp;: fonctions optionnelles.</li>
+                    <li>Statistiques anonymes&nbsp;: désactivées par défaut&nbsp;; activables via le bandeau d’accord (si présent).</li>
+                    <li>Réinitialisation&nbsp;: vous pouvez effacer vos données locales à tout moment depuis cette page.</li>
+                    <li>Contact&nbsp;: support@zeyne.app</li>
+                  </ul>
+                  <div class="aide-privacy-actions">
+                    <button type="button" class="btn btn-primary btn-rounded aide-modal-btn" data-aide-modal="privacy">Voir la politique de confidentialité complète</button>
+                    <button type="button" class="btn btn-secondary btn-rounded aide-modal-btn" data-aide-modal="terms">Voir les conditions d’utilisation</button>
+                  </div>
+                  <div class="aide-reset aide-privacy-reset">
+                    <button type="button" class="btn btn-ghost aide-reset-btn" id="aide-reset-btn">Réinitialiser mes données locales</button>
+                    <p class="aide-reset-note" id="aide-reset-note" hidden>Bientôt disponible.</p>
+                  </div>
                 </div>
               </div>
             </div>
