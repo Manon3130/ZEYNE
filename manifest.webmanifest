@@ -7,12 +7,13 @@
   "scope": ".",
   "display": "standalone",
   "background_color": "#F7E6D6",
-  "theme_color": "#EAC4AF",
+  "theme_color": "#F7E6D6",
   "icons": [
     {
-      "src": "data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 128 128%22%3E%3Crect width=%22128%22 height=%22128%22 rx=%2228%22 fill=%22%23EAC4AF%22/%3E%3Ctext x=%2250%25%22 y=%2256%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 font-family=%22sans-serif%22 font-size=%2264%22 fill=%22%23FFFFFF%22%3EZ%3C/text%3E%3C/svg%3E",
+      "src": "assets/icon.svg",
       "sizes": "any",
-      "type": "image/svg+xml"
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
     }
   ]
 }
