@@ -1532,6 +1532,12 @@ const templateModalState = {
   selectedTemplateId: null,
   trigger: null
 };
+
+const TEMPLATE_MODAL_CLOSE_BUTTON = `
+        <button type="button" class="template-modal-close" id="template-modal-close" aria-label="Fermer">
+          <span aria-hidden="true">✕</span>
+        </button>`;
+
 let templateModalOverlayListenerAttached = false;
 let taskIdCounter = 0;
 let currentReportModalContext = null;
@@ -8549,9 +8555,7 @@ function openTemplateLibrary() {
     <div class="template-modal-shell template-library" data-template-view="library">
       <div class="template-modal-header">
         <h3 id="template-modal-title">Templates</h3>
-        <button type="button" class="template-modal-close" id="template-modal-close" aria-label="Fermer">
-          <span aria-hidden="true">✕</span>
-        </button>
+${TEMPLATE_MODAL_CLOSE_BUTTON}
       </div>
       <div class="template-modal-body">
         <p class="template-modal-subtitle">Accélérez votre démarrage avec des routines prêtes en 3 micro-tâches par jour.</p>
@@ -8689,9 +8693,7 @@ function showTemplatePreview(template) {
     <div class="template-modal-shell template-preview" data-template-view="preview">
       <div class="template-modal-header">
         <h3 id="template-preview-title">${template.name}</h3>
-        <button type="button" class="template-modal-close" id="template-modal-close" aria-label="Fermer">
-          <span aria-hidden="true">✕</span>
-        </button>
+${TEMPLATE_MODAL_CLOSE_BUTTON}
       </div>
       <div class="template-modal-body">
         <div class="template-preview-header">
@@ -8773,9 +8775,7 @@ function showTemplateApply(template) {
     <div class="template-modal-shell template-apply" data-template-view="apply">
       <div class="template-modal-header">
         <h3 id="template-apply-title">Appliquer « ${template.name} »</h3>
-        <button type="button" class="template-modal-close" id="template-modal-close" aria-label="Fermer">
-          <span aria-hidden="true">✕</span>
-        </button>
+${TEMPLATE_MODAL_CLOSE_BUTTON}
       </div>
       <div class="template-modal-body">
         <div class="template-apply-options">
