@@ -187,7 +187,23 @@
           </div>
           <p class="planifier-helper">Planifiez vos micro-tâches ou gagnez du temps avec des modèles prêts à l’emploi.</p>
           <div id="planifier-days"></div>
-          <button class="btn btn-primary" id="save-planifier-btn">Enregistrer</button>
+          <div class="planifier-actions">
+            <button class="btn btn-primary" id="save-planifier-btn">Enregistrer</button>
+            <div class="planifier-calendar" id="planifier-calendar-controls">
+              <div class="planifier-calendar-buttons">
+                <button class="btn btn-secondary btn-rounded planifier-calendar-btn" type="button" id="planifier-calendar-export-btn" aria-disabled="true" disabled>Ajouter au calendrier (ICS)</button>
+                <span class="planifier-calendar-badge" id="planifier-calendar-update-badge" hidden>Mise à jour en attente</span>
+              </div>
+              <p class="planifier-calendar-note" id="planifier-calendar-note">Export instantané (.ics). Selon le calendrier, il peut être nécessaire de ré-importer après modification.</p>
+              <div class="planifier-calendar-popover" id="planifier-calendar-popover" role="alertdialog" aria-modal="false" aria-live="assertive" hidden>
+                <p class="planifier-calendar-popover-text">Des changements ont été faits. Mettre à jour votre calendrier&nbsp;?</p>
+                <div class="planifier-calendar-popover-actions">
+                  <button type="button" class="btn btn-primary btn-rounded" id="planifier-calendar-update-now-btn">Mettre à jour</button>
+                  <button type="button" class="btn btn-secondary btn-rounded" id="planifier-calendar-later-btn">Plus tard</button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
