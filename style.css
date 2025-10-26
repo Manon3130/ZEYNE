@@ -94,8 +94,8 @@ h6 {
 
 .today-hero-banner {
   width: 100%;
-  aspect-ratio: 3 / 1;
-  min-height: 220px;
+  height: 180px;
+  min-height: 180px;
   border-radius: 32px;
   background: linear-gradient(135deg, rgba(249, 216, 214, 0.8), rgba(205, 231, 245, 0.7));
   overflow: hidden;
