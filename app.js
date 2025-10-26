@@ -22,6 +22,18 @@ const MOOD_DETAILS = {
   happy: { emoji: '🙂', label: 'Positif' }
 };
 
+const DAILY_EMOJIS = ['🌸', '🎀', '💕', '🌷', '🌼', '🌻', '🌟', '🌈', '🪷', '🍑'];
+const DAILY_QUOTES = [
+  'Prends une grande inspiration, on avance en douceur.',
+  'Petit pas, grand impact : tu as déjà commencé.',
+  'Ton énergie du jour mérite d’être célébrée.',
+  'La constance se construit avec des gestes simples.',
+  'Tu as le droit d’y aller à ton rythme, l’essentiel est d’avancer.',
+  'Chaque mini-victoire nourrit ton élan.',
+  'Aujourd’hui est l’occasion de prendre soin de ton focus.',
+  'Tu peux tout à fait réussir sans te brusquer.'
+];
+
 const AUDIO_DB_NAME = 'ZEYNE_AUDIO_DB';
 const AUDIO_DB_VERSION = 1;
 const AUDIO_STORE_NAME = 'audios';
@@ -1476,6 +1488,7 @@ const notificationRuntime = {
 let upcomingReminderIntervalId = null;
 let notificationsInitialized = false;
 let notificationBeepContext = null;
+let digitalClockIntervalId = null;
 
 const focusSessionRuntime = {
   activeTimer: false
@@ -7265,7 +7278,7 @@ function maybeRevealAnalyticsBanner() {
 }
 
 function initNavigation() {
-  const navLinks = document.querySelectorAll('.nav-menu a');
+  const navLinks = document.querySelectorAll('.nav-menu a, .shortcuts-list a');
   navLinks.forEach(link => {
     link.addEventListener('click', (e) => {
       e.preventDefault();
@@ -7285,6 +7298,11 @@ function showView(viewName) {
     targetView.classList.add('active');
     const navLinks = document.querySelectorAll('.nav-menu a[data-view]');
     navLinks.forEach(link => {
+      const isActive = link.getAttribute('data-view') === viewName;
+      link.classList.toggle('active', isActive);
+    });
+    const shortcutLinks = document.querySelectorAll('.shortcuts-list a[data-view]');
+    shortcutLinks.forEach(link => {
       const isActive = link.getAttribute('data-view') === viewName;
       link.classList.toggle('active', isActive);
     });
@@ -14298,6 +14316,9 @@ async function refreshSocialOverview(options = {}) {
     if (toggle && overview?.profile) {
       toggle.checked = overview.profile.sharing !== false;
     }
+    if (overview?.profile?.displayName) {
+      updateTodayGreetingName(overview.profile.displayName);
+    }
     renderSocialFriends(overview);
     renderSocialInvitations(overview);
     updateSocialEmptyState(overview);
@@ -15054,8 +15075,110 @@ function launchConfetti() {
   animate();
 }
 
+function computeDailyIndex(length, offset = 0, date = new Date()) {
+  if (!Number.isFinite(length) || length <= 0) {
+    return 0;
+  }
+  const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}-${offset}`;
+  let hash = 0;
+  for (let i = 0; i < key.length; i += 1) {
+    hash = (hash * 31 + key.charCodeAt(i)) % 2147483647;
+  }
+  return hash % length;
+}
+
+function getDailyEmojiForToday() {
+  if (!Array.isArray(DAILY_EMOJIS) || DAILY_EMOJIS.length === 0) {
+    return '🌸';
+  }
+  const index = computeDailyIndex(DAILY_EMOJIS.length, 0);
+  return DAILY_EMOJIS[index];
+}
+
+function getDailyQuoteForToday() {
+  if (!Array.isArray(DAILY_QUOTES) || DAILY_QUOTES.length === 0) {
+    return '';
+  }
+  const index = computeDailyIndex(DAILY_QUOTES.length, 17);
+  return DAILY_QUOTES[index];
+}
+
+function extractFirstName(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+  const [first] = trimmed.split(/\s+/);
+  return first || '';
+}
+
+function updateTodayGreetingName(displayName) {
+  const target = document.getElementById('today-first-name');
+  if (!target) {
+    return;
+  }
+  const preferred = extractFirstName(displayName) || 'toi';
+  target.textContent = preferred;
+}
+
+function updateTodayGreetingEmoji() {
+  const emojiEl = document.getElementById('today-greeting-emoji');
+  if (!emojiEl) {
+    return;
+  }
+  emojiEl.textContent = getDailyEmojiForToday();
+}
+
+function initTodayGreeting() {
+  if (socialOverviewCache?.profile?.displayName) {
+    updateTodayGreetingName(socialOverviewCache.profile.displayName);
+  } else if (state?.profile?.displayName) {
+    updateTodayGreetingName(state.profile.displayName);
+  } else {
+    updateTodayGreetingName('');
+  }
+  updateTodayGreetingEmoji();
+}
+
+function initDailyQuote() {
+  const quoteEl = document.getElementById('today-quote-text');
+  if (!quoteEl) {
+    return;
+  }
+  const quote = getDailyQuoteForToday();
+  if (quote) {
+    quoteEl.textContent = `« ${quote} »`;
+  }
+}
+
+function initDigitalClock() {
+  const clockEl = document.getElementById('digital-clock-time');
+  if (!clockEl) {
+    return;
+  }
+
+  const update = () => {
+    const now = new Date();
+    const formatted = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    clockEl.textContent = formatted;
+  };
+
+  update();
+  if (digitalClockIntervalId) {
+    clearInterval(digitalClockIntervalId);
+  }
+  digitalClockIntervalId = setInterval(update, 1000);
+}
+
 loadState();
 loadState();
+
+initTodayGreeting();
+initDailyQuote();
+initDigitalClock();
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').catch(error => {
