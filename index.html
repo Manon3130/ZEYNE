@@ -27,108 +27,24 @@
           <p id="today-quote-text">« Chaque jour est une page blanche pour avancer en douceur. »</p>
         </div>
 
-        <div class="today-highlights-grid">
-          <div class="today-highlight-column">
-            <div class="today-highlight-visual today-highlight-visual-1" role="img" aria-label="Visuel Daily 3"></div>
-            <div class="card card-daily3">
-              <div class="card-daily3-header">
-                <h2>Daily 3 d'aujourd'hui</h2>
-                <button type="button" id="daily-quick-add-btn" class="quick-add-btn" aria-label="Ajouter une micro-tâche">
-                  <svg viewBox="0 0 24 24" aria-hidden="true" class="quick-add-btn-icon">
-                    <path d="M12 4a1 1 0 0 1 1 1v6h6a1 1 0 0 1 0 2h-6v6a1 1 0 0 1-2 0v-6H5a1 1 0 0 1 0-2h6V5a1 1 0 0 1 1-1Z" fill="currentColor" />
-                  </svg>
-                </button>
-              </div>
-              <div class="tasks-list" id="daily-tasks-list"></div>
-              <div class="encouragement-message" id="encouragement-message"></div>
-            </div>
-          </div>
-
-          <div class="today-highlight-column">
-            <div class="today-highlight-visual today-highlight-visual-2" role="img" aria-label="Visuel autres jours"></div>
-            <div class="card card-other-days">
-              <h2>Autres jours (4 prochains)</h2>
-              <div id="other-days-list"></div>
-            </div>
-          </div>
-
-          <div class="today-highlight-column">
-            <div class="today-highlight-visual today-highlight-visual-3" role="img" aria-label="Visuel motivation &amp; humeur"></div>
-            <div class="card card-mood">
-              <h2>Motivation &amp; Humeur</h2>
-              <div class="motivation-slider-container">
-                <input type="range" id="motivation-slider" min="0" max="100" value="50" step="25">
-                <div class="slider-labels">
-                  <span>Très bas</span>
-                  <span>Bas</span>
-                  <span>Moyen</span>
-                  <span>Élevé</span>
-                  <span>Très élevé</span>
+        <div class="today-dashboard">
+          <div class="card card-aujourdhui today-overview-card">
+            <div class="today-overview-image" role="img" aria-label="Illustration Aujourd'hui"></div>
+            <div class="today-overview-content">
+              <div class="today-overview-header">
+                <h2>Aujourd'hui</h2>
+                <div class="days-remaining">
+                  <span id="days-count">—</span> jours restants
                 </div>
               </div>
-              <div class="emoji-selector">
-                <button class="emoji-btn" data-emoji="sad">😞</button>
-                <button class="emoji-btn" data-emoji="tired">😴</button>
-                <button class="emoji-btn" data-emoji="sick">🤒</button>
-                <button class="emoji-btn" data-emoji="happy">🙂</button>
-              </div>
-            </div>
-          </div>
-
-          <div class="today-highlight-column today-highlight-column-challenge">
-            <div class="card card-challenge" id="challenge-card" hidden>
-              <div class="challenge-header">
-                <div>
-                  <h2>Défi 7 jours</h2>
-                  <p class="challenge-subtitle" id="challenge-subtitle">—</p>
+              <div class="today-overview-progress">
+                <div class="progress-bar-container" id="global-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Progression globale des mini-tâches">
+                  <div class="progress-bar" id="progress-bar"></div>
                 </div>
-                <div class="challenge-badge-pill" id="challenge-badge-pill" hidden>
-                  <span class="challenge-badge-icon" id="challenge-badge-icon">🏅</span>
-                  <span class="challenge-badge-label" id="challenge-badge-label">Badge</span>
+                <div class="next-reminder-banner" id="next-reminder-banner" hidden>
+                  <span id="next-reminder-text"></span>
+                  <button type="button" class="btn btn-secondary" id="next-reminder-snooze-btn">Snooze 10 min</button>
                 </div>
-              </div>
-              <div class="challenge-body" id="challenge-body"></div>
-              <div class="challenge-actions" id="challenge-actions"></div>
-            </div>
-          </div>
-        </div>
-
-        <hr class="today-divider" aria-hidden="true">
-
-        <div class="today-main-grid">
-          <div class="today-column today-column-left">
-            <div class="card card-clock" aria-live="polite">
-              <div class="card-clock-label">Heure actuelle</div>
-              <div class="card-clock-time" id="digital-clock-time">--:--</div>
-            </div>
-            <nav class="card card-shortcuts" aria-label="Menu Aujourd'hui">
-              <h2>Menu</h2>
-              <ul class="shortcuts-list">
-                <li><a href="#" data-view="programme">Programme</a></li>
-                <li><a href="#" data-view="planifier">Planifier</a></li>
-                <li><a href="#" data-view="aujourdhui">Aujourd'hui</a></li>
-                <li><a href="#" data-view="hebdo">Voir ma semaine</a></li>
-                <li><a href="#" data-view="bibliotheque">Bibliothèque</a></li>
-                <li><a href="#" data-view="notifications">Notifications</a></li>
-                <li><a href="#" data-view="historique">Historique</a></li>
-                <li><a href="#" data-view="vignettes">Vignettes</a></li>
-                <li><a href="#" data-view="aide-infos">Aide &amp; infos</a></li>
-              </ul>
-            </nav>
-          </div>
-
-          <div class="today-column today-column-center">
-            <div class="card card-aujourdhui">
-              <h2>Aujourd'hui</h2>
-              <div class="days-remaining">
-                <span id="days-count">—</span> jours restants
-              </div>
-              <div class="progress-bar-container" id="global-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Progression globale des mini-tâches">
-                <div class="progress-bar" id="progress-bar"></div>
-              </div>
-              <div class="next-reminder-banner" id="next-reminder-banner" hidden>
-                <span id="next-reminder-text"></span>
-                <button type="button" class="btn btn-secondary" id="next-reminder-snooze-btn">Snooze 10 min</button>
               </div>
               <div class="momentum-row">
                 <div class="momentum-ring" id="momentum-ring" aria-label="Progression des mini-tâches du jour">
@@ -144,9 +60,77 @@
             </div>
           </div>
 
-          <div class="today-column today-column-right">
-            <div class="portrait-visual portrait-visual-top" role="img" aria-label="Inspiration quotidienne 1"></div>
-            <div class="portrait-visual portrait-visual-bottom" role="img" aria-label="Inspiration quotidienne 2"></div>
+          <div class="card card-mood today-mood-card">
+            <h2>Motivation &amp; Humeur</h2>
+            <div class="motivation-slider-container">
+              <input type="range" id="motivation-slider" min="0" max="100" value="50" step="25">
+              <div class="slider-labels">
+                <span>Très bas</span>
+                <span>Bas</span>
+                <span>Moyen</span>
+                <span>Élevé</span>
+                <span>Très élevé</span>
+              </div>
+            </div>
+            <div class="emoji-selector">
+              <button class="emoji-btn" data-emoji="sad">😞</button>
+              <button class="emoji-btn" data-emoji="tired">😴</button>
+              <button class="emoji-btn" data-emoji="sick">🤒</button>
+              <button class="emoji-btn" data-emoji="happy">🙂</button>
+            </div>
+          </div>
+
+          <div class="card card-clock today-clock-card" aria-live="polite">
+            <div class="card-clock-label">Heure actuelle</div>
+            <div class="card-clock-time" id="digital-clock-time">--:--</div>
+          </div>
+
+          <nav class="card card-shortcuts today-menu-card" aria-label="Menu Aujourd'hui">
+            <h2>Menu</h2>
+            <ul class="shortcuts-list">
+              <li><a href="#" data-view="programme">Programme</a></li>
+              <li><a href="#" data-view="planifier">Planifier</a></li>
+              <li><a href="#" data-view="aujourdhui">Aujourd'hui</a></li>
+              <li><a href="#" data-view="hebdo">Voir ma semaine</a></li>
+              <li><a href="#" data-view="bibliotheque">Bibliothèque</a></li>
+              <li><a href="#" data-view="notifications">Notifications</a></li>
+              <li><a href="#" data-view="historique">Historique</a></li>
+              <li><a href="#" data-view="vignettes">Vignettes</a></li>
+              <li><a href="#" data-view="aide-infos">Aide &amp; infos</a></li>
+            </ul>
+          </nav>
+
+          <div class="card card-daily3 today-daily-card">
+            <div class="card-daily3-header">
+              <h2>Daily 3 d'aujourd'hui</h2>
+              <button type="button" id="daily-quick-add-btn" class="quick-add-btn" aria-label="Ajouter une micro-tâche">
+                <svg viewBox="0 0 24 24" aria-hidden="true" class="quick-add-btn-icon">
+                  <path d="M12 4a1 1 0 0 1 1 1v6h6a1 1 0 0 1 0 2h-6v6a1 1 0 0 1-2 0v-6H5a1 1 0 0 1 0-2h6V5a1 1 0 0 1 1-1Z" fill="currentColor" />
+                </svg>
+              </button>
+            </div>
+            <div class="tasks-list" id="daily-tasks-list"></div>
+            <div class="encouragement-message" id="encouragement-message"></div>
+          </div>
+
+          <div class="card card-other-days today-other-card">
+            <h2>Autres jours (4 prochains)</h2>
+            <div id="other-days-list"></div>
+          </div>
+
+          <div class="card card-challenge today-challenge-card" id="challenge-card" hidden>
+            <div class="challenge-header">
+              <div>
+                <h2>Défi 7 jours</h2>
+                <p class="challenge-subtitle" id="challenge-subtitle">—</p>
+              </div>
+              <div class="challenge-badge-pill" id="challenge-badge-pill" hidden>
+                <span class="challenge-badge-icon" id="challenge-badge-icon">🏅</span>
+                <span class="challenge-badge-label" id="challenge-badge-label">Badge</span>
+              </div>
+            </div>
+            <div class="challenge-body" id="challenge-body"></div>
+            <div class="challenge-actions" id="challenge-actions"></div>
           </div>
         </div>
       </section>

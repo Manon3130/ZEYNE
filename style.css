@@ -42,7 +42,7 @@ h6 {
 }
 
 .app-container {
-  max-width: 1200px;
+  max-width: 1180px;
   margin: 0 auto;
   padding: 20px;
   transition: filter 0.3s ease, transform 0.3s ease;
@@ -136,141 +136,170 @@ h6 {
   color: rgba(166, 128, 118, 0.92);
 }
 
-.today-highlights-grid {
+.today-dashboard {
   margin-top: 40px;
   display: grid;
-  grid-template-columns: repeat(4, 280px);
-  gap: 24px;
+  grid-template-columns: 552px 282px 140px 180px;
+  grid-template-areas:
+    "today mood clock menu"
+    "daily other other menu"
+    "challenge challenge challenge menu";
+  column-gap: 8px;
+  row-gap: 24px;
   justify-content: center;
   align-items: start;
 }
 
-.today-highlight-column {
+.today-overview-card {
+  grid-area: today;
+  display: flex;
+  gap: 20px;
+  align-items: stretch;
+  height: 270px;
+  overflow: hidden;
+}
+
+.today-overview-image {
+  flex: 0 0 175px;
+  height: 175px;
+  border-radius: 20px;
+  background: linear-gradient(145deg, rgba(234, 196, 175, 0.65), rgba(205, 231, 245, 0.55));
+  box-shadow: inset 0 0 0 1px rgba(234, 196, 175, 0.25);
+  align-self: center;
+}
+
+.today-overview-content {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  justify-content: space-between;
   gap: 12px;
 }
 
-.today-highlight-visual {
-  width: 280px;
-  height: 280px;
-  border-radius: 28px;
-  background: linear-gradient(140deg, rgba(234, 196, 175, 0.55), rgba(245, 241, 195, 0.5));
-  box-shadow: 0 14px 40px rgba(166, 128, 118, 0.15);
-}
-
-.today-highlight-visual-1 {
-  background: linear-gradient(135deg, rgba(234, 196, 175, 0.65), rgba(216, 200, 242, 0.45));
-}
-
-.today-highlight-visual-2 {
-  background: linear-gradient(135deg, rgba(201, 228, 210, 0.55), rgba(247, 230, 214, 0.65));
-}
-
-.today-highlight-visual-3 {
-  background: linear-gradient(135deg, rgba(205, 231, 245, 0.6), rgba(249, 216, 214, 0.55));
-}
-
-.today-highlight-column .card {
-  width: 280px;
-  min-height: 280px;
-  max-height: 280px;
-  height: 280px;
-  overflow: auto;
-}
-
-.today-highlight-column .card h2 {
-  font-size: 1.2rem;
-  margin-bottom: 14px;
-}
-
-.today-highlight-column-challenge {
-  align-items: center;
-}
-
-.today-highlight-column-challenge .card-challenge {
-  width: 280px;
-  height: 572px;
-  overflow: auto;
+.today-overview-header {
   display: flex;
   flex-direction: column;
+  gap: 8px;
 }
 
-.today-divider {
-  margin: 56px 0 40px;
-  border: none;
-  height: 1px;
-  background: #a68076;
-  opacity: 0.45;
+.today-overview-header h2 {
+  margin: 0;
 }
 
-.today-main-grid {
-  display: grid;
-  grid-template-columns: 280px minmax(0, 1fr) 320px;
-  gap: 32px;
-  align-items: start;
+.today-overview-header .days-remaining {
+  font-size: 1rem;
 }
 
-.today-column {
+.today-overview-progress {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 12px;
 }
 
-.today-column-left,
-.today-column-right {
-  gap: 16px;
+.today-mood-card {
+  grid-area: mood;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 285px;
 }
 
-.today-column-left .card,
-.today-column-right .portrait-visual {
-  width: 100%;
+.today-mood-card h2 {
+  margin-bottom: 12px;
 }
 
-.card-clock {
+.today-clock-card {
+  grid-area: clock;
   text-align: center;
-  padding: 28px 24px;
-  height: 280px;
+  padding: 24px 16px;
+  min-height: 170px;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  align-items: center;
+  gap: 14px;
+}
+
+.today-menu-card {
+  grid-area: menu;
+  max-width: 180px;
+  width: 100%;
+  padding: 20px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-self: stretch;
+  grid-row: span 3;
+  overflow: hidden;
+}
+
+.today-daily-card {
+  grid-area: daily;
+  min-height: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  overflow: auto;
+}
+
+.today-other-card {
+  grid-area: other;
+  min-height: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  overflow: auto;
+}
+
+.today-challenge-card {
+  grid-area: challenge;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: calc(552px + 282px + 140px + 16px);
+  margin: 0 auto;
 }
 
 .card-clock-label {
-  font-size: 0.95rem;
+  font-size: 0.85rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: rgba(166, 128, 118, 0.75);
-  margin-bottom: 16px;
 }
 
 .card-clock-time {
-  font-size: 3rem;
+  font-size: 1.3rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.04em;
 }
 
 .card-shortcuts h2 {
-  margin-bottom: 16px;
+  margin-bottom: 0;
 }
 
 .shortcuts-list {
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
+}
+
+.today-menu-card .shortcuts-list {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .shortcuts-list a {
   display: block;
-  padding: 10px 14px;
-  border-radius: 14px;
+  padding: 8px 12px;
+  border-radius: 12px;
   text-decoration: none;
   color: var(--text);
   background: rgba(247, 230, 214, 0.55);
+  font-size: 0.85rem;
+  line-height: 1.3;
   transition: background 0.2s ease, transform 0.2s ease;
 }
 
@@ -285,74 +314,43 @@ h6 {
   color: var(--white);
 }
 
-.today-column-right {
-  align-items: flex-start;
-}
-
-.portrait-visual {
-  width: 320px;
-  height: 480px;
-  border-radius: 32px;
-  background: linear-gradient(160deg, rgba(234, 196, 175, 0.65), rgba(216, 200, 242, 0.55));
-  box-shadow: 0 14px 38px rgba(166, 128, 118, 0.18);
-}
-
-.portrait-visual-bottom {
-  background: linear-gradient(160deg, rgba(217, 242, 227, 0.6), rgba(249, 216, 214, 0.55));
-}
-
 .card-mood .motivation-slider-container {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-}
-
-.card-mood .emoji-selector {
-  margin-top: 18px;
   gap: 14px;
 }
 
+.card-mood .emoji-selector {
+  margin-top: 10px;
+  gap: 12px;
+  justify-content: space-between;
+}
+
 .card-mood .slider-labels span {
-  font-size: 0.75rem;
+  font-size: 0.78rem;
 }
 
 @media (max-width: 1200px) {
-  .today-highlights-grid {
-    grid-template-columns: minmax(0, 1fr);
-    justify-content: stretch;
+  .today-dashboard {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      "today today"
+      "mood clock"
+      "menu menu"
+      "daily daily"
+      "other other"
+      "challenge challenge";
+    column-gap: 20px;
   }
 
-  .today-highlight-column {
-    align-items: center;
-  }
-
-  .today-highlight-column .today-highlight-visual,
-  .today-highlight-column .card {
-    width: 100%;
-    max-width: 320px;
-  }
-
-  .today-highlight-column .card,
-  .today-highlight-column-challenge .card-challenge {
-    max-height: none;
+  .today-overview-card {
     height: auto;
-  }
-}
-
-@media (max-width: 1100px) {
-  .today-main-grid {
-    grid-template-columns: 1fr;
+    min-height: 270px;
   }
 
-  .today-column-right {
-    align-items: center;
-  }
-
-  .portrait-visual {
-    width: 100%;
-    max-width: 260px;
-    height: auto;
-    aspect-ratio: 2 / 3;
+  .today-menu-card {
+    max-width: none;
+    grid-row: auto;
   }
 }
 
@@ -362,8 +360,16 @@ h6 {
     flex-wrap: wrap;
   }
 
-  .card-clock-time {
-    font-size: 2.4rem;
+  .today-dashboard {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "today"
+      "mood"
+      "clock"
+      "menu"
+      "daily"
+      "other"
+      "challenge";
   }
 }
 
@@ -1568,13 +1574,11 @@ h6 {
 
 .card-aujourdhui {
   display: flex;
-  flex-direction: column;
-  gap: 18px;
-  align-items: center;
-  text-align: center;
+  gap: 20px;
+  align-items: stretch;
+  text-align: left;
   width: 100%;
-  max-height: calc(480px * 2 + 16px);
-  overflow: auto;
+  overflow: hidden;
 }
 
 .card-aujourdhui h2 {
@@ -1582,7 +1586,7 @@ h6 {
 }
 
 .card-aujourdhui .days-remaining {
-  width: 100%;
+  width: auto;
 }
 
 .card h2 {
@@ -1738,8 +1742,8 @@ h6 {
 .momentum-row {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 24px;
+  justify-content: flex-start;
+  gap: 18px;
   width: 100%;
   flex-wrap: wrap;
 }
