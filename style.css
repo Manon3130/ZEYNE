@@ -42,7 +42,7 @@ h6 {
 }
 
 .app-container {
-  max-width: 1400px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 20px;
   transition: filter 0.3s ease, transform 0.3s ease;
@@ -140,28 +140,22 @@ h6 {
 .today-highlights-grid {
   margin-top: 40px;
   display: grid;
-  grid-template-columns: repeat(2, 240px) minmax(0, 1fr);
-  gap: 32px;
+  grid-template-columns: repeat(4, 280px);
+  gap: 24px;
+  justify-content: center;
   align-items: start;
 }
 
-.today-highlight {
+.today-highlight-column {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-}
-
-.today-highlight-fixed {
-  align-items: flex-start;
-}
-
-.today-highlight-fixed .today-highlight-visual,
-.today-highlight-fixed .card {
-  width: 240px;
+  align-items: center;
+  gap: 12px;
 }
 
 .today-highlight-visual {
-  height: 240px;
+  width: 280px;
+  height: 280px;
   border-radius: 28px;
   background: linear-gradient(140deg, rgba(234, 196, 175, 0.55), rgba(245, 241, 195, 0.5));
   box-shadow: 0 14px 40px rgba(166, 128, 118, 0.15);
@@ -179,31 +173,27 @@ h6 {
   background: linear-gradient(135deg, rgba(205, 231, 245, 0.6), rgba(249, 216, 214, 0.55));
 }
 
-.today-highlight-with-challenge {
-  display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
-  gap: 28px;
-  align-items: stretch;
+.today-highlight-column .card {
+  width: 280px;
+  min-height: 280px;
+  max-height: 280px;
+  height: 280px;
+  overflow: auto;
 }
 
-.today-highlight-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-
-.today-highlight-stack .today-highlight-visual,
-.today-highlight-stack .card {
-  width: 240px;
-}
-
-.today-highlight .card h2 {
+.today-highlight-column .card h2 {
   font-size: 1.2rem;
   margin-bottom: 14px;
 }
 
-.today-highlight-with-challenge .card-challenge {
-  height: 100%;
+.today-highlight-column-challenge {
+  align-items: center;
+}
+
+.today-highlight-column-challenge .card-challenge {
+  width: 280px;
+  height: 572px;
+  overflow: auto;
   display: flex;
   flex-direction: column;
 }
@@ -218,7 +208,7 @@ h6 {
 
 .today-main-grid {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr) 320px;
+  grid-template-columns: 280px minmax(0, 1fr) 320px;
   gap: 32px;
   align-items: start;
 }
@@ -229,6 +219,11 @@ h6 {
   gap: 24px;
 }
 
+.today-column-left,
+.today-column-right {
+  gap: 16px;
+}
+
 .today-column-left .card,
 .today-column-right .portrait-visual {
   width: 100%;
@@ -237,6 +232,11 @@ h6 {
 .card-clock {
   text-align: center;
   padding: 28px 24px;
+  height: 280px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
 }
 
 .card-clock-label {
@@ -287,13 +287,12 @@ h6 {
 }
 
 .today-column-right {
-  align-items: flex-end;
+  align-items: flex-start;
 }
 
 .portrait-visual {
-  max-width: 300px;
-  width: 100%;
-  aspect-ratio: 2 / 3;
+  width: 320px;
+  height: 480px;
   border-radius: 32px;
   background: linear-gradient(160deg, rgba(234, 196, 175, 0.65), rgba(216, 200, 242, 0.55));
   box-shadow: 0 14px 38px rgba(166, 128, 118, 0.18);
@@ -321,27 +320,23 @@ h6 {
 @media (max-width: 1200px) {
   .today-highlights-grid {
     grid-template-columns: minmax(0, 1fr);
+    justify-content: stretch;
   }
 
-  .today-highlight,
-  .today-highlight-stack {
+  .today-highlight-column {
     align-items: center;
   }
 
-  .today-highlight-fixed .today-highlight-visual,
-  .today-highlight-fixed .card,
-  .today-highlight-stack .today-highlight-visual,
-  .today-highlight-stack .card {
+  .today-highlight-column .today-highlight-visual,
+  .today-highlight-column .card {
     width: 100%;
     max-width: 320px;
   }
 
-  .today-highlight-with-challenge {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .today-highlight-with-challenge .card-challenge {
-    width: 100%;
+  .today-highlight-column .card,
+  .today-highlight-column-challenge .card-challenge {
+    max-height: none;
+    height: auto;
   }
 }
 
@@ -355,7 +350,10 @@ h6 {
   }
 
   .portrait-visual {
+    width: 100%;
     max-width: 260px;
+    height: auto;
+    aspect-ratio: 2 / 3;
   }
 }
 
@@ -1575,6 +1573,9 @@ h6 {
   gap: 18px;
   align-items: center;
   text-align: center;
+  width: 100%;
+  max-height: calc(480px * 2 + 16px);
+  overflow: auto;
 }
 
 .card-aujourdhui h2 {
