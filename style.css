@@ -149,9 +149,10 @@ body {
 .today-dashboard {
   margin-top: 40px;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: clamp(220px, 18vw, 260px) repeat(3, minmax(0, 1fr));
   grid-template-areas:
-    "today today mood challenge"
+    "menu today today mood"
+    "menu daily daily challenge"
     "menu daily daily other";
   gap: 12px;
   justify-content: flex-start;
@@ -235,6 +236,7 @@ body {
   align-self: stretch;
   grid-row: auto;
   overflow: hidden;
+  height: 100%;
 }
 
 .today-daily-card {
