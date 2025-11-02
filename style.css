@@ -42,10 +42,17 @@ h6 {
   font-weight: 400;
 }
 
+html,
+body {
+  overflow-x: hidden;
+}
+
 .app-container {
-  max-width: 1180px;
+  max-width: 100%;
+  width: 100%;
   margin: 0;
   padding: 20px 12px;
+  box-sizing: border-box;
   transition: filter 0.3s ease, transform 0.3s ease;
 }
 
@@ -146,8 +153,7 @@ h6 {
   grid-template-areas:
     "menu today mood challenge"
     "menu daily other other";
-  column-gap: 8px;
-  row-gap: 24px;
+  gap: 12px;
   justify-content: flex-start;
   align-items: stretch;
 }
