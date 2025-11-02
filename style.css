@@ -1546,6 +1546,10 @@ h6 {
   display: block;
 }
 
+#view-aujourdhui {
+  margin-right: min(calc(24px + 100% - 100vw), 0px);
+}
+
 .dashboard-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
