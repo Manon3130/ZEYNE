@@ -29,6 +29,7 @@ body {
   color: var(--text);
   line-height: 1.6;
   font-weight: 300;
+  overflow-x: hidden;
 }
 
 h1,
