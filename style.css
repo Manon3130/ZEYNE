@@ -317,6 +317,13 @@ h6 {
   color: var(--white);
 }
 
+.today-mood-card {
+  min-height: 320px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
 .card-mood .motivation-slider-container {
   display: flex;
   flex-direction: column;
@@ -325,8 +332,11 @@ h6 {
 
 .card-mood .emoji-selector {
   margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
   gap: 12px;
-  justify-content: space-between;
+  justify-content: center;
+  align-content: center;
 }
 
 .card-mood .slider-labels span {
@@ -3238,13 +3248,15 @@ body.aide-infos-modal-open {
 }
 
 .emoji-btn {
-  font-size: 2rem;
+  font-size: 1.8rem;
   background: none;
   border: none;
   cursor: pointer;
   padding: 8px;
   border-radius: 12px;
   transition: all 0.2s;
+  flex: 1 1 calc(50% - 12px);
+  text-align: center;
 }
 
 .emoji-btn:hover {
