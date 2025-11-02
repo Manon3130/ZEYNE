@@ -1443,6 +1443,7 @@ const TEMPLATE_LIBRARY = [
 
 let state = {
   settings: {
+    firstName: '',
     email: '',
     goalTitle: '',
     deadlineISO: '',
@@ -3781,6 +3782,7 @@ function loadState() {
       if (!state.moodHistory) state.moodHistory = {};
       if (!state.tasks) state.tasks = {};
       if (!state.settings || typeof state.settings !== 'object') state.settings = {};
+      if (typeof state.settings.firstName !== 'string') state.settings.firstName = '';
       if (!state.settings.startISO) state.settings.startISO = '';
       if (!state.reports) state.reports = {};
       normalizeLegacyReportReasons();
@@ -7960,6 +7962,7 @@ function renderKPIImage() {
 }
 
 function renderProgramme() {
+  const firstNameInput = document.getElementById('first-name-input');
   const emailInput = document.getElementById('email-input');
   const goalInput = document.getElementById('goal-input');
   const deadlineInput = document.getElementById('deadline-input');
@@ -7975,6 +7978,7 @@ function renderProgramme() {
   const previewMode = document.getElementById('programme-preview-mode');
   const previewTable = document.getElementById('programme-preview-table');
 
+  if (firstNameInput) firstNameInput.value = state.settings.firstName || '';
   if (emailInput) emailInput.value = state.settings.email || '';
   if (goalInput) goalInput.value = state.settings.goalTitle || '';
   if (deadlineInput) deadlineInput.value = state.settings.deadlineISO || '';
@@ -8162,6 +8166,7 @@ function renderProgramme() {
   const saveBtn = document.getElementById('save-programme-btn');
   if (saveBtn) {
     saveBtn.onclick = () => {
+      const firstNameValue = firstNameInput ? firstNameInput.value : '';
       const emailValue = emailInput ? emailInput.value : '';
       const goalValue = goalInput ? goalInput.value : '';
       const deadlineValue = deadlineInput ? deadlineInput.value : '';
@@ -8172,6 +8177,7 @@ function renderProgramme() {
       const previousGoal = state.settings.goalTitle;
       const previousDeadline = state.settings.deadlineISO;
 
+      state.settings.firstName = firstNameValue;
       state.settings.email = emailValue;
       state.settings.goalTitle = goalValue;
       state.settings.deadlineISO = deadlineValue;
@@ -8183,6 +8189,7 @@ function renderProgramme() {
       }
 
       saveState();
+      updateTodayGreetingName(firstNameValue || '');
       alert('Programme enregistré !');
       showView('aujourdhui');
     };
@@ -15137,6 +15144,8 @@ function initTodayGreeting() {
     updateTodayGreetingName(socialOverviewCache.profile.displayName);
   } else if (state?.profile?.displayName) {
     updateTodayGreetingName(state.profile.displayName);
+  } else if (state?.settings?.firstName) {
+    updateTodayGreetingName(state.settings.firstName);
   } else {
     updateTodayGreetingName('');
   }
