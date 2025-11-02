@@ -1547,7 +1547,7 @@ h6 {
 }
 
 #view-aujourdhui {
-  margin-right: min(calc(24px + 100% - 100vw), 0px);
+  margin-right: min(calc(12px + 100% - 100vw), 0px);
 }
 
 .dashboard-grid {
