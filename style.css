@@ -50,8 +50,10 @@ body {
 .app-container {
   max-width: 100%;
   width: 100%;
-  margin: 0;
-  padding: 20px 12px;
+  margin: 0 auto;
+  padding-block: 20px;
+  padding-inline: 12px;
+  padding-inline-end: calc(12px + env(safe-area-inset-right));
   box-sizing: border-box;
   transition: filter 0.3s ease, transform 0.3s ease;
 }
@@ -101,9 +103,7 @@ body {
 }
 
 .today-hero-banner {
-  width: 100vw;
-  margin-left: calc(50% - 50vw);
-  margin-right: calc(50% - 50vw);
+  width: 100%;
   height: 180px;
   border-radius: 0;
   background: linear-gradient(135deg, rgba(249, 216, 214, 0.8), rgba(205, 231, 245, 0.7));
@@ -149,13 +149,17 @@ body {
 .today-dashboard {
   margin-top: 40px;
   display: grid;
-  grid-template-columns: 180px minmax(0, 1fr) minmax(0, 0.6fr) minmax(0, 0.55fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   grid-template-areas:
-    "menu today mood challenge"
-    "menu daily other other";
+    "today today mood challenge"
+    "menu daily daily other";
   gap: 12px;
   justify-content: flex-start;
   align-items: stretch;
+}
+
+.today-dashboard > * {
+  min-width: 0;
 }
 
 .today-overview-card {
@@ -168,8 +172,10 @@ body {
 }
 
 .today-overview-image {
-  flex: 0 0 175px;
-  height: 175px;
+  flex: 0 0 clamp(140px, 25vw, 175px);
+  width: clamp(140px, 25vw, 175px);
+  max-width: 100%;
+  height: clamp(140px, 25vw, 175px);
   border-radius: 20px;
   background: linear-gradient(145deg, rgba(234, 196, 175, 0.65), rgba(205, 231, 245, 0.55));
   box-shadow: inset 0 0 0 1px rgba(234, 196, 175, 0.25);
@@ -220,14 +226,14 @@ body {
 
 .today-menu-card {
   grid-area: menu;
-  max-width: 180px;
   width: 100%;
+  max-width: 100%;
   padding: 20px 18px;
   display: flex;
   flex-direction: column;
   gap: 16px;
   align-self: stretch;
-  grid-row: span 2;
+  grid-row: auto;
   overflow: hidden;
 }
 
@@ -284,12 +290,11 @@ body {
   background: rgba(247, 230, 214, 0.55);
   font-size: 0.85rem;
   line-height: 1.3;
-  transition: background 0.2s ease, transform 0.2s ease;
+  transition: background 0.2s ease, color 0.2s ease;
 }
 
 .shortcuts-list a:hover {
   background: rgba(234, 196, 175, 0.65);
-  transform: translateX(4px);
   color: var(--white);
 }
 
@@ -335,7 +340,7 @@ body {
       "menu menu"
       "daily daily"
       "other other";
-    column-gap: 20px;
+    gap: 12px;
   }
 
   .today-overview-card {
@@ -1553,8 +1558,7 @@ body {
 }
 
 #view-aujourdhui {
-  margin-right: min(calc(12px + 100% - 100vw), 0px);
-  padding-right: 12px;
+  padding-right: env(safe-area-inset-right);
 }
 
 .dashboard-grid {
@@ -1563,12 +1567,13 @@ body {
   gap: 24px;
 }
 
-.card { 
+.card {
   background: var(--card-bg);
   backdrop-filter: blur(10px);
   border-radius: 20px;
   padding: 24px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  min-width: 0;
 }
 
 .card-aujourdhui {
@@ -4728,7 +4733,7 @@ body.daily-summary-open::before {
   display: none;
   position: fixed;
   inset: 0;
-  width: 100vw;
+  width: 100%;
   height: 100vh;
   min-height: 100vh;
   padding: 20px;
