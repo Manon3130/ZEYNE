@@ -149,11 +149,11 @@ body {
 .today-dashboard {
   margin-top: 40px;
   display: grid;
-  grid-template-columns: clamp(220px, 18vw, 260px) repeat(3, minmax(0, 1fr));
+  grid-template-columns: clamp(220px, 18vw, 260px) clamp(300px, 32vw, 360px) minmax(260px, 1fr) minmax(260px, 1fr);
   grid-template-areas:
-    "menu today today mood"
-    "menu daily daily challenge"
-    "menu daily daily other";
+    "menu today mood challenge"
+    "menu daily daily daily"
+    "menu other other other";
   gap: 12px;
   justify-content: flex-start;
   align-items: stretch;
@@ -170,13 +170,14 @@ body {
   align-items: stretch;
   min-height: 320px;
   overflow: hidden;
+  padding: 4px 0;
 }
 
 .today-overview-image {
-  flex: 0 0 clamp(140px, 25vw, 175px);
-  width: clamp(140px, 25vw, 175px);
+  flex: 0 0 clamp(120px, 22vw, 160px);
+  width: clamp(120px, 22vw, 160px);
   max-width: 100%;
-  height: clamp(140px, 25vw, 175px);
+  height: clamp(120px, 22vw, 160px);
   border-radius: 20px;
   background: linear-gradient(145deg, rgba(234, 196, 175, 0.65), rgba(205, 231, 245, 0.55));
   box-shadow: inset 0 0 0 1px rgba(234, 196, 175, 0.25);
