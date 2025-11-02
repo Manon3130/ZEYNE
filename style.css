@@ -45,7 +45,7 @@ h6 {
 .app-container {
   max-width: 1180px;
   margin: 0;
-  padding: 20px 20px 20px 12px;
+  padding: 20px 12px;
   transition: filter 0.3s ease, transform 0.3s ease;
 }
 
@@ -142,15 +142,14 @@ h6 {
 .today-dashboard {
   margin-top: 40px;
   display: grid;
-  grid-template-columns: 180px 552px 282px 140px;
+  grid-template-columns: 180px minmax(0, 1fr) minmax(0, 0.6fr) minmax(0, 0.55fr);
   grid-template-areas:
-    "menu today mood clock"
-    "menu daily other other"
-    "menu challenge challenge challenge";
+    "menu today mood challenge"
+    "menu daily other other";
   column-gap: 8px;
   row-gap: 24px;
   justify-content: flex-start;
-  align-items: start;
+  align-items: stretch;
 }
 
 .today-overview-card {
@@ -213,17 +212,6 @@ h6 {
   margin-bottom: 12px;
 }
 
-.today-clock-card {
-  grid-area: clock;
-  text-align: center;
-  padding: 24px 16px;
-  min-height: 170px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 14px;
-}
-
 .today-menu-card {
   grid-area: menu;
   max-width: 180px;
@@ -233,7 +221,7 @@ h6 {
   flex-direction: column;
   gap: 16px;
   align-self: stretch;
-  grid-row: span 3;
+  grid-row: span 2;
   overflow: hidden;
 }
 
@@ -257,26 +245,11 @@ h6 {
 
 .today-challenge-card {
   grid-area: challenge;
-  align-self: stretch;
   display: flex;
   flex-direction: column;
   gap: 20px;
-  max-width: calc(552px + 282px + 140px + 16px);
-  margin: 0 auto;
-}
-
-.card-clock-label {
-  font-size: 0.85rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: rgba(166, 128, 118, 0.75);
-}
-
-.card-clock-time {
-  font-size: 1.3rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.04em;
+  align-self: stretch;
+  min-height: 285px;
 }
 
 .card-shortcuts h2 {
@@ -320,7 +293,7 @@ h6 {
 }
 
 .today-mood-card {
-  min-height: 320px;
+  min-height: 285px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -352,11 +325,10 @@ h6 {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     grid-template-areas:
       "today today"
-      "mood clock"
+      "mood challenge"
       "menu menu"
       "daily daily"
-      "other other"
-      "challenge challenge";
+      "other other";
     column-gap: 20px;
   }
 
@@ -382,11 +354,10 @@ h6 {
     grid-template-areas:
       "today"
       "mood"
-      "clock"
+      "challenge"
       "menu"
       "daily"
       "other"
-      "challenge";
   }
 }
 
