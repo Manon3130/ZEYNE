@@ -44,8 +44,8 @@ h6 {
 
 .app-container {
   max-width: 1180px;
-  margin: 0 auto;
-  padding: 20px;
+  margin: 0 0 0 12px;
+  padding: 20px 20px 20px 0;
   transition: filter 0.3s ease, transform 0.3s ease;
 }
 
@@ -142,14 +142,14 @@ h6 {
 .today-dashboard {
   margin-top: 40px;
   display: grid;
-  grid-template-columns: 552px 282px 140px 180px;
+  grid-template-columns: 180px 552px 282px 140px;
   grid-template-areas:
-    "today mood clock menu"
-    "daily other other menu"
-    "challenge challenge challenge menu";
+    "menu today mood clock"
+    "menu daily other other"
+    "menu challenge challenge challenge";
   column-gap: 8px;
   row-gap: 24px;
-  justify-content: center;
+  justify-content: start;
   align-items: start;
 }
 
