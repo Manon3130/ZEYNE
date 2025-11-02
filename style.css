@@ -44,7 +44,7 @@ h6 {
 
 .app-container {
   max-width: 1180px;
-  margin: 0 auto;
+  margin: 0;
   padding: 20px 20px 20px 12px;
   transition: filter 0.3s ease, transform 0.3s ease;
 }
@@ -149,7 +149,7 @@ h6 {
     "menu challenge challenge challenge";
   column-gap: 8px;
   row-gap: 24px;
-  justify-content: center;
+  justify-content: flex-start;
   align-items: start;
 }
 
