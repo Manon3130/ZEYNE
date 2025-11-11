@@ -4,6 +4,7 @@
   --text: #A68076;
   --muted: #EFC3C2;
   --card-bg: rgba(255, 255, 255, 0.6);
+  --surface: rgba(255, 255, 255, 0.65);
   --white: #ffffff;
   --accent-rose: #F9D8D6;
   --accent-peach: #F7E6D6;
@@ -146,28 +147,34 @@ body {
   color: rgba(166, 128, 118, 0.92);
 }
 
-.today-dashboard {
-  margin-top: 40px;
+#dash {
+  max-width: 1200px;
+  width: 100%;
+  margin: 40px auto 0;
+  padding-inline: 12px;
   display: grid;
-  grid-template-columns: clamp(220px, 18vw, 260px) clamp(300px, 32vw, 360px) minmax(260px, 1fr) minmax(260px, 1fr);
+  grid-template-columns: 260px 1fr 1fr 320px;
+  grid-auto-rows: minmax(120px, auto);
+  gap: 16px;
   grid-template-areas:
-    "menu today mood challenge"
-    "menu daily other challenge";
-  gap: 12px;
-  justify-content: flex-start;
-  align-items: stretch;
+    "sidebar header  header   mood"
+    "sidebar daily3  otherdays mood"
+    "sidebar daily3  otherdays challenge7";
 }
 
-.today-dashboard > * {
+#dash > * {
   min-width: 0;
 }
 
+.today-dashboard {
+  margin-top: 40px;
+}
+
 .today-overview-card {
-  grid-area: today;
   display: flex;
   gap: 20px;
   align-items: stretch;
-  min-height: 320px;
+  min-height: 180px;
   overflow: hidden;
   padding: 4px 0;
 }
@@ -212,13 +219,11 @@ body {
 }
 
 .today-mood-card {
-  grid-area: mood;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  align-self: stretch;
+  gap: 14px;
   height: 100%;
-  min-height: 285px;
 }
 
 .today-mood-card h2 {
@@ -226,21 +231,17 @@ body {
 }
 
 .today-menu-card {
-  grid-area: menu;
   width: 100%;
   max-width: 100%;
-  padding: 20px 18px;
   display: flex;
   flex-direction: column;
   gap: 16px;
   align-self: stretch;
-  grid-row: auto;
   overflow: hidden;
   height: 100%;
 }
 
 .today-daily-card {
-  grid-area: daily;
   min-height: 560px;
   display: flex;
   flex-direction: column;
@@ -249,7 +250,6 @@ body {
 }
 
 .today-other-card {
-  grid-area: other;
   min-height: 560px;
   display: flex;
   flex-direction: column;
@@ -258,7 +258,6 @@ body {
 }
 
 .today-challenge-card {
-  grid-area: challenge;
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -305,15 +304,6 @@ body {
   color: var(--white);
 }
 
-.today-mood-card {
-  min-height: 285px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  align-self: stretch;
-  height: 100%;
-}
-
 .card-mood .motivation-slider-container {
   display: flex;
   flex-direction: column;
@@ -334,24 +324,26 @@ body {
 }
 
 @media (max-width: 1200px) {
-  .today-dashboard {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  #dash {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-template-areas:
-      "today today"
-      "mood challenge"
-      "menu menu"
-      "daily daily"
-      "other other";
-    gap: 12px;
+      "sidebar sidebar"
+      "header header"
+      "mood mood"
+      "daily3 otherdays"
+      "challenge7 challenge7";
   }
 
-  .today-overview-card {
+  #menu {
+    position: static;
     height: auto;
-    min-height: 320px;
   }
 
-  .today-menu-card {
-    max-width: none;
+  #card-mood {
+    grid-row: auto;
+  }
+
+  #card-challenge7 {
     grid-row: auto;
   }
 }
@@ -362,15 +354,15 @@ body {
     flex-wrap: wrap;
   }
 
-  .today-dashboard {
+  #dash {
     grid-template-columns: 1fr;
     grid-template-areas:
-      "today"
+      "sidebar"
+      "header"
       "mood"
-      "challenge"
-      "menu"
-      "daily"
-      "other"
+      "daily3"
+      "otherdays"
+      "challenge7";
   }
 }
 
@@ -384,7 +376,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding: 22px;
 }
 
 .challenge-header {
@@ -1570,11 +1561,10 @@ body {
 }
 
 .card {
-  background: var(--card-bg);
-  backdrop-filter: blur(10px);
-  border-radius: 20px;
-  padding: 24px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  background: var(--surface);
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: none;
   min-width: 0;
 }
 
@@ -6052,4 +6042,39 @@ body.modal-open {
   .template-modal-footer-right {
     justify-content: flex-end;
   }
+}
+#menu {
+  grid-area: sidebar;
+  position: sticky;
+  top: 96px;
+  height: calc(100vh - 128px);
+  align-self: start;
+}
+
+#card-today {
+  grid-area: header;
+  min-height: 180px;
+}
+
+#card-mood {
+  grid-area: mood;
+  min-height: 180px;
+  grid-row: 1 / span 1;
+}
+
+#card-daily3 {
+  grid-area: daily3;
+}
+
+#card-otherdays {
+  grid-area: otherdays;
+}
+
+#card-challenge7 {
+  grid-area: challenge7;
+  grid-row: 2 / span 2;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }

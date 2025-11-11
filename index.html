@@ -27,8 +27,8 @@
           <p id="today-quote-text">« Chaque jour est une page blanche pour avancer en douceur. »</p>
         </div>
 
-        <div class="today-dashboard">
-          <div class="card card-aujourdhui today-overview-card">
+        <div id="dash" class="today-dashboard">
+          <div class="card card-aujourdhui today-overview-card" id="card-today">
             <div class="today-overview-image" role="img" aria-label="Illustration Aujourd'hui"></div>
             <div class="today-overview-content">
               <div class="today-overview-header">
@@ -60,7 +60,7 @@
             </div>
           </div>
 
-          <div class="card card-mood today-mood-card">
+          <div class="card card-mood today-mood-card" id="card-mood">
             <h2>Motivation &amp; Humeur</h2>
             <div class="motivation-slider-container">
               <input type="range" id="motivation-slider" min="0" max="100" value="50" step="25">
@@ -80,7 +80,7 @@
             </div>
           </div>
 
-          <nav class="card card-shortcuts today-menu-card" aria-label="Menu Aujourd'hui">
+          <nav id="menu" class="card card-shortcuts today-menu-card" aria-label="Menu Aujourd'hui">
             <h2>Menu</h2>
             <ul class="shortcuts-list">
               <li><a href="#" data-view="programme">Programme</a></li>
@@ -95,7 +95,7 @@
             </ul>
           </nav>
 
-          <div class="card card-daily3 today-daily-card">
+          <div class="card card-daily3 today-daily-card" id="card-daily3">
             <div class="card-daily3-header">
               <h2>Daily 3 d'aujourd'hui</h2>
               <button type="button" id="daily-quick-add-btn" class="quick-add-btn" aria-label="Ajouter une micro-tâche">
@@ -108,12 +108,12 @@
             <div class="encouragement-message" id="encouragement-message"></div>
           </div>
 
-          <div class="card card-other-days today-other-card">
+          <div class="card card-other-days today-other-card" id="card-otherdays">
             <h2>Autres jours (4 prochains)</h2>
             <div id="other-days-list"></div>
           </div>
 
-          <div class="card card-challenge today-challenge-card" id="challenge-card">
+          <div class="card card-challenge today-challenge-card" id="card-challenge7">
             <div class="challenge-header">
               <div>
                 <h2>Défi 7 jours</h2>
