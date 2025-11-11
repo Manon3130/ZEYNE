@@ -7677,6 +7677,13 @@ function showView(viewName) {
       stopPreviewAudio();
     }
 
+    const body = document.body;
+    if (body) {
+      const activeViewClasses = Array.from(body.classList).filter(cls => cls.startsWith('view-') && cls.endsWith('-active'));
+      activeViewClasses.forEach(cls => body.classList.remove(cls));
+      body.classList.add(`view-${viewName}-active`);
+    }
+
     currentViewName = viewName;
     refreshGlobalMenuSelection(viewName);
     updateGlobalMenuVisibility(viewName);
