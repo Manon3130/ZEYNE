@@ -7341,6 +7341,142 @@ function initGlobalMenu() {
   globalMenuState.panel = panel;
   globalMenuState.backdrop = backdrop;
 
+  const floatingMargin = 12;
+  const clampFloatingCoordinate = (value, max) => {
+    if (Number.isNaN(value)) {
+      return value;
+    }
+    if (max < floatingMargin) {
+      return floatingMargin;
+    }
+    if (value < floatingMargin) {
+      return floatingMargin;
+    }
+    if (value > max) {
+      return max;
+    }
+    return value;
+  };
+
+  const repositionMenuPanel = () => {
+    if (!panel || panel.hasAttribute('hidden')) {
+      return;
+    }
+    const bubbleRect = toggleBtn.getBoundingClientRect();
+    const panelWidth = panel.offsetWidth;
+    const panelHeight = panel.offsetHeight;
+    const maxLeft = Math.max(floatingMargin, window.innerWidth - panelWidth - floatingMargin);
+    const maxTop = Math.max(floatingMargin, window.innerHeight - panelHeight - floatingMargin);
+
+    let top = bubbleRect.bottom + floatingMargin;
+    if (top > maxTop) {
+      top = bubbleRect.top - panelHeight - floatingMargin;
+    }
+    top = clampFloatingCoordinate(top, maxTop);
+
+    let left = bubbleRect.left + bubbleRect.width - panelWidth;
+    const availableRight = window.innerWidth - (bubbleRect.left + bubbleRect.width);
+    if (availableRight < floatingMargin && bubbleRect.left > panelWidth) {
+      left = bubbleRect.left - panelWidth - floatingMargin;
+    }
+    left = clampFloatingCoordinate(left, maxLeft);
+
+    panel.style.top = `${top}px`;
+    panel.style.left = `${left}px`;
+    panel.style.right = 'auto';
+  };
+
+  const clampBubblePosition = () => {
+    const maxLeft = Math.max(floatingMargin, window.innerWidth - toggleBtn.offsetWidth - floatingMargin);
+    const maxTop = Math.max(floatingMargin, window.innerHeight - toggleBtn.offsetHeight - floatingMargin);
+    const currentLeft = parseFloat(toggleBtn.style.left);
+    const currentTop = parseFloat(toggleBtn.style.top);
+    if (!Number.isNaN(currentLeft)) {
+      const nextLeft = clampFloatingCoordinate(currentLeft, maxLeft);
+      if (!Number.isNaN(nextLeft)) {
+        toggleBtn.style.left = `${nextLeft}px`;
+        toggleBtn.style.right = 'auto';
+      }
+    }
+    if (!Number.isNaN(currentTop)) {
+      const nextTop = clampFloatingCoordinate(currentTop, maxTop);
+      if (!Number.isNaN(nextTop)) {
+        toggleBtn.style.top = `${nextTop}px`;
+      }
+    }
+  };
+
+  let isDraggingBubble = false;
+  let dragOffsetX = 0;
+  let dragOffsetY = 0;
+  let bubbleMoved = false;
+  let skipNextClick = false;
+
+  toggleBtn.addEventListener('pointerdown', (event) => {
+    if (event.button !== undefined && event.button !== 0) {
+      return;
+    }
+    isDraggingBubble = true;
+    bubbleMoved = false;
+    const rect = toggleBtn.getBoundingClientRect();
+    dragOffsetX = event.clientX - rect.left;
+    dragOffsetY = event.clientY - rect.top;
+    toggleBtn.style.right = 'auto';
+    toggleBtn.classList.add('is-dragging');
+    try {
+      toggleBtn.setPointerCapture(event.pointerId);
+    } catch (_) {
+      // ignore when pointer capture is unavailable
+    }
+  });
+
+  const handlePointerMove = (event) => {
+    if (!isDraggingBubble) {
+      return;
+    }
+    const nextLeft = event.clientX - dragOffsetX;
+    const nextTop = event.clientY - dragOffsetY;
+    const maxLeft = Math.max(floatingMargin, window.innerWidth - toggleBtn.offsetWidth - floatingMargin);
+    const maxTop = Math.max(floatingMargin, window.innerHeight - toggleBtn.offsetHeight - floatingMargin);
+    const clampedLeft = clampFloatingCoordinate(nextLeft, maxLeft);
+    const clampedTop = clampFloatingCoordinate(nextTop, maxTop);
+    toggleBtn.style.left = `${clampedLeft}px`;
+    toggleBtn.style.top = `${clampedTop}px`;
+    bubbleMoved = true;
+    if (globalMenuState.isOpen) {
+      repositionMenuPanel();
+    }
+  };
+
+  const handlePointerEnd = (event) => {
+    if (!isDraggingBubble) {
+      return;
+    }
+    isDraggingBubble = false;
+    toggleBtn.classList.remove('is-dragging');
+    try {
+      toggleBtn.releasePointerCapture(event.pointerId);
+    } catch (_) {
+      // ignore when pointer capture is unavailable
+    }
+    clampBubblePosition();
+    if (bubbleMoved) {
+      skipNextClick = true;
+    }
+    bubbleMoved = false;
+  };
+
+  toggleBtn.addEventListener('pointermove', handlePointerMove);
+  toggleBtn.addEventListener('pointerup', handlePointerEnd);
+  toggleBtn.addEventListener('pointercancel', handlePointerEnd);
+
+  window.addEventListener('resize', () => {
+    clampBubblePosition();
+    if (globalMenuState.isOpen) {
+      repositionMenuPanel();
+    }
+  });
+
   const focusableSelector = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])';
   let closeTimeoutId = null;
 
@@ -7417,9 +7553,11 @@ function initGlobalMenu() {
     panel.setAttribute('aria-hidden', 'false');
     backdrop?.removeAttribute('hidden');
     document.body.classList.add('global-menu-open');
+    repositionMenuPanel();
     requestAnimationFrame(() => {
       panel.classList.add('is-open');
       backdrop?.classList.add('is-open');
+      repositionMenuPanel();
     });
     toggleBtn.setAttribute('aria-expanded', 'true');
     document.addEventListener('keydown', handleKeydown);
@@ -7462,6 +7600,10 @@ function initGlobalMenu() {
   globalMenuState.close = closeMenu;
 
   toggleBtn.addEventListener('click', () => {
+    if (skipNextClick) {
+      skipNextClick = false;
+      return;
+    }
     if (globalMenuState.isOpen) {
       closeMenu();
     } else {
@@ -7533,6 +7675,13 @@ function showView(viewName) {
 
     if (viewName !== 'bibliotheque') {
       stopPreviewAudio();
+    }
+
+    const body = document.body;
+    if (body) {
+      const activeViewClasses = Array.from(body.classList).filter(cls => cls.startsWith('view-') && cls.endsWith('-active'));
+      activeViewClasses.forEach(cls => body.classList.remove(cls));
+      body.classList.add(`view-${viewName}-active`);
     }
 
     currentViewName = viewName;

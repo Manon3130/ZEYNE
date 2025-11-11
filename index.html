@@ -11,10 +11,22 @@
   <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body class="view-aujourdhui-active">
   <div class="app-container">
+    <button
+      id="global-menu-toggle"
+      class="global-menu-toggle"
+      type="button"
+      aria-haspopup="true"
+      aria-expanded="false"
+      aria-controls="menu-panel"
+      aria-label="Ouvrir le menu de navigation"
+    >
+      <span class="global-menu-icon" aria-hidden="true">☰</span>
+      <span class="sr-only">Ouvrir le menu</span>
+    </button>
     <main id="main-content">
-      
+
       <div id="menu-panel-backdrop" class="global-menu-backdrop" hidden></div>
       <div
         id="menu-panel"
