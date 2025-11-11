@@ -148,10 +148,9 @@ body {
 }
 
 #dash {
-  max-width: 1200px;
   width: 100%;
-  margin: 40px auto 0;
-  padding-inline: 12px;
+  margin: 40px 0 0;
+  padding-inline: 0;
   display: grid;
   grid-template-columns: 260px 1fr 1fr 320px;
   grid-auto-rows: minmax(120px, auto);
