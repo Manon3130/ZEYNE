@@ -7281,21 +7281,14 @@ function maybeRevealAnalyticsBanner() {
   banner.setAttribute('aria-hidden', 'false');
 }
 
-function updateGlobalMenuVisibility(viewName) {
+function updateGlobalMenuVisibility() {
   const button = globalMenuState.button;
   if (!button) {
     return;
   }
-  const shouldHide = viewName === 'aujourdhui';
-  if (shouldHide) {
-    globalMenuState.close({ returnFocus: false });
-  }
-  button.toggleAttribute('hidden', shouldHide);
-  if (shouldHide) {
-    button.setAttribute('aria-hidden', 'true');
-  } else {
-    button.removeAttribute('aria-hidden');
-  }
+  button.hidden = false;
+  button.removeAttribute('hidden');
+  button.removeAttribute('aria-hidden');
 }
 
 function refreshGlobalMenuSelection(viewName = currentViewName) {
@@ -7475,6 +7468,7 @@ function initGlobalMenu() {
     if (globalMenuState.isOpen) {
       repositionMenuPanel();
     }
+    updateGlobalMenuVisibility();
   });
 
   const focusableSelector = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -7630,7 +7624,7 @@ function initGlobalMenu() {
   });
 
   refreshGlobalMenuSelection();
-  updateGlobalMenuVisibility(currentViewName);
+  updateGlobalMenuVisibility();
 }
 
 function showView(viewName) {
@@ -7686,7 +7680,7 @@ function showView(viewName) {
 
     currentViewName = viewName;
     refreshGlobalMenuSelection(viewName);
-    updateGlobalMenuVisibility(viewName);
+    updateGlobalMenuVisibility();
   }
 }
 
