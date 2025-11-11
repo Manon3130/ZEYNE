@@ -108,35 +108,63 @@ body {
 
 .global-menu-toggle {
   position: fixed;
-  top: 12px;
-  right: 12px;
+  top: 16px;
+  right: 16px;
   z-index: 1102;
   border: none;
-  padding: 10px 14px;
+  width: 56px;
+  height: 56px;
+  padding: 0;
   border-radius: 9999px;
   background: var(--color-pill);
   color: var(--text-primary);
-  font-size: 0.95rem;
+  font-size: 1.05rem;
   font-weight: 600;
   line-height: 1;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
   box-shadow: var(--shadow-soft);
-  cursor: pointer;
+  cursor: grab;
   transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+  touch-action: none;
+  user-select: none;
 }
 
 .global-menu-toggle:hover,
 .global-menu-toggle:focus-visible {
   outline: none;
-  transform: translateY(-1px);
   background: var(--accent-blush);
   box-shadow: 0 12px 30px rgba(234, 196, 175, 0.35);
 }
 
+.global-menu-toggle:focus-visible {
+  box-shadow: 0 0 0 3px rgba(234, 196, 175, 0.35), var(--shadow-soft);
+}
+
 .global-menu-toggle:active {
-  transform: translateY(0);
+  transform: scale(0.97);
+}
+
+.global-menu-toggle.is-dragging {
+  cursor: grabbing;
+  box-shadow: 0 14px 34px rgba(234, 196, 175, 0.4);
+}
+
+.global-menu-icon {
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
 }
 
 .global-menu-backdrop {
@@ -158,8 +186,9 @@ body {
 
 .global-menu-panel {
   position: fixed;
-  top: 56px;
-  right: 12px;
+  top: 72px;
+  right: 16px;
+  left: auto;
   width: 260px;
   max-height: calc(100vh - 80px);
   overflow-y: auto;
