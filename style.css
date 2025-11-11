@@ -152,8 +152,7 @@ body {
   grid-template-columns: clamp(220px, 18vw, 260px) clamp(300px, 32vw, 360px) minmax(260px, 1fr) minmax(260px, 1fr);
   grid-template-areas:
     "menu today mood challenge"
-    "menu daily daily daily"
-    "menu other other other";
+    "menu daily other challenge";
   gap: 12px;
   justify-content: flex-start;
   align-items: stretch;
