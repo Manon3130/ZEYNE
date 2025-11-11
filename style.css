@@ -260,10 +260,6 @@ body.global-menu-open {
   overflow: hidden;
 }
 
-body.view-aujourdhui-active .global-menu-toggle {
-  display: none;
-}
-
 @media (max-width: 768px) {
   .global-menu-panel {
     top: 0;
@@ -294,6 +290,12 @@ body.view-aujourdhui-active .global-menu-toggle {
   .global-menu-link {
     font-size: 1.05rem;
     padding: 14px 18px;
+  }
+}
+
+@media (min-width: 769px) {
+  .global-menu-toggle {
+    display: none;
   }
 }
 
