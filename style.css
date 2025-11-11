@@ -510,22 +510,16 @@ body.global-menu-open {
   #dash {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-template-areas:
-      "sidebar sidebar"
-      "header header"
-      "mood mood"
+      "header mood"
       "daily3 otherdays"
       "challenge7 challenge7";
   }
 
   #menu {
-    position: static;
-    height: auto;
+    display: none;
   }
 
-  #card-mood {
-    grid-row: auto;
-  }
-
+  #card-mood,
   #card-challenge7 {
     grid-row: auto;
   }
@@ -540,7 +534,6 @@ body.global-menu-open {
   #dash {
     grid-template-columns: 1fr;
     grid-template-areas:
-      "sidebar"
       "header"
       "mood"
       "daily3"
