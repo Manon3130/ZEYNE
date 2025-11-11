@@ -14,6 +14,41 @@
 <body>
   <div class="app-container">
     <main id="main-content">
+      <button
+        type="button"
+        id="global-menu-toggle"
+        class="global-menu-toggle"
+        aria-label="Ouvrir le menu de navigation"
+        aria-controls="menu-panel"
+        aria-expanded="false"
+        hidden
+      >☰ Menu</button>
+      <div id="menu-panel-backdrop" class="global-menu-backdrop" hidden></div>
+      <div
+        id="menu-panel"
+        class="global-menu-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="menu-panel-title"
+        aria-hidden="true"
+        hidden
+        tabindex="-1"
+      >
+        <nav class="global-menu-nav" aria-label="Navigation principale">
+          <h2 id="menu-panel-title" class="global-menu-title">Navigation</h2>
+          <ul class="global-menu-list">
+            <li><a href="#" class="global-menu-link" data-menu-view="programme">Programme</a></li>
+            <li><a href="#" class="global-menu-link" data-menu-view="planifier">Planifier</a></li>
+            <li><a href="#" class="global-menu-link" data-menu-view="aujourdhui">Aujourd'hui</a></li>
+            <li><a href="#" class="global-menu-link" data-menu-view="hebdo">Voir ma semaine</a></li>
+            <li><a href="#" class="global-menu-link" data-menu-view="bibliotheque">Bibliothèque</a></li>
+            <li><a href="#" class="global-menu-link" data-menu-view="notifications" data-menu-tab="alerts">Notifications</a></li>
+            <li><a href="#" class="global-menu-link" data-menu-view="notifications" data-menu-tab="history">Historique</a></li>
+            <li><a href="#" class="global-menu-link" data-menu-view="vignettes">Vignettes</a></li>
+            <li><a href="#" class="global-menu-link" data-menu-view="aide-infos">Aide &amp; Infos</a></li>
+          </ul>
+        </nav>
+      </div>
       <section id="view-aujourdhui" class="view active">
         <div class="today-hero-banner" aria-hidden="true">
           <div class="today-hero-visual" role="img" aria-label="Couverture du jour"></div>
