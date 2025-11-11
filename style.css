@@ -525,6 +525,38 @@ body.global-menu-open {
   }
 }
 
+@media (max-width: 1024px) {
+  #dash {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "header"
+      "mood"
+      "daily3"
+      "otherdays"
+      "challenge7";
+    grid-auto-rows: auto;
+  }
+
+  #card-today,
+  #card-mood,
+  #card-daily3,
+  #card-otherdays,
+  #card-challenge7 {
+    grid-column: 1;
+    width: 100%;
+  }
+
+  #card-challenge7 {
+    grid-row: auto;
+  }
+
+  .today-daily-card,
+  .today-other-card,
+  .today-challenge-card {
+    min-height: auto;
+  }
+}
+
 @media (max-width: 720px) {
   .today-greeting-text {
     font-size: 1.8rem;
