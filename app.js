@@ -23,16 +23,6 @@ const MOOD_DETAILS = {
 };
 
 const DAILY_EMOJIS = ['🌸', '🎀', '💕', '🌷', '🌼', '🌻', '🌟', '🌈', '🪷', '🍑'];
-const DAILY_QUOTES = [
-  'Prends une grande inspiration, on avance en douceur.',
-  'Petit pas, grand impact : tu as déjà commencé.',
-  'Ton énergie du jour mérite d’être célébrée.',
-  'La constance se construit avec des gestes simples.',
-  'Tu as le droit d’y aller à ton rythme, l’essentiel est d’avancer.',
-  'Chaque mini-victoire nourrit ton élan.',
-  'Aujourd’hui est l’occasion de prendre soin de ton focus.',
-  'Tu peux tout à fait réussir sans te brusquer.'
-];
 
 const AUDIO_DB_NAME = 'ZEYNE_AUDIO_DB';
 const AUDIO_DB_VERSION = 1;
@@ -15102,14 +15092,6 @@ function getDailyEmojiForToday() {
   return DAILY_EMOJIS[index];
 }
 
-function getDailyQuoteForToday() {
-  if (!Array.isArray(DAILY_QUOTES) || DAILY_QUOTES.length === 0) {
-    return '';
-  }
-  const index = computeDailyIndex(DAILY_QUOTES.length, 17);
-  return DAILY_QUOTES[index];
-}
-
 function extractFirstName(value) {
   if (typeof value !== 'string') {
     return '';
@@ -15152,17 +15134,6 @@ function initTodayGreeting() {
   updateTodayGreetingEmoji();
 }
 
-function initDailyQuote() {
-  const quoteEl = document.getElementById('today-quote-text');
-  if (!quoteEl) {
-    return;
-  }
-  const quote = getDailyQuoteForToday();
-  if (quote) {
-    quoteEl.textContent = `« ${quote} »`;
-  }
-}
-
 function initDigitalClock() {
   const clockEl = document.getElementById('digital-clock-time');
   if (!clockEl) {
@@ -15186,7 +15157,6 @@ loadState();
 loadState();
 
 initTodayGreeting();
-initDailyQuote();
 initDigitalClock();
 
 if ('serviceWorker' in navigator) {

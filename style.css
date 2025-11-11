@@ -139,14 +139,6 @@ body {
   font-weight: 600;
 }
 
-.today-quote-card {
-  margin-top: 24px;
-  font-size: 1.1rem;
-  text-align: center;
-  font-style: italic;
-  color: rgba(166, 128, 118, 0.92);
-}
-
 #dash {
   width: 100%;
   margin: 40px 0 0;
