@@ -111,6 +111,8 @@ body {
   overflow: hidden;
   display: flex;
   align-items: stretch;
+  margin-inline-start: calc(-12px - env(safe-area-inset-left));
+  margin-inline-end: calc(-12px - env(safe-area-inset-right));
 }
 
 .today-hero-visual {
