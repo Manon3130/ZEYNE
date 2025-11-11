@@ -293,12 +293,6 @@ body.global-menu-open {
   }
 }
 
-@media (min-width: 769px) {
-  .global-menu-toggle {
-    display: none;
-  }
-}
-
 .today-hero-banner {
   width: 100%;
   height: 180px;

@@ -7286,17 +7286,8 @@ function updateGlobalMenuVisibility() {
   if (!button) {
     return;
   }
-  const mobileQuery = window.matchMedia('(max-width: 768px)');
-  const shouldShow = mobileQuery.matches;
-  if (!shouldShow) {
-    globalMenuState.close({ returnFocus: false });
-  }
-  button.toggleAttribute('hidden', !shouldShow);
-  if (!shouldShow) {
-    button.setAttribute('aria-hidden', 'true');
-  } else {
-    button.removeAttribute('aria-hidden');
-  }
+  button.hidden = false;
+  button.removeAttribute('aria-hidden');
 }
 
 function refreshGlobalMenuSelection(viewName = currentViewName) {
