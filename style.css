@@ -136,7 +136,7 @@ body {
 }
 
 #today-first-name {
-  font-weight: 600;
+  font-weight: inherit;
 }
 
 #dash {
