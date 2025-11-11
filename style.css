@@ -6046,8 +6046,8 @@ body.modal-open {
   grid-area: sidebar;
   position: sticky;
   top: 96px;
-  height: calc(100vh - 128px);
-  align-self: start;
+  align-self: stretch;
+  height: 100%;
 }
 
 #card-today {
