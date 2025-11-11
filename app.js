@@ -7281,17 +7281,18 @@ function maybeRevealAnalyticsBanner() {
   banner.setAttribute('aria-hidden', 'false');
 }
 
-function updateGlobalMenuVisibility(viewName) {
+function updateGlobalMenuVisibility() {
   const button = globalMenuState.button;
   if (!button) {
     return;
   }
-  const shouldHide = viewName === 'aujourdhui';
-  if (shouldHide) {
+  const mobileQuery = window.matchMedia('(max-width: 768px)');
+  const shouldShow = mobileQuery.matches;
+  if (!shouldShow) {
     globalMenuState.close({ returnFocus: false });
   }
-  button.toggleAttribute('hidden', shouldHide);
-  if (shouldHide) {
+  button.toggleAttribute('hidden', !shouldShow);
+  if (!shouldShow) {
     button.setAttribute('aria-hidden', 'true');
   } else {
     button.removeAttribute('aria-hidden');
@@ -7475,6 +7476,7 @@ function initGlobalMenu() {
     if (globalMenuState.isOpen) {
       repositionMenuPanel();
     }
+    updateGlobalMenuVisibility();
   });
 
   const focusableSelector = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -7630,7 +7632,15 @@ function initGlobalMenu() {
   });
 
   refreshGlobalMenuSelection();
-  updateGlobalMenuVisibility(currentViewName);
+  const mobileQuery = window.matchMedia('(max-width: 768px)');
+  const handleVisibilityChange = () => updateGlobalMenuVisibility();
+  if (typeof mobileQuery.addEventListener === 'function') {
+    mobileQuery.addEventListener('change', handleVisibilityChange);
+  } else if (typeof mobileQuery.addListener === 'function') {
+    mobileQuery.addListener(handleVisibilityChange);
+  }
+
+  updateGlobalMenuVisibility();
 }
 
 function showView(viewName) {
@@ -7686,7 +7696,7 @@ function showView(viewName) {
 
     currentViewName = viewName;
     refreshGlobalMenuSelection(viewName);
-    updateGlobalMenuVisibility(viewName);
+    updateGlobalMenuVisibility();
   }
 }
 
