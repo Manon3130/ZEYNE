@@ -4817,7 +4817,10 @@ function renderChallengeParticipantsPreview(challenge) {
 }
 
 function renderChallengeCard() {
-  const card = document.getElementById('card-challenge7') || document.getElementById('challenge-card');
+  const card =
+    document.getElementById('card-challenge') ||
+    document.getElementById('card-challenge7') ||
+    document.getElementById('challenge-card');
   if (!card) {
     return;
   }
