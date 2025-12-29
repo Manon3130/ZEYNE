@@ -15523,6 +15523,555 @@ function initDigitalClock() {
   digitalClockIntervalId = setInterval(update, 1000);
 }
 
+const TODAY_LAYOUT_KEYS = {
+  desktop: 'layout:desktop',
+  tablet: 'layout:tablet',
+  mobilePortrait: 'layout:mobile:portrait',
+  mobileLandscape: 'layout:mobile:landscape'
+};
+const TODAY_LAYOUT_INITIALIZED_KEY = 'layout:initialized';
+const TODAY_WIDGETS = {
+  today: {
+    label: "Aujourd'hui",
+    min: {
+      desktop: { w: 4, h: 3 },
+      tablet: { w: 3, h: 3 },
+      mobile: { w: 2, h: 3 }
+    }
+  },
+  daily3: {
+    label: 'Daily 3',
+    min: {
+      desktop: { w: 4, h: 3 },
+      tablet: { w: 3, h: 3 },
+      mobile: { w: 2, h: 3 }
+    }
+  },
+  nextDays: {
+    label: '4 prochains jours',
+    min: {
+      desktop: { w: 4, h: 3 },
+      tablet: { w: 3, h: 3 },
+      mobile: { w: 2, h: 3 }
+    }
+  },
+  motivationMood: {
+    label: 'Motivation & Humeur',
+    min: {
+      desktop: { w: 3, h: 2 },
+      tablet: { w: 2, h: 2 },
+      mobile: { w: 2, h: 2 }
+    }
+  },
+  challenge7d: {
+    label: 'Défi 7 jours',
+    min: {
+      desktop: { w: 4, h: 3 },
+      tablet: { w: 3, h: 3 },
+      mobile: { w: 2, h: 3 }
+    }
+  }
+};
+const TODAY_LAYOUT_PRESETS = {
+  desktop: [
+    { id: 'today', x: 0, y: 0, w: 4, h: 3 },
+    { id: 'daily3', x: 4, y: 0, w: 4, h: 3 },
+    { id: 'nextDays', x: 8, y: 0, w: 4, h: 3 },
+    { id: 'motivationMood', x: 0, y: 3, w: 3, h: 2 },
+    { id: 'challenge7d', x: 3, y: 3, w: 9, h: 3 }
+  ],
+  tablet: [
+    { id: 'today', x: 0, y: 0, w: 4, h: 3 },
+    { id: 'daily3', x: 4, y: 0, w: 4, h: 3 },
+    { id: 'nextDays', x: 0, y: 3, w: 4, h: 3 },
+    { id: 'challenge7d', x: 4, y: 3, w: 4, h: 3 },
+    { id: 'motivationMood', x: 0, y: 6, w: 4, h: 2 }
+  ],
+  mobilePortrait: [
+    { id: 'today', x: 0, y: 0, w: 2, h: 3 },
+    { id: 'daily3', x: 0, y: 3, w: 2, h: 3 },
+    { id: 'nextDays', x: 0, y: 6, w: 2, h: 3 },
+    { id: 'motivationMood', x: 0, y: 9, w: 2, h: 2 },
+    { id: 'challenge7d', x: 0, y: 11, w: 2, h: 3 }
+  ],
+  mobileLandscape: [
+    { id: 'today', x: 0, y: 0, w: 3, h: 3 },
+    { id: 'daily3', x: 0, y: 3, w: 3, h: 3 },
+    { id: 'nextDays', x: 0, y: 6, w: 3, h: 3 },
+    { id: 'motivationMood', x: 0, y: 9, w: 2, h: 2 },
+    { id: 'challenge7d', x: 0, y: 11, w: 3, h: 3 }
+  ]
+};
+
+function initTodayCustomizer() {
+  const gridElement = document.getElementById('today-grid');
+  if (!gridElement || !window.GridStack) {
+    return;
+  }
+  const palette = document.getElementById('today-customize-palette');
+  const paletteToggle = document.getElementById('today-customize-palette-toggle');
+  const editToggle = document.getElementById('today-customize-toggle');
+  const editDone = document.getElementById('today-customize-done');
+  const editReset = document.getElementById('today-customize-reset');
+  const editActions = document.querySelector('.today-edit-actions');
+  const customizeActions = document.querySelector('.today-customize-actions');
+  const emptyState = document.getElementById('today-empty-state');
+  const emptyCustomize = document.getElementById('today-empty-customize');
+  if (!palette || !paletteToggle || !editToggle || !editDone || !editReset || !editActions || !customizeActions || !emptyState) {
+    return;
+  }
+
+  const widgetElements = new Map();
+  gridElement.querySelectorAll('.grid-stack-item').forEach(item => {
+    const widgetId = item.dataset.widgetId;
+    if (!widgetId) {
+      return;
+    }
+    const content = item.querySelector('.grid-stack-item-content');
+    if (content) {
+      content.setAttribute('tabindex', '0');
+      content.setAttribute('aria-grabbed', 'false');
+    }
+    widgetElements.set(widgetId, item);
+  });
+
+  const hasAnyLayout = Object.values(TODAY_LAYOUT_KEYS).some(key => Boolean(localStorage.getItem(key)));
+  const isFirstLaunch = !localStorage.getItem(TODAY_LAYOUT_INITIALIZED_KEY) && !hasAnyLayout;
+  let layoutState = new Map();
+  let currentLayoutType = null;
+  let grid = null;
+  let isEditing = false;
+  let resizeTimer = null;
+
+  const getLayoutType = () => {
+    const width = window.innerWidth;
+    if (width >= 1024) {
+      return 'desktop';
+    }
+    if (width >= 768) {
+      return 'tablet';
+    }
+    const isLandscape = window.matchMedia('(orientation: landscape)').matches;
+    return isLandscape ? 'mobileLandscape' : 'mobilePortrait';
+  };
+
+  const getColumns = (layoutType) => {
+    switch (layoutType) {
+      case 'desktop':
+        return 12;
+      case 'tablet':
+        return 8;
+      case 'mobileLandscape':
+        return 3;
+      default:
+        return 2;
+    }
+  };
+
+  const getMargin = (layoutType) => {
+    switch (layoutType) {
+      case 'desktop':
+        return 18;
+      case 'tablet':
+        return 14;
+      default:
+        return 10;
+    }
+  };
+
+  const getWidgetMin = (widgetId, layoutType) => {
+    const widget = TODAY_WIDGETS[widgetId];
+    if (!widget) {
+      return { w: 2, h: 2 };
+    }
+    if (layoutType === 'desktop' || layoutType === 'tablet') {
+      return widget.min[layoutType];
+    }
+    return widget.min.mobile;
+  };
+
+  const loadLayout = (layoutType) => {
+    const stored = localStorage.getItem(TODAY_LAYOUT_KEYS[layoutType]);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          const preset = TODAY_LAYOUT_PRESETS[layoutType];
+          const byId = new Map(parsed.map(item => [item.id, item]));
+          return preset.map(item => {
+            const saved = byId.get(item.id);
+            if (!saved) {
+              return { ...item, visible: true };
+            }
+            return {
+              ...item,
+              ...saved,
+              visible: typeof saved.visible === 'boolean' ? saved.visible : true
+            };
+          });
+        }
+      } catch (error) {
+        console.warn('Layout Aujourd’hui corrompu, reset.', error);
+      }
+    }
+    return TODAY_LAYOUT_PRESETS[layoutType].map(item => ({
+      ...item,
+      visible: !isFirstLaunch
+    }));
+  };
+
+  const persistLayout = () => {
+    const layoutType = currentLayoutType;
+    if (!layoutType) {
+      return;
+    }
+    const layoutArray = Array.from(layoutState.values()).map(item => ({
+      id: item.id,
+      x: item.x,
+      y: item.y,
+      w: item.w,
+      h: item.h,
+      visible: item.visible
+    }));
+    localStorage.setItem(TODAY_LAYOUT_KEYS[layoutType], JSON.stringify(layoutArray));
+    localStorage.setItem(TODAY_LAYOUT_INITIALIZED_KEY, 'true');
+  };
+
+  const updateEmptyState = () => {
+    const visibleCount = Array.from(layoutState.values()).filter(item => item.visible).length;
+    emptyState.hidden = visibleCount !== 0;
+    gridElement.classList.toggle('is-empty', visibleCount === 0);
+  };
+
+  const updatePalette = () => {
+    palette.querySelectorAll('.today-customize-toggle').forEach(btn => {
+      const widgetId = btn.dataset.widgetId;
+      const item = layoutState.get(widgetId);
+      if (!item) {
+        return;
+      }
+      const isVisible = item.visible;
+      btn.textContent = isVisible ? 'Retirer' : 'Ajouter';
+      btn.classList.toggle('is-remove', isVisible);
+    });
+  };
+
+  const applyEditMode = () => {
+    document.body.classList.toggle('today-editing', isEditing);
+    editActions.hidden = !isEditing;
+    editToggle.hidden = isEditing;
+    paletteToggle.hidden = !isEditing;
+    paletteToggle.disabled = !isEditing;
+    if (!isEditing) {
+      palette.hidden = true;
+      paletteToggle.setAttribute('aria-expanded', 'false');
+    }
+    if (grid) {
+      if (isEditing) {
+        grid.setStatic(false);
+        grid.enableResize(true);
+        const isMobile = currentLayoutType === 'mobilePortrait' || currentLayoutType === 'mobileLandscape';
+        grid.enableMove(!isMobile);
+        if (isMobile) {
+          widgetElements.forEach(el => {
+            grid.movable(el, false);
+          });
+        }
+      } else {
+        grid.setStatic(true);
+      }
+    }
+  };
+
+  const applyLayout = (layoutType) => {
+    currentLayoutType = layoutType;
+    const layoutItems = loadLayout(layoutType);
+    layoutState = new Map(layoutItems.map(item => [item.id, { ...item }]));
+
+    if (!grid) {
+      grid = window.GridStack.init(
+        {
+          column: getColumns(layoutType),
+          margin: getMargin(layoutType),
+          cellHeight: 96,
+          float: false,
+          resizable: { handles: 'se' }
+        },
+        gridElement
+      );
+
+      grid.on('change', (_event, items) => {
+        items.forEach(item => {
+          const widgetId = item.el?.dataset?.widgetId;
+          if (!widgetId || !layoutState.has(widgetId)) {
+            return;
+          }
+          const entry = layoutState.get(widgetId);
+          layoutState.set(widgetId, {
+            ...entry,
+            x: item.x,
+            y: item.y,
+            w: item.w,
+            h: item.h
+          });
+        });
+        persistLayout();
+      });
+
+      grid.on('dragstart', (_event, el) => {
+        document.body.classList.add('drag-active');
+        const content = el?.querySelector('.grid-stack-item-content');
+        content?.setAttribute('aria-grabbed', 'true');
+      });
+      grid.on('dragstop', (_event, el) => {
+        document.body.classList.remove('drag-active');
+        const content = el?.querySelector('.grid-stack-item-content');
+        content?.setAttribute('aria-grabbed', 'false');
+        const isMobile = currentLayoutType === 'mobilePortrait' || currentLayoutType === 'mobileLandscape';
+        if (isMobile && el) {
+          grid.movable(el, false);
+        }
+      });
+      grid.on('resizestart', () => {
+        document.body.classList.add('drag-active');
+      });
+      grid.on('resizestop', () => {
+        document.body.classList.remove('drag-active');
+      });
+
+      gridElement.querySelectorAll('.grid-stack-item-content').forEach(content => {
+        content.addEventListener('keydown', (event) => {
+          if (!isEditing) {
+            return;
+          }
+          if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+            return;
+          }
+          event.preventDefault();
+          const item = content.closest('.grid-stack-item');
+          if (!item) {
+            return;
+          }
+          const node = grid.engine.nodes.find(entry => entry.el === item);
+          if (!node) {
+            return;
+          }
+          const isResize = event.shiftKey;
+          const delta = event.key === 'ArrowUp' || event.key === 'ArrowLeft' ? -1 : 1;
+          if (isResize) {
+            const newW = event.key === 'ArrowLeft' || event.key === 'ArrowRight' ? node.w + delta : node.w;
+            const newH = event.key === 'ArrowUp' || event.key === 'ArrowDown' ? node.h + delta : node.h;
+            const min = getWidgetMin(item.dataset.widgetId, currentLayoutType);
+            grid.update(item, {
+              w: Math.max(min.w, newW),
+              h: Math.max(min.h, newH)
+            });
+          } else {
+            const newX = event.key === 'ArrowLeft' || event.key === 'ArrowRight' ? node.x + delta : node.x;
+            const newY = event.key === 'ArrowUp' || event.key === 'ArrowDown' ? node.y + delta : node.y;
+            grid.update(item, {
+              x: Math.max(0, newX),
+              y: Math.max(0, newY)
+            });
+          }
+        });
+      });
+
+      gridElement.querySelectorAll('.widget-remove-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const widgetId = btn.dataset.widgetId;
+          if (!widgetId) {
+            return;
+          }
+          hideWidget(widgetId);
+        });
+      });
+    }
+
+    grid.column(getColumns(layoutType));
+    grid.margin(getMargin(layoutType));
+    grid.cellHeight(96);
+
+    grid.removeAll(false);
+    layoutState.forEach((item, widgetId) => {
+      const el = widgetElements.get(widgetId);
+      if (!el) {
+        return;
+      }
+      const min = getWidgetMin(widgetId, layoutType);
+      if (item.visible) {
+        el.classList.remove('is-hidden');
+        el.setAttribute('aria-hidden', 'false');
+        grid.addWidget(el, {
+          x: item.x,
+          y: item.y,
+          w: item.w,
+          h: item.h,
+          minW: min.w,
+          minH: min.h
+        });
+      } else {
+        el.classList.add('is-hidden');
+        el.setAttribute('aria-hidden', 'true');
+      }
+    });
+
+    applyEditMode();
+    updatePalette();
+    updateEmptyState();
+  };
+
+  const showWidget = (widgetId) => {
+    const entry = layoutState.get(widgetId);
+    const el = widgetElements.get(widgetId);
+    if (!entry || !el || entry.visible) {
+      return;
+    }
+    const min = getWidgetMin(widgetId, currentLayoutType);
+    entry.visible = true;
+    el.classList.remove('is-hidden');
+    el.setAttribute('aria-hidden', 'false');
+    grid.addWidget(el, {
+      x: entry.x,
+      y: entry.y,
+      w: entry.w,
+      h: entry.h,
+      minW: min.w,
+      minH: min.h,
+      autoPosition: true
+    });
+    persistLayout();
+    updatePalette();
+    updateEmptyState();
+  };
+
+  const hideWidget = (widgetId) => {
+    const entry = layoutState.get(widgetId);
+    const el = widgetElements.get(widgetId);
+    if (!entry || !el || !entry.visible) {
+      return;
+    }
+    entry.visible = false;
+    grid.removeWidget(el, false);
+    el.classList.add('is-hidden');
+    el.setAttribute('aria-hidden', 'true');
+    persistLayout();
+    updatePalette();
+    updateEmptyState();
+  };
+
+  paletteToggle.addEventListener('click', () => {
+    if (!isEditing) {
+      return;
+    }
+    const isOpen = !palette.hidden;
+    palette.hidden = isOpen;
+    paletteToggle.setAttribute('aria-expanded', String(!isOpen));
+  });
+
+  palette.querySelectorAll('.today-customize-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const widgetId = btn.dataset.widgetId;
+      const entry = layoutState.get(widgetId);
+      if (!entry) {
+        return;
+      }
+      if (entry.visible) {
+        hideWidget(widgetId);
+      } else {
+        showWidget(widgetId);
+      }
+    });
+  });
+
+  editToggle.addEventListener('click', () => {
+    if (isEditing) {
+      return;
+    }
+    isEditing = true;
+    applyEditMode();
+    palette.hidden = false;
+    paletteToggle.setAttribute('aria-expanded', 'true');
+  });
+
+  editDone.addEventListener('click', () => {
+    isEditing = false;
+    applyEditMode();
+  });
+
+  editReset.addEventListener('click', () => {
+    const defaultItems = TODAY_LAYOUT_PRESETS[currentLayoutType].map(item => ({
+      ...item,
+      visible: true
+    }));
+    localStorage.setItem(TODAY_LAYOUT_KEYS[currentLayoutType], JSON.stringify(defaultItems));
+    layoutState = new Map(defaultItems.map(item => [item.id, { ...item }]));
+    applyLayout(currentLayoutType);
+  });
+
+  emptyCustomize?.addEventListener('click', () => {
+    if (!isEditing) {
+      isEditing = true;
+      applyEditMode();
+    }
+    palette.hidden = false;
+    paletteToggle.setAttribute('aria-expanded', 'true');
+  });
+
+  gridElement.querySelectorAll('.grid-stack-item-content').forEach(content => {
+    let longPressTimer = null;
+    content.addEventListener('pointerdown', () => {
+      const isMobile = currentLayoutType === 'mobilePortrait' || currentLayoutType === 'mobileLandscape';
+      if (!isEditing || !isMobile) {
+        return;
+      }
+      const item = content.closest('.grid-stack-item');
+      longPressTimer = setTimeout(() => {
+        if (item) {
+          grid.movable(item, true);
+        }
+      }, 400);
+    });
+    const cancel = () => {
+      if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
+      const isMobile = currentLayoutType === 'mobilePortrait' || currentLayoutType === 'mobileLandscape';
+      if (isMobile && isEditing) {
+        const item = content.closest('.grid-stack-item');
+        if (item) {
+          grid.movable(item, false);
+        }
+      }
+    };
+    content.addEventListener('pointerup', cancel);
+    content.addEventListener('pointerleave', cancel);
+    content.addEventListener('pointercancel', cancel);
+  });
+
+  const handleResize = () => {
+    const nextLayoutType = getLayoutType();
+    if (nextLayoutType === currentLayoutType) {
+      return;
+    }
+    persistLayout();
+    applyLayout(nextLayoutType);
+  };
+
+  window.addEventListener('resize', () => {
+    if (resizeTimer) {
+      clearTimeout(resizeTimer);
+    }
+    resizeTimer = setTimeout(handleResize, 150);
+  });
+
+  applyLayout(getLayoutType());
+  updatePalette();
+  updateEmptyState();
+  applyEditMode();
+}
+
 loadState();
 loadState();
 
@@ -15543,6 +16092,7 @@ initNavigation();
 initGlobalMenu();
 initWeeklyTabs();
 initDailyQuickAdd();
+initTodayCustomizer();
 initSocialModule();
 initAideInfosView();
 const hasProgramme = Boolean((state.settings.goalTitle || '').trim());
