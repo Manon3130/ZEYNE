@@ -15605,9 +15605,6 @@ const TODAY_LAYOUT_PRESETS = {
 
 function initTodayCustomizer() {
   const gridElement = document.getElementById('today-grid');
-  if (!gridElement || !window.GridStack) {
-    return;
-  }
   const palette = document.getElementById('today-customize-palette');
   const paletteToggle = document.getElementById('today-customize-palette-toggle');
   const editToggle = document.getElementById('today-customize-toggle');
@@ -15617,7 +15614,38 @@ function initTodayCustomizer() {
   const customizeActions = document.querySelector('.today-customize-actions');
   const emptyState = document.getElementById('today-empty-state');
   const emptyCustomize = document.getElementById('today-empty-customize');
+
+  const notifyCustomizerError = (reason, error) => {
+    console.error('Impossible d’ouvrir la personnalisation.', reason, error);
+    if (typeof showToast === 'function') {
+      showToast('Impossible d’ouvrir la personnalisation, réessayez.');
+    }
+  };
+
+  const bindFallbackHandlers = (reason, error) => {
+    [editToggle, emptyCustomize].forEach(button => {
+      if (!button) {
+        return;
+      }
+      button.addEventListener('click', (event) => {
+        event.preventDefault();
+        notifyCustomizerError(reason, error);
+      });
+    });
+  };
+
+  if (!gridElement) {
+    bindFallbackHandlers('grille introuvable');
+    return;
+  }
+
+  if (!window.GridStack) {
+    bindFallbackHandlers('GridStack indisponible');
+    return;
+  }
+
   if (!palette || !paletteToggle || !editToggle || !editDone || !editReset || !editActions || !customizeActions || !emptyState) {
+    bindFallbackHandlers('éléments UI manquants');
     return;
   }
 
@@ -15673,9 +15701,9 @@ function initTodayCustomizer() {
       case 'desktop':
         return 18;
       case 'tablet':
-        return 14;
+        return 16;
       default:
-        return 10;
+        return 12;
     }
   };
 
@@ -15794,7 +15822,7 @@ function initTodayCustomizer() {
           column: getColumns(layoutType),
           margin: getMargin(layoutType),
           cellHeight: 96,
-          float: false,
+          float: true,
           resizable: { handles: 'se' }
         },
         gridElement
@@ -15932,14 +15960,22 @@ function initTodayCustomizer() {
     el.classList.remove('is-hidden');
     el.setAttribute('aria-hidden', 'false');
     grid.addWidget(el, {
-      x: entry.x,
-      y: entry.y,
       w: entry.w,
       h: entry.h,
       minW: min.w,
       minH: min.h,
       autoPosition: true
     });
+    const node = grid.engine.nodes.find(item => item.el === el);
+    if (node) {
+      entry.x = node.x;
+      entry.y = node.y;
+      entry.w = node.w;
+      entry.h = node.h;
+    }
+    if (typeof grid.compact === 'function') {
+      grid.compact();
+    }
     persistLayout();
     updatePalette();
     updateEmptyState();
@@ -15988,10 +16024,14 @@ function initTodayCustomizer() {
     if (isEditing) {
       return;
     }
-    isEditing = true;
-    applyEditMode();
-    palette.hidden = false;
-    paletteToggle.setAttribute('aria-expanded', 'true');
+    try {
+      isEditing = true;
+      applyEditMode();
+      palette.hidden = false;
+      paletteToggle.setAttribute('aria-expanded', 'true');
+    } catch (error) {
+      notifyCustomizerError('échec ouverture', error);
+    }
   });
 
   editDone.addEventListener('click', () => {
@@ -16010,12 +16050,16 @@ function initTodayCustomizer() {
   });
 
   emptyCustomize?.addEventListener('click', () => {
-    if (!isEditing) {
-      isEditing = true;
-      applyEditMode();
+    try {
+      if (!isEditing) {
+        isEditing = true;
+        applyEditMode();
+      }
+      palette.hidden = false;
+      paletteToggle.setAttribute('aria-expanded', 'true');
+    } catch (error) {
+      notifyCustomizerError('échec ouverture', error);
     }
-    palette.hidden = false;
-    paletteToggle.setAttribute('aria-expanded', 'true');
   });
 
   gridElement.querySelectorAll('.grid-stack-item-content').forEach(content => {
