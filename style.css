@@ -504,72 +504,162 @@ body,
   overflow-x: hidden;
 }
 
-.today-grid {
+.today-customize-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.today-customize-actions,
+.today-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.today-customize-bar .btn {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.today-customize-palette {
+  margin: 0 0 16px;
+  padding: 16px;
+  border-radius: 20px;
+  background: rgba(255, 248, 241, 0.9);
+  box-shadow: 0 12px 24px rgba(162, 120, 108, 0.12);
+}
+
+.today-customize-palette h3 {
+  margin: 0 0 12px;
+  font-size: 1rem;
+}
+
+.today-customize-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
 }
 
-/* iPad landscape (1024–1366) : grille 2 colonnes */
-@media (min-width: 1024px) and (max-width: 1366px) and (orientation: landscape) {
-  .today-grid {
-    grid-template-columns: 1fr 1fr;
-    grid-template-areas:
-      "today mood"
-      "daily other"
-      "challenge challenge";
-    align-items: start;
-  }
-
-  #card-today {
-    grid-area: today;
-    min-height: 260px;
-  }
-
-  #card-mood {
-    grid-area: mood;
-    min-height: 260px;
-  }
-
-  #card-daily {
-    grid-area: daily;
-    min-height: 280px;
-  }
-
-  #card-other {
-    grid-area: other;
-    min-height: 280px;
-  }
-
-  #card-challenge {
-    grid-area: challenge;
-    min-height: 220px;
-  }
+.today-customize-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: rgba(247, 230, 214, 0.5);
+  padding: 12px 14px;
+  border-radius: 16px;
 }
 
-/* iPad portrait (768–1023) : pile verticale dans l’ordre demandé */
-@media (min-width: 768px) and (max-width: 1023px),
-  (orientation: portrait) and (min-width: 768px) {
-  .today-grid {
-    grid-template-columns: 1fr;
-    grid-template-areas:
-      "today"
-      "mood"
-      "daily"
-      "other"
-      "challenge";
-  }
+.today-customize-toggle {
+  border: none;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--white);
+  padding: 8px 16px;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 44px;
+  min-width: 96px;
 }
 
-/* Sécurité anti-chevauchement */
-#card-today,
-#card-mood,
-#card-daily,
-#card-other,
-#card-challenge {
-  position: static;
+.today-customize-toggle.is-remove {
+  background: rgba(234, 196, 175, 0.85);
+  color: var(--text);
+}
+
+.today-empty-state {
+  text-align: center;
+  margin: 32px auto;
+  padding: 32px 20px;
+  border-radius: 24px;
+  background: rgba(247, 230, 214, 0.6);
+}
+
+.today-grid {
   width: 100%;
-  max-width: 100%;
+}
+
+.grid-stack {
+  padding: 0;
+}
+
+.grid-stack > .grid-stack-item > .grid-stack-item-content {
+  background: transparent;
+  border-radius: 20px;
+  overflow: visible;
+  position: relative;
+  height: 100%;
+}
+
+.grid-stack-item-content > .card {
+  height: 100%;
+}
+
+.grid-stack-item.is-hidden {
+  display: none;
+}
+
+.widget-remove-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  border: none;
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--text);
+  font-size: 1.4rem;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.today-editing .widget-remove-btn {
+  display: inline-flex;
+}
+
+.today-editing .grid-stack-item-content {
+  box-shadow: 0 10px 24px rgba(162, 120, 108, 0.16);
+}
+
+.grid-stack-item-content:focus-visible {
+  outline: 3px solid rgba(214, 150, 138, 0.7);
+  outline-offset: 2px;
+}
+
+.grid-stack-item > .ui-resizable-handle.ui-resizable-se {
+  width: 28px;
+  height: 28px;
+  right: 8px;
+  bottom: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  border: 2px solid rgba(214, 150, 138, 0.6);
+}
+
+body.drag-active {
+  overflow: hidden;
+  touch-action: none;
+}
+
+@media (max-width: 1023px) {
+  .today-customize-palette {
+    padding: 14px;
+  }
+}
+
+@media (max-width: 767px) {
+  .today-customize-palette {
+    padding: 12px;
+  }
 }
 
 @media (max-width: 720px) {
