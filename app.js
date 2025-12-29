@@ -15671,6 +15671,24 @@ function initTodayCustomizer() {
   let isEditing = false;
   let resizeTimer = null;
 
+  const getVisibleWidgets = () => Array.from(layoutState.values()).filter(item => item.visible);
+
+  const updateWidgetOrder = () => {
+    layoutState.forEach((item, widgetId) => {
+      const el = widgetElements.get(widgetId);
+      if (!el) {
+        return;
+      }
+      const order = (item.y ?? 0) * 100 + (item.x ?? 0);
+      el.style.order = String(order);
+    });
+  };
+
+  const logVisibleWidgets = (context) => {
+    const ids = getVisibleWidgets().map(item => item.id);
+    console.log('[TodayWidgets]', context, ids);
+  };
+
   const getLayoutType = () => {
     const width = window.innerWidth;
     if (width >= 1024) {
@@ -15843,6 +15861,7 @@ function initTodayCustomizer() {
             h: item.h
           });
         });
+        updateWidgetOrder();
         persistLayout();
       });
 
@@ -15944,9 +15963,11 @@ function initTodayCustomizer() {
       }
     });
 
+    updateWidgetOrder();
     applyEditMode();
     updatePalette();
     updateEmptyState();
+    logVisibleWidgets('render dashboard');
   };
 
   const showWidget = (widgetId) => {
@@ -15959,26 +15980,35 @@ function initTodayCustomizer() {
     entry.visible = true;
     el.classList.remove('is-hidden');
     el.setAttribute('aria-hidden', 'false');
-    grid.addWidget(el, {
-      w: entry.w,
-      h: entry.h,
-      minW: min.w,
-      minH: min.h,
-      autoPosition: true
-    });
-    const node = grid.engine.nodes.find(item => item.el === el);
-    if (node) {
-      entry.x = node.x;
-      entry.y = node.y;
-      entry.w = node.w;
-      entry.h = node.h;
-    }
-    if (typeof grid.compact === 'function') {
-      grid.compact();
+    if (grid) {
+      grid.addWidget(el, {
+        w: entry.w,
+        h: entry.h,
+        minW: min.w,
+        minH: min.h,
+        autoPosition: true
+      });
+      const node = grid.engine.nodes.find(item => item.el === el);
+      if (node) {
+        entry.x = node.x;
+        entry.y = node.y;
+        entry.w = node.w;
+        entry.h = node.h;
+      }
+      if (typeof grid.compact === 'function') {
+        grid.compact();
+      }
     }
     persistLayout();
+    updateWidgetOrder();
     updatePalette();
     updateEmptyState();
+    logVisibleWidgets(`widget ajouté: ${widgetId}`);
+
+    const isMobile = currentLayoutType === 'mobilePortrait' || currentLayoutType === 'mobileLandscape';
+    if (isMobile) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   };
 
   const hideWidget = (widgetId) => {
@@ -15988,12 +16018,16 @@ function initTodayCustomizer() {
       return;
     }
     entry.visible = false;
-    grid.removeWidget(el, false);
+    if (grid) {
+      grid.removeWidget(el, false);
+    }
     el.classList.add('is-hidden');
     el.setAttribute('aria-hidden', 'true');
     persistLayout();
+    updateWidgetOrder();
     updatePalette();
     updateEmptyState();
+    logVisibleWidgets(`widget retiré: ${widgetId}`);
   };
 
   paletteToggle.addEventListener('click', () => {
@@ -16012,6 +16046,7 @@ function initTodayCustomizer() {
       if (!entry) {
         return;
       }
+      console.log('[TodayWidgets] clic personnalisation', widgetId, 'visible', entry.visible);
       if (entry.visible) {
         hideWidget(widgetId);
       } else {

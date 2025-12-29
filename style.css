@@ -584,6 +584,34 @@ body,
   width: 100%;
 }
 
+.today-grid {
+  height: auto;
+}
+
+body:not(.today-editing) .today-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: auto !important;
+}
+
+body:not(.today-editing) .today-grid .grid-stack-item {
+  position: relative !important;
+  width: 100% !important;
+  height: auto !important;
+  top: auto !important;
+  left: auto !important;
+  transform: none !important;
+}
+
+body:not(.today-editing) .today-grid .grid-stack-item-content {
+  height: auto;
+}
+
+body:not(.today-editing) .grid-stack-item-content > .card {
+  height: auto;
+}
+
 .grid-stack {
   padding: 0;
 }
