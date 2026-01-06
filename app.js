@@ -15612,6 +15612,7 @@ function initTodayCustomizer() {
   const gridElement = document.getElementById('today-grid');
   const palette = document.getElementById('today-customize-palette');
   const paletteToggle = document.getElementById('today-customize-palette-toggle');
+  const mobileCustomizeToggle = document.getElementById('today-customize-mobile-toggle');
   const paletteSheet = document.getElementById('today-widget-sheet');
   const paletteSheetClose = document.getElementById('today-widget-sheet-close');
   const paletteSheetBackdrop = document.getElementById('today-widget-sheet-backdrop');
@@ -15654,7 +15655,7 @@ function initTodayCustomizer() {
     return;
   }
 
-  if (!palette || !paletteToggle || !paletteSheet || !paletteSheetClose || !paletteSheetBackdrop || !editToggle || !editDone || !editReset || !editActions || !customizeActions || !emptyState || !simpleList) {
+  if (!palette || !paletteToggle || !mobileCustomizeToggle || !paletteSheet || !paletteSheetClose || !paletteSheetBackdrop || !editToggle || !editDone || !editReset || !editActions || !customizeActions || !emptyState || !simpleList) {
     bindFallbackHandlers('éléments UI manquants');
     return;
   }
@@ -16099,21 +16100,21 @@ function initTodayCustomizer() {
     if (!isEditing) {
       closePaletteSheet();
     }
-    if (grid) {
-      if (isEditing) {
-        grid.setStatic(false);
-        grid.enableResize(true);
-        const isMobile = currentLayoutType === 'mobilePortrait' || currentLayoutType === 'mobileLandscape';
-        grid.enableMove(!isMobile);
-        if (isMobile) {
-          widgetElements.forEach(el => {
-            grid.movable(el, false);
-          });
+      if (grid) {
+        if (isEditing) {
+          grid.setStatic(false);
+          grid.enableResize(true);
+          const isMobile = currentLayoutType === 'mobilePortrait' || currentLayoutType === 'mobileLandscape';
+          grid.enableMove(true);
+          if (isMobile) {
+            widgetElements.forEach(el => {
+              grid.movable(el, true);
+            });
+          }
+        } else {
+          grid.setStatic(true);
         }
-      } else {
-        grid.setStatic(true);
       }
-    }
   };
 
   const applyLayout = (layoutType) => {
@@ -16176,10 +16177,6 @@ function initTodayCustomizer() {
         document.body.classList.remove('drag-active');
         const content = el?.querySelector('.grid-stack-item-content');
         content?.setAttribute('aria-grabbed', 'false');
-        const isMobile = currentLayoutType === 'mobilePortrait' || currentLayoutType === 'mobileLandscape';
-        if (isMobile && el) {
-          grid.movable(el, false);
-        }
       });
       grid.on('resizestart', () => {
         document.body.classList.add('drag-active');
@@ -16452,17 +16449,22 @@ function initTodayCustomizer() {
         clearTimeout(longPressTimer);
         longPressTimer = null;
       }
-      const isMobile = currentLayoutType === 'mobilePortrait' || currentLayoutType === 'mobileLandscape';
-      if (isMobile && isEditing) {
-        const item = content.closest('.grid-stack-item');
-        if (item) {
-          grid.movable(item, false);
-        }
-      }
     };
     content.addEventListener('pointerup', cancel);
     content.addEventListener('pointerleave', cancel);
     content.addEventListener('pointercancel', cancel);
+  });
+
+  mobileCustomizeToggle.addEventListener('click', () => {
+    try {
+      if (!isEditing) {
+        isEditing = true;
+        applyEditMode();
+      }
+      openPaletteSheet();
+    } catch (error) {
+      notifyCustomizerError('échec ouverture', error);
+    }
   });
 
   const handleResize = () => {
