@@ -62,11 +62,6 @@
         <div class="today-greeting">
           <h1 class="today-greeting-text">Bonjour <span id="today-first-name">toi</span> <span id="today-greeting-emoji" aria-hidden="true">🌸</span></h1>
         </div>
-        <div class="today-mobile-placeholders" id="today-mobile-placeholders" hidden>
-          <div class="today-mobile-placeholders-scroll">
-            <div class="today-mobile-placeholders-list" id="today-mobile-placeholders-list"></div>
-          </div>
-        </div>
         <nav class="today-chip-nav" aria-label="Navigation rapide Aujourd'hui">
           <ul class="today-chip-list">
             <li><button type="button" class="today-chip-link" data-view="programme">Programme</button></li>
@@ -206,7 +201,7 @@
           <div class="today-customize-bar">
             <div class="today-customize-actions">
               <button type="button" class="btn btn-secondary" id="today-customize-toggle">Personnaliser l’écran</button>
-              <button type="button" class="btn btn-secondary" id="today-customize-palette-toggle" aria-expanded="false" aria-controls="today-customize-palette">Ajouter/Retirer</button>
+              <button type="button" class="btn btn-secondary" id="today-customize-palette-toggle" aria-expanded="false" aria-controls="today-widget-sheet">Ajouter/Retirer</button>
             </div>
             <div class="today-edit-actions" hidden>
               <button type="button" class="btn btn-secondary" id="today-customize-reset">Réinitialiser la mise en page</button>
@@ -214,30 +209,38 @@
             </div>
           </div>
 
-          <div class="today-customize-palette" id="today-customize-palette" hidden>
-            <h3>Widgets disponibles</h3>
-            <ul class="today-customize-list">
-              <li>
-                <span class="today-customize-label">Aujourd'hui</span>
-                <button type="button" class="today-customize-toggle" data-widget-id="today">Ajouter</button>
-              </li>
-              <li>
-                <span class="today-customize-label">Daily 3</span>
-                <button type="button" class="today-customize-toggle" data-widget-id="daily3">Ajouter</button>
-              </li>
-              <li>
-                <span class="today-customize-label">4 prochains jours</span>
-                <button type="button" class="today-customize-toggle" data-widget-id="nextDays">Ajouter</button>
-              </li>
-              <li>
-                <span class="today-customize-label">Motivation &amp; Humeur</span>
-                <button type="button" class="today-customize-toggle" data-widget-id="motivationMood">Ajouter</button>
-              </li>
-              <li>
-                <span class="today-customize-label">Défi 7 jours</span>
-                <button type="button" class="today-customize-toggle" data-widget-id="challenge7d">Ajouter</button>
-              </li>
-            </ul>
+          <div class="today-widget-sheet" id="today-widget-sheet" hidden aria-hidden="true">
+            <div class="today-widget-sheet-backdrop" id="today-widget-sheet-backdrop" aria-hidden="true"></div>
+            <div class="today-widget-sheet-panel" role="dialog" aria-modal="true" aria-labelledby="today-widget-sheet-title" tabindex="-1">
+              <div class="today-widget-sheet-header">
+                <h3 id="today-widget-sheet-title">Widgets disponibles</h3>
+                <button type="button" class="today-widget-sheet-close" id="today-widget-sheet-close" aria-label="Fermer">✕</button>
+              </div>
+              <div class="today-customize-palette" id="today-customize-palette">
+                <ul class="today-customize-list">
+                  <li>
+                    <span class="today-customize-label">Aujourd'hui</span>
+                    <button type="button" class="today-customize-toggle" data-widget-id="today">Ajouter</button>
+                  </li>
+                  <li>
+                    <span class="today-customize-label">Daily 3</span>
+                    <button type="button" class="today-customize-toggle" data-widget-id="daily3">Ajouter</button>
+                  </li>
+                  <li>
+                    <span class="today-customize-label">4 prochains jours</span>
+                    <button type="button" class="today-customize-toggle" data-widget-id="nextDays">Ajouter</button>
+                  </li>
+                  <li>
+                    <span class="today-customize-label">Motivation &amp; Humeur</span>
+                    <button type="button" class="today-customize-toggle" data-widget-id="motivationMood">Ajouter</button>
+                  </li>
+                  <li>
+                    <span class="today-customize-label">Défi 7 jours</span>
+                    <button type="button" class="today-customize-toggle" data-widget-id="challenge7d">Ajouter</button>
+                  </li>
+                </ul>
+              </div>
+            </div>
           </div>
         </section>
       </section>
