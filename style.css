@@ -6415,6 +6415,10 @@ body.modal-open {
   .template-modal-footer-right {
     justify-content: flex-end;
   }
+
+  .today-chip-nav {
+    display: none;
+  }
 }
 #menu {
   position: sticky;
