@@ -15612,6 +15612,9 @@ function initTodayCustomizer() {
   const gridElement = document.getElementById('today-grid');
   const palette = document.getElementById('today-customize-palette');
   const paletteToggle = document.getElementById('today-customize-palette-toggle');
+  const paletteSheet = document.getElementById('today-widget-sheet');
+  const paletteSheetClose = document.getElementById('today-widget-sheet-close');
+  const paletteSheetBackdrop = document.getElementById('today-widget-sheet-backdrop');
   const editToggle = document.getElementById('today-customize-toggle');
   const editDone = document.getElementById('today-customize-done');
   const editReset = document.getElementById('today-customize-reset');
@@ -15620,8 +15623,6 @@ function initTodayCustomizer() {
   const emptyState = document.getElementById('today-empty-state');
   const emptyCustomize = document.getElementById('today-empty-customize');
   const simpleList = document.getElementById('today-simple-list');
-  const mobilePlaceholders = document.getElementById('today-mobile-placeholders');
-  const mobilePlaceholdersList = document.getElementById('today-mobile-placeholders-list');
   const debugPanel = document.getElementById('today-debug-panel');
 
   const notifyCustomizerError = (reason, error) => {
@@ -15653,7 +15654,7 @@ function initTodayCustomizer() {
     return;
   }
 
-  if (!palette || !paletteToggle || !editToggle || !editDone || !editReset || !editActions || !customizeActions || !emptyState || !simpleList || !mobilePlaceholders || !mobilePlaceholdersList) {
+  if (!palette || !paletteToggle || !paletteSheet || !paletteSheetClose || !paletteSheetBackdrop || !editToggle || !editDone || !editReset || !editActions || !customizeActions || !emptyState || !simpleList) {
     bindFallbackHandlers('éléments UI manquants');
     return;
   }
@@ -15988,18 +15989,6 @@ function initTodayCustomizer() {
     simpleList.hidden = enabledIds.length === 0;
   };
 
-  const renderMobilePlaceholders = () => {
-    const enabledIds = getEnabledWidgetIds();
-    mobilePlaceholdersList.innerHTML = '';
-    enabledIds.forEach(widgetId => {
-      const card = document.createElement('div');
-      card.className = 'today-mobile-placeholder-card';
-      card.textContent = `WIDGET: ${widgetId}`;
-      mobilePlaceholdersList.appendChild(card);
-    });
-    mobilePlaceholders.hidden = enabledIds.length === 0;
-  };
-
   const updatePalette = () => {
     palette.querySelectorAll('.today-customize-toggle').forEach(btn => {
       const widgetId = btn.dataset.widgetId;
@@ -16013,17 +16002,104 @@ function initTodayCustomizer() {
     });
   };
 
+  const closePaletteSheet = () => {
+    paletteSheet.hidden = true;
+    paletteSheet.setAttribute('aria-hidden', 'true');
+    paletteToggle.setAttribute('aria-expanded', 'false');
+    document.body.classList.remove('today-sheet-open');
+  };
+
+  const openPaletteSheet = () => {
+    if (!isEditing) {
+      return;
+    }
+    paletteSheet.hidden = false;
+    paletteSheet.setAttribute('aria-hidden', 'false');
+    paletteToggle.setAttribute('aria-expanded', 'true');
+    document.body.classList.add('today-sheet-open');
+    paletteSheetClose?.focus();
+  };
+
+  const sizePresets = {
+    S: { wDelta: 0, hDelta: 0 },
+    M: { wDelta: 0, hDelta: 1 },
+    L: { wDelta: 1, hDelta: 2 },
+    XL: { wDelta: 1, hDelta: 3 }
+  };
+
+  const ensureWidgetElement = (widgetId) => {
+    if (widgetElements.has(widgetId)) {
+      return widgetElements.get(widgetId);
+    }
+    const fallbackItem = document.createElement('div');
+    fallbackItem.className = 'grid-stack-item today-unknown-widget';
+    fallbackItem.dataset.widgetId = widgetId;
+    fallbackItem.innerHTML = `
+      <div class="grid-stack-item-content">
+        <button type="button" class="widget-remove-btn" data-widget-id="${widgetId}" aria-label="Retirer le widget ${widgetId}">×</button>
+        <div class="card">
+          <h2>Widget inconnu</h2>
+          <p>Widget inconnu: ${widgetId}</p>
+        </div>
+      </div>
+    `;
+    gridElement.appendChild(fallbackItem);
+    widgetElements.set(widgetId, fallbackItem);
+    return fallbackItem;
+  };
+
+  const ensureResizePresets = (widgetElement) => {
+    if (!widgetElement) {
+      return;
+    }
+    const content = widgetElement.querySelector('.grid-stack-item-content');
+    if (!content || content.querySelector('.widget-resize-presets')) {
+      return;
+    }
+    const presets = document.createElement('div');
+    presets.className = 'widget-resize-presets';
+    presets.innerHTML = `
+      <button type="button" class="widget-resize-btn" data-size="S">S</button>
+      <button type="button" class="widget-resize-btn" data-size="M">M</button>
+      <button type="button" class="widget-resize-btn" data-size="L">L</button>
+      <button type="button" class="widget-resize-btn" data-size="XL">XL</button>
+    `;
+    content.appendChild(presets);
+  };
+
+  const applySizePreset = (widgetId, preset) => {
+    const entry = layoutState.get(widgetId);
+    if (!entry || !grid || !preset || !sizePresets[preset]) {
+      return;
+    }
+    const min = getWidgetMin(widgetId, currentLayoutType);
+    const maxColumns = getColumns(currentLayoutType);
+    const { wDelta, hDelta } = sizePresets[preset];
+    const nextW = Math.min(maxColumns, Math.max(min.w, min.w + wDelta));
+    const nextH = Math.max(min.h, min.h + hDelta);
+    entry.w = nextW;
+    entry.h = nextH;
+    const el = widgetElements.get(widgetId);
+    if (el) {
+      grid.update(el, { w: nextW, h: nextH });
+    }
+    persistLayout();
+    updateWidgetOrder();
+    updateDebugPanel();
+  };
+
   const applyEditMode = () => {
     document.body.classList.toggle('today-editing', isEditing);
     editActions.hidden = !isEditing;
-    editToggle.hidden = isEditing;
+    editToggle.hidden = false;
+    editToggle.disabled = isEditing;
+    editToggle.setAttribute('aria-pressed', String(isEditing));
     paletteToggle.hidden = !isEditing;
     paletteToggle.disabled = !isEditing;
     if (!isEditing) {
-      palette.hidden = true;
-      paletteToggle.setAttribute('aria-expanded', 'false');
+      closePaletteSheet();
     }
-    if (grid && !isMobileLayout(currentLayoutType)) {
+    if (grid) {
       if (isEditing) {
         grid.setStatic(false);
         grid.enableResize(true);
@@ -16057,21 +16133,8 @@ function initTodayCustomizer() {
       layoutState = new Map(fallbackItems.map(item => [item.id, { ...item }]));
     }
 
-    const isMobile = isMobileLayout(layoutType);
-    if (isMobile) {
-      gridElement.hidden = true;
-      simpleList.hidden = true;
-      renderMobilePlaceholders();
-      updatePalette();
-      updateEmptyState();
-      updateDebugPanel();
-      logVisibleWidgets('render dashboard mobile');
-      return;
-    }
-
     gridElement.hidden = false;
     simpleList.hidden = true;
-    mobilePlaceholders.hidden = true;
 
     if (!grid) {
       grid = window.GridStack.init(
@@ -16163,14 +16226,25 @@ function initTodayCustomizer() {
         });
       });
 
-      gridElement.querySelectorAll('.widget-remove-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const widgetId = btn.dataset.widgetId;
+      gridElement.addEventListener('click', (event) => {
+        const removeBtn = event.target.closest('.widget-remove-btn');
+        if (removeBtn) {
+          const widgetId = removeBtn.dataset.widgetId;
           if (!widgetId) {
             return;
           }
           hideWidget(widgetId);
-        });
+          return;
+        }
+        const sizeBtn = event.target.closest('.widget-resize-btn');
+        if (sizeBtn && isEditing) {
+          const widget = sizeBtn.closest('.grid-stack-item');
+          const widgetId = widget?.dataset?.widgetId;
+          const size = sizeBtn.dataset.size;
+          if (widgetId) {
+            applySizePreset(widgetId, size);
+          }
+        }
       });
     }
 
@@ -16180,10 +16254,11 @@ function initTodayCustomizer() {
 
     grid.removeAll(false);
     layoutState.forEach((item, widgetId) => {
-      const el = widgetElements.get(widgetId);
+      const el = ensureWidgetElement(widgetId);
       if (!el) {
         return;
       }
+      ensureResizePresets(el);
       const min = getWidgetMin(widgetId, layoutType);
       if (item.visible) {
         el.classList.remove('is-hidden');
@@ -16217,7 +16292,7 @@ function initTodayCustomizer() {
       entry.visible = false;
       layoutState.set(widgetId, entry);
     }
-    const el = widgetElements.get(widgetId);
+    const el = ensureWidgetElement(widgetId);
     if (!entry || !el || entry.visible) {
       return;
     }
@@ -16225,14 +16300,7 @@ function initTodayCustomizer() {
     entry.visible = true;
     el.classList.remove('is-hidden');
     el.setAttribute('aria-hidden', 'false');
-    if (isMobileLayout(currentLayoutType)) {
-      persistLayout();
-      updatePalette();
-      updateEmptyState();
-      renderMobilePlaceholders();
-      logVisibleWidgets(`widget ajouté: ${widgetId}`);
-      return;
-    }
+    ensureResizePresets(el);
     if (grid) {
       grid.addWidget(el, {
         w: entry.w,
@@ -16271,14 +16339,6 @@ function initTodayCustomizer() {
       return;
     }
     entry.visible = false;
-    if (isMobileLayout(currentLayoutType)) {
-      persistLayout();
-      updatePalette();
-      updateEmptyState();
-      renderMobilePlaceholders();
-      logVisibleWidgets(`widget retiré: ${widgetId}`);
-      return;
-    }
     if (grid) {
       grid.removeWidget(el, false);
     }
@@ -16302,9 +16362,19 @@ function initTodayCustomizer() {
     if (!isEditing) {
       return;
     }
-    const isOpen = !palette.hidden;
-    palette.hidden = isOpen;
-    paletteToggle.setAttribute('aria-expanded', String(!isOpen));
+    if (paletteSheet.hidden) {
+      openPaletteSheet();
+    } else {
+      closePaletteSheet();
+    }
+  });
+
+  paletteSheetClose.addEventListener('click', () => closePaletteSheet());
+  paletteSheetBackdrop.addEventListener('click', () => closePaletteSheet());
+  paletteSheet.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      closePaletteSheet();
+    }
   });
 
   palette.querySelectorAll('.today-customize-toggle').forEach(btn => {
@@ -16330,8 +16400,7 @@ function initTodayCustomizer() {
     try {
       isEditing = true;
       applyEditMode();
-      palette.hidden = false;
-      paletteToggle.setAttribute('aria-expanded', 'true');
+      closePaletteSheet();
     } catch (error) {
       notifyCustomizerError('échec ouverture', error);
     }
@@ -16358,8 +16427,7 @@ function initTodayCustomizer() {
         isEditing = true;
         applyEditMode();
       }
-      palette.hidden = false;
-      paletteToggle.setAttribute('aria-expanded', 'true');
+      openPaletteSheet();
     } catch (error) {
       notifyCustomizerError('échec ouverture', error);
     }
