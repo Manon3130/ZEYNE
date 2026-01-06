@@ -7311,7 +7311,7 @@ function refreshGlobalMenuSelection(viewName = currentViewName) {
 }
 
 function initNavigation() {
-  const navLinks = document.querySelectorAll('.nav-menu a, .shortcuts-list a');
+  const navLinks = document.querySelectorAll('.nav-menu a, .shortcuts-list a, .today-chip-link');
   navLinks.forEach(link => {
     link.addEventListener('click', (e) => {
       e.preventDefault();
@@ -7650,6 +7650,11 @@ function showView(viewName) {
     });
     const shortcutLinks = document.querySelectorAll('.shortcuts-list a[data-view]');
     shortcutLinks.forEach(link => {
+      const isActive = link.getAttribute('data-view') === viewName;
+      link.classList.toggle('active', isActive);
+    });
+    const chipLinks = document.querySelectorAll('.today-chip-link[data-view]');
+    chipLinks.forEach(link => {
       const isActive = link.getAttribute('data-view') === viewName;
       link.classList.toggle('active', isActive);
     });
@@ -15736,34 +15741,57 @@ function initTodayCustomizer() {
     return widget.min.mobile;
   };
 
+  const isMobileLayout = (layoutType) => layoutType === 'mobilePortrait' || layoutType === 'mobileLandscape';
+
+  const getDefaultLayoutItem = (widgetId, layoutType, items = []) => {
+    const presetItem = TODAY_LAYOUT_PRESETS[layoutType]?.find(item => item.id === widgetId);
+    if (presetItem) {
+      return { ...presetItem, visible: true };
+    }
+    const min = getWidgetMin(widgetId, layoutType);
+    const maxY = items.reduce((max, item) => {
+      const y = Number.isFinite(item.y) ? item.y : 0;
+      const h = Number.isFinite(item.h) ? item.h : min.h;
+      return Math.max(max, y + h);
+    }, 0);
+    return { id: widgetId, x: 0, y: maxY, w: min.w, h: min.h, visible: true };
+  };
+
+  const normalizeLayoutItems = (layoutType, storedItems) => {
+    const presetItems = TODAY_LAYOUT_PRESETS[layoutType] ?? [];
+    const byId = new Map((storedItems ?? []).map(item => [item.id, item]));
+    const defaultVisible = !isFirstLaunch || isMobileLayout(layoutType);
+    const normalized = presetItems.map(item => {
+      const saved = byId.get(item.id);
+      return {
+        ...item,
+        ...saved,
+        visible: typeof saved?.visible === 'boolean' ? saved.visible : defaultVisible
+      };
+    });
+
+    Object.keys(TODAY_WIDGETS).forEach(widgetId => {
+      if (normalized.some(item => item.id === widgetId)) {
+        return;
+      }
+      normalized.push(getDefaultLayoutItem(widgetId, layoutType, normalized));
+    });
+    return normalized;
+  };
+
   const loadLayout = (layoutType) => {
     const stored = localStorage.getItem(TODAY_LAYOUT_KEYS[layoutType]);
     if (stored) {
       try {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed)) {
-          const preset = TODAY_LAYOUT_PRESETS[layoutType];
-          const byId = new Map(parsed.map(item => [item.id, item]));
-          return preset.map(item => {
-            const saved = byId.get(item.id);
-            if (!saved) {
-              return { ...item, visible: true };
-            }
-            return {
-              ...item,
-              ...saved,
-              visible: typeof saved.visible === 'boolean' ? saved.visible : true
-            };
-          });
+          return normalizeLayoutItems(layoutType, parsed);
         }
       } catch (error) {
         console.warn('Layout Aujourd’hui corrompu, reset.', error);
       }
     }
-    return TODAY_LAYOUT_PRESETS[layoutType].map(item => ({
-      ...item,
-      visible: !isFirstLaunch
-    }));
+    return normalizeLayoutItems(layoutType, []);
   };
 
   const persistLayout = () => {
@@ -15833,6 +15861,15 @@ function initTodayCustomizer() {
     currentLayoutType = layoutType;
     const layoutItems = loadLayout(layoutType);
     layoutState = new Map(layoutItems.map(item => [item.id, { ...item }]));
+    const visibleCount = Array.from(layoutState.values()).filter(item => item.visible).length;
+    if (visibleCount === 0) {
+      const fallbackId = TODAY_LAYOUT_PRESETS[layoutType]?.[0]?.id || Object.keys(TODAY_WIDGETS)[0];
+      if (fallbackId) {
+        const fallbackEntry = layoutState.get(fallbackId) || getDefaultLayoutItem(fallbackId, layoutType, layoutItems);
+        fallbackEntry.visible = true;
+        layoutState.set(fallbackId, fallbackEntry);
+      }
+    }
 
     if (!grid) {
       grid = window.GridStack.init(
@@ -15971,7 +16008,12 @@ function initTodayCustomizer() {
   };
 
   const showWidget = (widgetId) => {
-    const entry = layoutState.get(widgetId);
+    let entry = layoutState.get(widgetId);
+    if (!entry) {
+      entry = getDefaultLayoutItem(widgetId, currentLayoutType, Array.from(layoutState.values()));
+      entry.visible = false;
+      layoutState.set(widgetId, entry);
+    }
     const el = widgetElements.get(widgetId);
     if (!entry || !el || entry.visible) {
       return;
@@ -16028,6 +16070,13 @@ function initTodayCustomizer() {
     updatePalette();
     updateEmptyState();
     logVisibleWidgets(`widget retiré: ${widgetId}`);
+
+    if (getVisibleWidgets().length === 0) {
+      const fallbackId = TODAY_LAYOUT_PRESETS[currentLayoutType]?.[0]?.id || Object.keys(TODAY_WIDGETS)[0];
+      if (fallbackId) {
+        showWidget(fallbackId);
+      }
+    }
   };
 
   paletteToggle.addEventListener('click', () => {
