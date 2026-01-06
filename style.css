@@ -380,6 +380,25 @@ body.global-menu-open {
   z-index: 1;
 }
 
+.today-simple-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.today-simple-widget {
+  background: var(--white);
+  border-radius: 16px;
+  padding: 16px;
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  color: var(--text);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+}
+
 .today-overview-card {
   display: flex;
   gap: 20px;
