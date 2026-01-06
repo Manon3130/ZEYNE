@@ -15619,6 +15619,7 @@ function initTodayCustomizer() {
   const customizeActions = document.querySelector('.today-customize-actions');
   const emptyState = document.getElementById('today-empty-state');
   const emptyCustomize = document.getElementById('today-empty-customize');
+  const simpleList = document.getElementById('today-simple-list');
   const debugPanel = document.getElementById('today-debug-panel');
 
   const notifyCustomizerError = (reason, error) => {
@@ -15650,7 +15651,7 @@ function initTodayCustomizer() {
     return;
   }
 
-  if (!palette || !paletteToggle || !editToggle || !editDone || !editReset || !editActions || !customizeActions || !emptyState) {
+  if (!palette || !paletteToggle || !editToggle || !editDone || !editReset || !editActions || !customizeActions || !emptyState || !simpleList) {
     bindFallbackHandlers('éléments UI manquants');
     return;
   }
@@ -15679,6 +15680,7 @@ function initTodayCustomizer() {
   let lastEmptyConditionUsed = null;
 
   const getVisibleWidgets = () => Array.from(layoutState.values()).filter(item => item.visible);
+  const getEnabledWidgetIds = () => getVisibleWidgets().map(item => item.id);
 
   const updateWidgetOrder = () => {
     layoutState.forEach((item, widgetId) => {
@@ -15697,7 +15699,7 @@ function initTodayCustomizer() {
   };
 
   const logLayoutState = (context) => {
-    const widgetsEnabled = getVisibleWidgets().map(item => item.id);
+    const widgetsEnabled = getEnabledWidgetIds();
     const layoutSnapshot = Array.from(layoutState.values()).map(item => ({
       id: item.id,
       x: item.x,
@@ -15923,7 +15925,7 @@ function initTodayCustomizer() {
     if (!debugPanel) {
       return;
     }
-    const enabledWidgetIds = getVisibleWidgets().map(item => item.id);
+    const enabledWidgetIds = getEnabledWidgetIds();
     const mobileLayoutItems = getMobileLayoutSnapshot();
     const layoutItemsLabel = formatLayoutItems(mobileLayoutItems);
     console.log('[TodayWidgets] debug panel', {
@@ -15962,13 +15964,26 @@ function initTodayCustomizer() {
   };
 
   const updateEmptyState = () => {
-    const visibleCount = Array.from(layoutState.values()).filter(item => item.visible).length;
-    const isEmpty = visibleCount === 0;
+    const enabledCount = getEnabledWidgetIds().length;
+    const isEmpty = enabledCount === 0;
     lastEmptyConditionUsed = isEmpty;
     emptyState.hidden = !isEmpty;
     gridElement.classList.toggle('is-empty', isEmpty);
     logLayoutState(`etat ecran vide: ${isEmpty ? 'vide' : 'non vide'}`);
     updateDebugPanel();
+  };
+
+  const renderSimpleList = () => {
+    const enabledIds = getEnabledWidgetIds();
+    simpleList.innerHTML = '';
+    enabledIds.forEach(widgetId => {
+      const widget = TODAY_WIDGETS[widgetId];
+      const block = document.createElement('div');
+      block.className = 'today-simple-widget';
+      block.textContent = widget?.label || widgetId;
+      simpleList.appendChild(block);
+    });
+    simpleList.hidden = enabledIds.length === 0;
   };
 
   const updatePalette = () => {
@@ -15994,7 +16009,7 @@ function initTodayCustomizer() {
       palette.hidden = true;
       paletteToggle.setAttribute('aria-expanded', 'false');
     }
-    if (grid) {
+    if (grid && !isMobileLayout(currentLayoutType)) {
       if (isEditing) {
         grid.setStatic(false);
         grid.enableResize(true);
@@ -16027,6 +16042,21 @@ function initTodayCustomizer() {
       }));
       layoutState = new Map(fallbackItems.map(item => [item.id, { ...item }]));
     }
+
+    const isMobile = isMobileLayout(layoutType);
+    if (isMobile) {
+      gridElement.hidden = true;
+      simpleList.hidden = false;
+      renderSimpleList();
+      updatePalette();
+      updateEmptyState();
+      updateDebugPanel();
+      logVisibleWidgets('render dashboard mobile');
+      return;
+    }
+
+    gridElement.hidden = false;
+    simpleList.hidden = true;
 
     if (!grid) {
       grid = window.GridStack.init(
@@ -16180,6 +16210,14 @@ function initTodayCustomizer() {
     entry.visible = true;
     el.classList.remove('is-hidden');
     el.setAttribute('aria-hidden', 'false');
+    if (isMobileLayout(currentLayoutType)) {
+      persistLayout();
+      updatePalette();
+      updateEmptyState();
+      renderSimpleList();
+      logVisibleWidgets(`widget ajouté: ${widgetId}`);
+      return;
+    }
     if (grid) {
       grid.addWidget(el, {
         w: entry.w,
@@ -16218,6 +16256,14 @@ function initTodayCustomizer() {
       return;
     }
     entry.visible = false;
+    if (isMobileLayout(currentLayoutType)) {
+      persistLayout();
+      updatePalette();
+      updateEmptyState();
+      renderSimpleList();
+      logVisibleWidgets(`widget retiré: ${widgetId}`);
+      return;
+    }
     if (grid) {
       grid.removeWidget(el, false);
     }
