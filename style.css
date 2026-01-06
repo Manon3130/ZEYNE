@@ -592,6 +592,10 @@ body,
   min-width: 44px;
 }
 
+.today-customize-mobile-btn {
+  display: none;
+}
+
 .today-customize-palette {
   padding: 8px 0 0;
 }
@@ -833,6 +837,21 @@ body.drag-active {
 @media (max-width: 1023px) {
   .today-widget-sheet-panel {
     padding: 14px 16px 18px;
+  }
+}
+
+@media (max-width: 768px) {
+  .today-customize-mobile-btn {
+    display: inline-flex;
+  }
+
+  #today-customize-toggle,
+  #today-customize-palette-toggle {
+    display: none;
+  }
+
+  body:not(.today-editing) .today-grid {
+    gap: 12px;
   }
 }
 
