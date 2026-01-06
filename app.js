@@ -15531,10 +15531,12 @@ function initDigitalClock() {
 const TODAY_LAYOUT_KEYS = {
   desktop: 'layout:desktop',
   tablet: 'layout:tablet',
-  mobilePortrait: 'layout:mobile:portrait',
-  mobileLandscape: 'layout:mobile:landscape'
+  mobilePortrait: 'layout:today:mobile:portrait:v2',
+  mobileLandscape: 'layout:today:mobile:landscape:v2'
 };
+const TODAY_LAYOUT_LEGACY_KEYS = ['layout:mobile:portrait', 'layout:mobile:landscape'];
 const TODAY_LAYOUT_INITIALIZED_KEY = 'layout:initialized';
+const TODAY_WIDGETS_ENABLED_KEY_MOBILE = 'widgets:today:enabled:mobile:v1';
 const TODAY_WIDGETS = {
   today: {
     label: "Aujourd'hui",
@@ -15682,9 +15684,30 @@ function initTodayCustomizer() {
   let isEditing = false;
   let resizeTimer = null;
   let lastEmptyConditionUsed = null;
+  let enabledWidgetIds = new Set();
 
-  const getVisibleWidgets = () => Array.from(layoutState.values()).filter(item => item.visible);
-  const getEnabledWidgetIds = () => getVisibleWidgets().map(item => item.id);
+  const isMobileLayout = (layoutType) => layoutType === 'mobilePortrait' || layoutType === 'mobileLandscape';
+
+  const getVisibleWidgets = () => {
+    const items = Array.from(layoutState.values());
+    if (isMobileLayout(currentLayoutType)) {
+      return items.filter(item => enabledWidgetIds.has(item.id));
+    }
+    return items.filter(item => item.visible);
+  };
+  const getEnabledWidgetIds = () => {
+    if (isMobileLayout(currentLayoutType)) {
+      return Array.from(enabledWidgetIds);
+    }
+    return getVisibleWidgets().map(item => item.id);
+  };
+  const getItemsToRender = (layoutType = currentLayoutType) => {
+    const items = Array.from(layoutState.values());
+    if (isMobileLayout(layoutType)) {
+      return items.filter(item => enabledWidgetIds.has(item.id));
+    }
+    return items.filter(item => item.visible);
+  };
 
   const updateWidgetOrder = () => {
     layoutState.forEach((item, widgetId) => {
@@ -15766,8 +15789,6 @@ function initTodayCustomizer() {
     return widget.min.mobile;
   };
 
-  const isMobileLayout = (layoutType) => layoutType === 'mobilePortrait' || layoutType === 'mobileLandscape';
-
   const getDefaultLayoutItem = (widgetId, layoutType, items = []) => {
     const presetItem = TODAY_LAYOUT_PRESETS[layoutType]?.find(item => item.id === widgetId);
     if (presetItem) {
@@ -15821,9 +15842,10 @@ function initTodayCustomizer() {
     return normalized;
   };
 
-  const getEnabledWidgetIdsFromStorage = () => {
+  const getEnabledWidgetIdsFromLegacyLayouts = () => {
     const enabled = new Set();
-    Object.values(TODAY_LAYOUT_KEYS).forEach(key => {
+    const keys = [...Object.values(TODAY_LAYOUT_KEYS), ...TODAY_LAYOUT_LEGACY_KEYS];
+    keys.forEach(key => {
       const stored = localStorage.getItem(key);
       if (!stored) {
         return;
@@ -15843,6 +15865,35 @@ function initTodayCustomizer() {
       }
     });
     return Array.from(enabled);
+  };
+
+  const loadEnabledWidgetIdsForMobile = () => {
+    const stored = localStorage.getItem(TODAY_WIDGETS_ENABLED_KEY_MOBILE);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          return parsed.filter(id => TODAY_WIDGETS[id]);
+        }
+      } catch (error) {
+        console.warn('Widgets activés mobile illisibles, reset.', error);
+      }
+    }
+    const legacy = getEnabledWidgetIdsFromLegacyLayouts();
+    if (legacy.length > 0) {
+      return legacy;
+    }
+    return Object.keys(TODAY_WIDGETS);
+  };
+
+  const persistEnabledWidgetIdsForMobile = () => {
+    if (!isMobileLayout(currentLayoutType)) {
+      return;
+    }
+    localStorage.setItem(
+      TODAY_WIDGETS_ENABLED_KEY_MOBILE,
+      JSON.stringify(Array.from(enabledWidgetIds))
+    );
   };
 
   const getOrderedWidgetIds = (layoutType, ids) => {
@@ -15874,7 +15925,7 @@ function initTodayCustomizer() {
     if (!isMobileLayout(layoutType)) {
       return layoutItems;
     }
-    const enabledWidgetIds = getEnabledWidgetIdsFromStorage();
+    const enabledWidgetIds = loadEnabledWidgetIdsForMobile();
     if (enabledWidgetIds.length === 0) {
       return layoutItems;
     }
@@ -15931,9 +15982,11 @@ function initTodayCustomizer() {
     }
     const enabledWidgetIds = getEnabledWidgetIds();
     const mobileLayoutItems = getMobileLayoutSnapshot();
+    const itemsToRender = getItemsToRender();
     const layoutItemsLabel = formatLayoutItems(mobileLayoutItems);
     console.log('[TodayWidgets] debug panel', {
       enabledWidgetIds,
+      itemsToRender: itemsToRender.map(item => item.id),
       layoutMobile: mobileLayoutItems.map(item => ({
         id: item.id,
         x: item.x,
@@ -15941,12 +15994,14 @@ function initTodayCustomizer() {
         w: item.w,
         h: item.h
       })),
-      isEmptyConditionUsed: lastEmptyConditionUsed
+      isEmptyConditionUsed: lastEmptyConditionUsed,
+      isEditMode: isEditing
     });
     debugPanel.textContent = [
       `enabledWidgetIds.length=${enabledWidgetIds.length} | [${enabledWidgetIds.join(', ')}]`,
+      `itemsToRender=[${itemsToRender.map(item => item.id).join(', ')}]`,
       `layoutMobile.length=${mobileLayoutItems.length} | [${layoutItemsLabel}]`,
-      `isEmptyConditionUsed=${lastEmptyConditionUsed}`
+      `isEditMode=${isEditing}`
     ].join('\n');
   };
 
@@ -15965,6 +16020,7 @@ function initTodayCustomizer() {
     }));
     localStorage.setItem(TODAY_LAYOUT_KEYS[layoutType], JSON.stringify(layoutArray));
     localStorage.setItem(TODAY_LAYOUT_INITIALIZED_KEY, 'true');
+    persistEnabledWidgetIdsForMobile();
   };
 
   const updateEmptyState = () => {
@@ -15994,10 +16050,9 @@ function initTodayCustomizer() {
     palette.querySelectorAll('.today-customize-toggle').forEach(btn => {
       const widgetId = btn.dataset.widgetId;
       const item = layoutState.get(widgetId);
-      if (!item) {
-        return;
-      }
-      const isVisible = item.visible;
+      const isVisible = isMobileLayout(currentLayoutType)
+        ? enabledWidgetIds.has(widgetId)
+        : item?.visible;
       btn.textContent = isVisible ? 'Retirer' : 'Ajouter';
       btn.classList.toggle('is-remove', isVisible);
     });
@@ -16122,16 +16177,43 @@ function initTodayCustomizer() {
     let layoutItems = loadLayout(layoutType);
     layoutItems = ensureMobileLayoutFallback(layoutType, layoutItems);
     layoutState = new Map(layoutItems.map(item => [item.id, { ...item }]));
-    const visibleCount = Array.from(layoutState.values()).filter(item => item.visible).length;
-    if (visibleCount === 0) {
-      const enabledFromStorage = getEnabledWidgetIdsFromStorage();
-      const fallbackIds = enabledFromStorage.length > 0 ? enabledFromStorage : Object.keys(TODAY_WIDGETS);
-      const orderedIds = getOrderedWidgetIds(layoutType, fallbackIds);
+    if (isMobileLayout(layoutType)) {
+      enabledWidgetIds = new Set(loadEnabledWidgetIdsForMobile());
+      Array.from(enabledWidgetIds).forEach(widgetId => {
+        if (!layoutState.has(widgetId)) {
+          const entry = getDefaultLayoutItem(widgetId, layoutType, Array.from(layoutState.values()));
+          layoutState.set(widgetId, entry);
+        }
+      });
+    } else {
+      enabledWidgetIds = new Set(Array.from(layoutState.values()).filter(item => item.visible).map(item => item.id));
+    }
+
+    let itemsToRender = getItemsToRender(layoutType);
+    if (isMobileLayout(layoutType) && enabledWidgetIds.size > 0 && itemsToRender.length === 0) {
+      const orderedIds = getOrderedWidgetIds(layoutType, Array.from(enabledWidgetIds));
       const fallbackItems = buildLayoutForIds(layoutType, orderedIds).map(item => ({
         ...item,
         visible: true
       }));
       layoutState = new Map(fallbackItems.map(item => [item.id, { ...item }]));
+      itemsToRender = getItemsToRender(layoutType);
+      persistLayout();
+    }
+
+    if (!isMobileLayout(layoutType)) {
+      const visibleCount = itemsToRender.length;
+      if (visibleCount === 0) {
+        const enabledFromStorage = getEnabledWidgetIdsFromLegacyLayouts();
+        const fallbackIds = enabledFromStorage.length > 0 ? enabledFromStorage : Object.keys(TODAY_WIDGETS);
+        const orderedIds = getOrderedWidgetIds(layoutType, fallbackIds);
+        const fallbackItems = buildLayoutForIds(layoutType, orderedIds).map(item => ({
+          ...item,
+          visible: true
+        }));
+        layoutState = new Map(fallbackItems.map(item => [item.id, { ...item }]));
+        itemsToRender = getItemsToRender(layoutType);
+      }
     }
 
     gridElement.hidden = false;
@@ -16250,28 +16332,33 @@ function initTodayCustomizer() {
     grid.cellHeight(96);
 
     grid.removeAll(false);
-    layoutState.forEach((item, widgetId) => {
+    const renderedIds = new Set();
+    itemsToRender.forEach((item) => {
+      const widgetId = item.id;
       const el = ensureWidgetElement(widgetId);
       if (!el) {
         return;
       }
       ensureResizePresets(el);
       const min = getWidgetMin(widgetId, layoutType);
-      if (item.visible) {
-        el.classList.remove('is-hidden');
-        el.setAttribute('aria-hidden', 'false');
-        grid.addWidget(el, {
-          x: item.x,
-          y: item.y,
-          w: item.w,
-          h: item.h,
-          minW: min.w,
-          minH: min.h
-        });
-      } else {
-        el.classList.add('is-hidden');
-        el.setAttribute('aria-hidden', 'true');
+      el.classList.remove('is-hidden');
+      el.setAttribute('aria-hidden', 'false');
+      grid.addWidget(el, {
+        x: item.x,
+        y: item.y,
+        w: item.w,
+        h: item.h,
+        minW: min.w,
+        minH: min.h
+      });
+      renderedIds.add(widgetId);
+    });
+    widgetElements.forEach((el, widgetId) => {
+      if (renderedIds.has(widgetId)) {
+        return;
       }
+      el.classList.add('is-hidden');
+      el.setAttribute('aria-hidden', 'true');
     });
 
     updateWidgetOrder();
@@ -16283,6 +16370,20 @@ function initTodayCustomizer() {
   };
 
   const showWidget = (widgetId) => {
+    if (isMobileLayout(currentLayoutType)) {
+      if (!TODAY_WIDGETS[widgetId]) {
+        return;
+      }
+      enabledWidgetIds.add(widgetId);
+      if (!layoutState.has(widgetId)) {
+        const entry = getDefaultLayoutItem(widgetId, currentLayoutType, Array.from(layoutState.values()));
+        layoutState.set(widgetId, entry);
+      }
+      persistLayout();
+      applyLayout(currentLayoutType);
+      logVisibleWidgets(`widget ajouté: ${widgetId}`);
+      return;
+    }
     let entry = layoutState.get(widgetId);
     if (!entry) {
       entry = getDefaultLayoutItem(widgetId, currentLayoutType, Array.from(layoutState.values()));
@@ -16330,6 +16431,16 @@ function initTodayCustomizer() {
   };
 
   const hideWidget = (widgetId) => {
+    if (isMobileLayout(currentLayoutType)) {
+      if (!enabledWidgetIds.has(widgetId)) {
+        return;
+      }
+      enabledWidgetIds.delete(widgetId);
+      persistLayout();
+      applyLayout(currentLayoutType);
+      logVisibleWidgets(`widget retiré: ${widgetId}`);
+      return;
+    }
     const entry = layoutState.get(widgetId);
     const el = widgetElements.get(widgetId);
     if (!entry || !el || !entry.visible) {
@@ -16409,10 +16520,17 @@ function initTodayCustomizer() {
   });
 
   editReset.addEventListener('click', () => {
-    const defaultItems = TODAY_LAYOUT_PRESETS[currentLayoutType].map(item => ({
+    let defaultItems = TODAY_LAYOUT_PRESETS[currentLayoutType].map(item => ({
       ...item,
       visible: true
     }));
+    if (isMobileLayout(currentLayoutType)) {
+      const orderedIds = getOrderedWidgetIds(currentLayoutType, Array.from(enabledWidgetIds));
+      defaultItems = buildLayoutForIds(currentLayoutType, orderedIds).map(item => ({
+        ...item,
+        visible: true
+      }));
+    }
     localStorage.setItem(TODAY_LAYOUT_KEYS[currentLayoutType], JSON.stringify(defaultItems));
     layoutState = new Map(defaultItems.map(item => [item.id, { ...item }]));
     applyLayout(currentLayoutType);
