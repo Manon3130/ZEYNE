@@ -15620,6 +15620,8 @@ function initTodayCustomizer() {
   const emptyState = document.getElementById('today-empty-state');
   const emptyCustomize = document.getElementById('today-empty-customize');
   const simpleList = document.getElementById('today-simple-list');
+  const mobilePlaceholders = document.getElementById('today-mobile-placeholders');
+  const mobilePlaceholdersList = document.getElementById('today-mobile-placeholders-list');
   const debugPanel = document.getElementById('today-debug-panel');
 
   const notifyCustomizerError = (reason, error) => {
@@ -15651,7 +15653,7 @@ function initTodayCustomizer() {
     return;
   }
 
-  if (!palette || !paletteToggle || !editToggle || !editDone || !editReset || !editActions || !customizeActions || !emptyState || !simpleList) {
+  if (!palette || !paletteToggle || !editToggle || !editDone || !editReset || !editActions || !customizeActions || !emptyState || !simpleList || !mobilePlaceholders || !mobilePlaceholdersList) {
     bindFallbackHandlers('éléments UI manquants');
     return;
   }
@@ -15986,6 +15988,18 @@ function initTodayCustomizer() {
     simpleList.hidden = enabledIds.length === 0;
   };
 
+  const renderMobilePlaceholders = () => {
+    const enabledIds = getEnabledWidgetIds();
+    mobilePlaceholdersList.innerHTML = '';
+    enabledIds.forEach(widgetId => {
+      const card = document.createElement('div');
+      card.className = 'today-mobile-placeholder-card';
+      card.textContent = `WIDGET: ${widgetId}`;
+      mobilePlaceholdersList.appendChild(card);
+    });
+    mobilePlaceholders.hidden = enabledIds.length === 0;
+  };
+
   const updatePalette = () => {
     palette.querySelectorAll('.today-customize-toggle').forEach(btn => {
       const widgetId = btn.dataset.widgetId;
@@ -16046,8 +16060,8 @@ function initTodayCustomizer() {
     const isMobile = isMobileLayout(layoutType);
     if (isMobile) {
       gridElement.hidden = true;
-      simpleList.hidden = false;
-      renderSimpleList();
+      simpleList.hidden = true;
+      renderMobilePlaceholders();
       updatePalette();
       updateEmptyState();
       updateDebugPanel();
@@ -16057,6 +16071,7 @@ function initTodayCustomizer() {
 
     gridElement.hidden = false;
     simpleList.hidden = true;
+    mobilePlaceholders.hidden = true;
 
     if (!grid) {
       grid = window.GridStack.init(
@@ -16214,7 +16229,7 @@ function initTodayCustomizer() {
       persistLayout();
       updatePalette();
       updateEmptyState();
-      renderSimpleList();
+      renderMobilePlaceholders();
       logVisibleWidgets(`widget ajouté: ${widgetId}`);
       return;
     }
@@ -16260,7 +16275,7 @@ function initTodayCustomizer() {
       persistLayout();
       updatePalette();
       updateEmptyState();
-      renderSimpleList();
+      renderMobilePlaceholders();
       logVisibleWidgets(`widget retiré: ${widgetId}`);
       return;
     }
