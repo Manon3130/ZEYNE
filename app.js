@@ -15694,6 +15694,23 @@ function initTodayCustomizer() {
     console.log('[TodayWidgets]', context, ids);
   };
 
+  const logLayoutState = (context) => {
+    const widgetsEnabled = getVisibleWidgets().map(item => item.id);
+    const layoutSnapshot = Array.from(layoutState.values()).map(item => ({
+      id: item.id,
+      x: item.x,
+      y: item.y,
+      w: item.w,
+      h: item.h,
+      visible: item.visible
+    }));
+    console.log('[TodayWidgets]', context, {
+      layoutType: currentLayoutType,
+      widgetsEnabled,
+      layout: layoutSnapshot
+    });
+  };
+
   const getLayoutType = () => {
     const width = window.innerWidth;
     if (width >= 1024) {
@@ -15757,26 +15774,92 @@ function initTodayCustomizer() {
     return { id: widgetId, x: 0, y: maxY, w: min.w, h: min.h, visible: true };
   };
 
+  const coerceNumber = (value, fallback) => (Number.isFinite(value) ? value : fallback);
+
+  const normalizeItem = (widgetId, layoutType, saved, items, defaultVisible) => {
+    const presetItem = TODAY_LAYOUT_PRESETS[layoutType]?.find(item => item.id === widgetId);
+    const base = presetItem ? { ...presetItem } : getDefaultLayoutItem(widgetId, layoutType, items);
+    const min = getWidgetMin(widgetId, layoutType);
+    const item = {
+      ...base,
+      ...saved
+    };
+    item.x = coerceNumber(item.x, base.x ?? 0);
+    item.y = coerceNumber(item.y, base.y ?? 0);
+    item.w = Math.max(min.w, coerceNumber(item.w, base.w ?? min.w));
+    item.h = Math.max(min.h, coerceNumber(item.h, base.h ?? min.h));
+    item.visible = typeof saved?.visible === 'boolean' ? saved.visible : defaultVisible;
+    return item;
+  };
+
   const normalizeLayoutItems = (layoutType, storedItems) => {
     const presetItems = TODAY_LAYOUT_PRESETS[layoutType] ?? [];
     const byId = new Map((storedItems ?? []).map(item => [item.id, item]));
     const defaultVisible = !isFirstLaunch || isMobileLayout(layoutType);
-    const normalized = presetItems.map(item => {
+    const normalized = [];
+
+    presetItems.forEach(item => {
       const saved = byId.get(item.id);
-      return {
-        ...item,
-        ...saved,
-        visible: typeof saved?.visible === 'boolean' ? saved.visible : defaultVisible
-      };
+      normalized.push(normalizeItem(item.id, layoutType, saved, normalized, defaultVisible));
     });
 
     Object.keys(TODAY_WIDGETS).forEach(widgetId => {
       if (normalized.some(item => item.id === widgetId)) {
         return;
       }
-      normalized.push(getDefaultLayoutItem(widgetId, layoutType, normalized));
+      const saved = byId.get(widgetId);
+      normalized.push(normalizeItem(widgetId, layoutType, saved, normalized, defaultVisible));
     });
     return normalized;
+  };
+
+  const getEnabledWidgetIdsFromStorage = () => {
+    const enabled = new Set();
+    Object.values(TODAY_LAYOUT_KEYS).forEach(key => {
+      const stored = localStorage.getItem(key);
+      if (!stored) {
+        return;
+      }
+      try {
+        const parsed = JSON.parse(stored);
+        if (!Array.isArray(parsed)) {
+          return;
+        }
+        parsed.forEach(item => {
+          if (item?.visible && item.id) {
+            enabled.add(item.id);
+          }
+        });
+      } catch (error) {
+        console.warn('Layout Aujourd’hui illisible pour la clé', key, error);
+      }
+    });
+    return Array.from(enabled);
+  };
+
+  const getOrderedWidgetIds = (layoutType, ids) => {
+    const presetOrder = TODAY_LAYOUT_PRESETS[layoutType]?.map(item => item.id) ?? [];
+    const available = new Set(ids);
+    const ordered = [];
+    presetOrder.forEach(id => {
+      if (available.has(id)) {
+        ordered.push(id);
+        available.delete(id);
+      }
+    });
+    available.forEach(id => ordered.push(id));
+    return ordered;
+  };
+
+  const buildLayoutForIds = (layoutType, ids) => {
+    const items = [];
+    ids.forEach(widgetId => {
+      if (!TODAY_WIDGETS[widgetId]) {
+        return;
+      }
+      items.push(getDefaultLayoutItem(widgetId, layoutType, items));
+    });
+    return items;
   };
 
   const loadLayout = (layoutType) => {
@@ -15815,6 +15898,7 @@ function initTodayCustomizer() {
     const visibleCount = Array.from(layoutState.values()).filter(item => item.visible).length;
     emptyState.hidden = visibleCount !== 0;
     gridElement.classList.toggle('is-empty', visibleCount === 0);
+    logLayoutState(`etat ecran vide: ${visibleCount === 0 ? 'vide' : 'non vide'}`);
   };
 
   const updatePalette = () => {
@@ -15863,12 +15947,14 @@ function initTodayCustomizer() {
     layoutState = new Map(layoutItems.map(item => [item.id, { ...item }]));
     const visibleCount = Array.from(layoutState.values()).filter(item => item.visible).length;
     if (visibleCount === 0) {
-      const fallbackId = TODAY_LAYOUT_PRESETS[layoutType]?.[0]?.id || Object.keys(TODAY_WIDGETS)[0];
-      if (fallbackId) {
-        const fallbackEntry = layoutState.get(fallbackId) || getDefaultLayoutItem(fallbackId, layoutType, layoutItems);
-        fallbackEntry.visible = true;
-        layoutState.set(fallbackId, fallbackEntry);
-      }
+      const enabledFromStorage = getEnabledWidgetIdsFromStorage();
+      const fallbackIds = enabledFromStorage.length > 0 ? enabledFromStorage : Object.keys(TODAY_WIDGETS);
+      const orderedIds = getOrderedWidgetIds(layoutType, fallbackIds);
+      const fallbackItems = buildLayoutForIds(layoutType, orderedIds).map(item => ({
+        ...item,
+        visible: true
+      }));
+      layoutState = new Map(fallbackItems.map(item => [item.id, { ...item }]));
     }
 
     if (!grid) {
