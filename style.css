@@ -374,6 +374,10 @@ body.global-menu-open {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-height: 1px;
+  flex: 1 1 auto;
+  position: relative;
+  z-index: 1;
 }
 
 .today-overview-card {
@@ -622,8 +626,18 @@ body,
   background: rgba(247, 230, 214, 0.6);
 }
 
+.today-debug-panel {
+  font-size: 0.72rem;
+  color: rgba(166, 128, 118, 0.85);
+  background: rgba(255, 248, 241, 0.9);
+  border-radius: 12px;
+  padding: 8px 12px;
+  white-space: pre-wrap;
+}
+
 .today-grid {
   width: 100%;
+  min-height: 1px;
 }
 
 .today-grid {

@@ -15619,6 +15619,7 @@ function initTodayCustomizer() {
   const customizeActions = document.querySelector('.today-customize-actions');
   const emptyState = document.getElementById('today-empty-state');
   const emptyCustomize = document.getElementById('today-empty-customize');
+  const debugPanel = document.getElementById('today-debug-panel');
 
   const notifyCustomizerError = (reason, error) => {
     console.error('Impossible d’ouvrir la personnalisation.', reason, error);
@@ -15675,6 +15676,7 @@ function initTodayCustomizer() {
   let grid = null;
   let isEditing = false;
   let resizeTimer = null;
+  let lastEmptyConditionUsed = null;
 
   const getVisibleWidgets = () => Array.from(layoutState.values()).filter(item => item.visible);
 
@@ -15862,6 +15864,34 @@ function initTodayCustomizer() {
     return items;
   };
 
+  const ensureMobileLayoutFallback = (layoutType, layoutItems) => {
+    if (!isMobileLayout(layoutType)) {
+      return layoutItems;
+    }
+    const enabledWidgetIds = getEnabledWidgetIdsFromStorage();
+    if (enabledWidgetIds.length === 0) {
+      return layoutItems;
+    }
+    const validItems = Array.isArray(layoutItems)
+      ? layoutItems.filter(item => item && item.id)
+      : [];
+    const hasVisible = validItems.some(item => item.visible);
+    if (validItems.length === 0 || !hasVisible) {
+      const orderedIds = getOrderedWidgetIds(layoutType, enabledWidgetIds);
+      const fallbackItems = buildLayoutForIds(layoutType, orderedIds).map(item => ({
+        ...item,
+        visible: true
+      }));
+      console.warn('[TodayWidgets] layout mobile manquant, fallback forcé', {
+        layoutType,
+        enabledWidgetIds,
+        fallbackItems
+      });
+      return fallbackItems;
+    }
+    return layoutItems;
+  };
+
   const loadLayout = (layoutType) => {
     const stored = localStorage.getItem(TODAY_LAYOUT_KEYS[layoutType]);
     if (stored) {
@@ -15875,6 +15905,43 @@ function initTodayCustomizer() {
       }
     }
     return normalizeLayoutItems(layoutType, []);
+  };
+
+  const formatLayoutItems = (items) => items
+    .map(item => `${item.id}(${item.x},${item.y},${item.w},${item.h})`)
+    .join(' | ');
+
+  const getMobileLayoutSnapshot = () => {
+    const mobileType = window.matchMedia('(orientation: landscape)').matches ? 'mobileLandscape' : 'mobilePortrait';
+    if (isMobileLayout(currentLayoutType)) {
+      return Array.from(layoutState.values());
+    }
+    return loadLayout(mobileType);
+  };
+
+  const updateDebugPanel = () => {
+    if (!debugPanel) {
+      return;
+    }
+    const enabledWidgetIds = getVisibleWidgets().map(item => item.id);
+    const mobileLayoutItems = getMobileLayoutSnapshot();
+    const layoutItemsLabel = formatLayoutItems(mobileLayoutItems);
+    console.log('[TodayWidgets] debug panel', {
+      enabledWidgetIds,
+      layoutMobile: mobileLayoutItems.map(item => ({
+        id: item.id,
+        x: item.x,
+        y: item.y,
+        w: item.w,
+        h: item.h
+      })),
+      isEmptyConditionUsed: lastEmptyConditionUsed
+    });
+    debugPanel.textContent = [
+      `enabledWidgetIds.length=${enabledWidgetIds.length} | [${enabledWidgetIds.join(', ')}]`,
+      `layoutMobile.length=${mobileLayoutItems.length} | [${layoutItemsLabel}]`,
+      `isEmptyConditionUsed=${lastEmptyConditionUsed}`
+    ].join('\n');
   };
 
   const persistLayout = () => {
@@ -15896,9 +15963,12 @@ function initTodayCustomizer() {
 
   const updateEmptyState = () => {
     const visibleCount = Array.from(layoutState.values()).filter(item => item.visible).length;
-    emptyState.hidden = visibleCount !== 0;
-    gridElement.classList.toggle('is-empty', visibleCount === 0);
-    logLayoutState(`etat ecran vide: ${visibleCount === 0 ? 'vide' : 'non vide'}`);
+    const isEmpty = visibleCount === 0;
+    lastEmptyConditionUsed = isEmpty;
+    emptyState.hidden = !isEmpty;
+    gridElement.classList.toggle('is-empty', isEmpty);
+    logLayoutState(`etat ecran vide: ${isEmpty ? 'vide' : 'non vide'}`);
+    updateDebugPanel();
   };
 
   const updatePalette = () => {
@@ -15943,7 +16013,8 @@ function initTodayCustomizer() {
 
   const applyLayout = (layoutType) => {
     currentLayoutType = layoutType;
-    const layoutItems = loadLayout(layoutType);
+    let layoutItems = loadLayout(layoutType);
+    layoutItems = ensureMobileLayoutFallback(layoutType, layoutItems);
     layoutState = new Map(layoutItems.map(item => [item.id, { ...item }]));
     const visibleCount = Array.from(layoutState.values()).filter(item => item.visible).length;
     if (visibleCount === 0) {
@@ -16090,6 +16161,7 @@ function initTodayCustomizer() {
     applyEditMode();
     updatePalette();
     updateEmptyState();
+    updateDebugPanel();
     logVisibleWidgets('render dashboard');
   };
 
