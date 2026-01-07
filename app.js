@@ -15627,9 +15627,6 @@ function initTodayCustomizer() {
   const emptyCustomize = document.getElementById('today-empty-customize');
   const simpleList = document.getElementById('today-simple-list');
   const debugPanel = document.getElementById('today-debug-panel');
-  const updateTodayViewportHeight = () => {
-    document.documentElement.style.setProperty('--today-viewport-height', `${window.innerHeight}px`);
-  };
 
   const notifyCustomizerError = (reason, error) => {
     console.error('Impossible d’ouvrir la personnalisation.', reason, error);
@@ -15649,8 +15646,6 @@ function initTodayCustomizer() {
       });
     });
   };
-
-  updateTodayViewportHeight();
 
   if (!gridElement) {
     bindFallbackHandlers('grille introuvable');
@@ -15809,38 +15804,6 @@ function initTodayCustomizer() {
   };
 
   const coerceNumber = (value, fallback) => (Number.isFinite(value) ? value : fallback);
-
-  const sortLayoutItems = (items) => [...items].sort((a, b) => {
-    const yDiff = coerceNumber(a.y, 0) - coerceNumber(b.y, 0);
-    if (yDiff !== 0) {
-      return yDiff;
-    }
-    return coerceNumber(a.x, 0) - coerceNumber(b.x, 0);
-  });
-
-  const getLayoutMaxY = (items, layoutType) => items.reduce((max, item) => {
-    const min = getWidgetMin(item.id, layoutType);
-    const y = coerceNumber(item.y, 0);
-    const h = Math.max(min.h, coerceNumber(item.h, min.h));
-    return Math.max(max, y + h);
-  }, 0);
-
-  const packMobileLayoutItems = (items, layoutType) => {
-    let currentY = 0;
-    return sortLayoutItems(items).map(item => {
-      const min = getWidgetMin(item.id, layoutType);
-      const packedItem = {
-        ...item,
-        x: 0,
-        y: currentY,
-        w: Math.max(min.w, coerceNumber(item.w, min.w)),
-        h: Math.max(min.h, coerceNumber(item.h, min.h)),
-        visible: true
-      };
-      currentY += packedItem.h;
-      return packedItem;
-    });
-  };
 
   const normalizeItem = (widgetId, layoutType, saved, items, defaultVisible) => {
     const presetItem = TODAY_LAYOUT_PRESETS[layoutType]?.find(item => item.id === widgetId);
@@ -16131,30 +16094,14 @@ function initTodayCustomizer() {
       <div class="grid-stack-item-content">
         <button type="button" class="widget-remove-btn" data-widget-id="${widgetId}" aria-label="Retirer le widget ${widgetId}">×</button>
         <div class="card">
-          <h2>Widget</h2>
-          <p>Widget: ${widgetId}</p>
+          <h2>Widget inconnu</h2>
+          <p>Widget inconnu: ${widgetId}</p>
         </div>
       </div>
     `;
     gridElement.appendChild(fallbackItem);
     widgetElements.set(widgetId, fallbackItem);
     return fallbackItem;
-  };
-
-  const renderWidgetById = (widgetId) => {
-    const element = ensureWidgetElement(widgetId);
-    if (!element) {
-      return null;
-    }
-    const content = element.querySelector('.grid-stack-item-content');
-    if (content) {
-      content.style.minHeight = '120px';
-    }
-    const card = content?.querySelector('.card');
-    if (card) {
-      card.style.minHeight = '120px';
-    }
-    return element;
   };
 
   const ensureResizePresets = (widgetElement) => {
@@ -16266,20 +16213,6 @@ function initTodayCustomizer() {
         }));
         layoutState = new Map(fallbackItems.map(item => [item.id, { ...item }]));
         itemsToRender = getItemsToRender(layoutType);
-      }
-    }
-
-    if (isMobileLayout(layoutType) && itemsToRender.length > 0) {
-      const maxY = getLayoutMaxY(itemsToRender, layoutType);
-      if (maxY > 4) {
-        const packedItems = packMobileLayoutItems(itemsToRender, layoutType);
-        packedItems.forEach(item => {
-          layoutState.set(item.id, { ...item });
-        });
-        itemsToRender = packedItems;
-        persistLayout();
-      } else {
-        itemsToRender = sortLayoutItems(itemsToRender);
       }
     }
 
@@ -16402,7 +16335,7 @@ function initTodayCustomizer() {
     const renderedIds = new Set();
     itemsToRender.forEach((item) => {
       const widgetId = item.id;
-      const el = renderWidgetById(widgetId);
+      const el = ensureWidgetElement(widgetId);
       if (!el) {
         return;
       }
@@ -16457,7 +16390,7 @@ function initTodayCustomizer() {
       entry.visible = false;
       layoutState.set(widgetId, entry);
     }
-    const el = renderWidgetById(widgetId);
+    const el = ensureWidgetElement(widgetId);
     if (!entry || !el || entry.visible) {
       return;
     }
@@ -16653,7 +16586,6 @@ function initTodayCustomizer() {
   });
 
   const handleResize = () => {
-    updateTodayViewportHeight();
     const nextLayoutType = getLayoutType();
     if (nextLayoutType === currentLayoutType) {
       return;
