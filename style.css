@@ -19,6 +19,7 @@
   --text-primary: var(--text);
   --shadow-soft: 0 18px 40px rgba(234, 196, 175, 0.28);
   --color-pill: var(--accent-peach);
+  --today-viewport-height: 100vh;
 }
 
 * {
@@ -371,6 +372,8 @@ body.global-menu-open {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .today-widgets-zone {
@@ -381,6 +384,20 @@ body.global-menu-open {
   flex: 1 1 auto;
   position: relative;
   z-index: 1;
+  min-height: 0;
+}
+
+.today-widgets-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.today-widgets-canvas {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: var(--today-viewport-height);
 }
 
 .today-simple-list {
@@ -753,6 +770,7 @@ body:not(.today-editing) .grid-stack-item-content > .card {
 
 .grid-stack-item-content > .card {
   height: 100%;
+  min-height: 120px;
 }
 
 .grid-stack-item.is-hidden {
@@ -2054,6 +2072,9 @@ body.drag-active {
 
 #view-aujourdhui {
   padding-right: env(safe-area-inset-right);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .dashboard-grid {
