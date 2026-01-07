@@ -12052,6 +12052,7 @@ function updateDailyMomentumRing() {
 
   const ring = document.getElementById('momentum-ring');
   const percentage = document.getElementById('momentum-percentage');
+  const progressValue = document.getElementById('today-progress-value');
 
   if (ring) {
     const angle = (dailyProgress / 100) * 360;
@@ -12060,6 +12061,10 @@ function updateDailyMomentumRing() {
 
   if (percentage) {
     percentage.textContent = `${dailyProgress}%`;
+  }
+
+  if (progressValue) {
+    progressValue.textContent = `${dailyProgress}% complété`;
   }
 }
 
