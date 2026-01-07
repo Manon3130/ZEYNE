@@ -12,57 +12,30 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body class="view-aujourdhui-active">
-  <div class="app-container">
+  <button class="floating-menu" type="button" aria-label="Ouvrir le menu">☰</button>
+  <div class="app-container today-shell">
     <main id="main-content">
-      <section id="view-aujourdhui" class="view active">
-        <header class="today-header">
-          <h1 class="today-header-title">Bonjour toi</h1>
-        </header>
-
-        <section class="today-dashboard">
-          <article class="card today-main-card">
-            <div class="today-main-header">
-              <div>
-                <p class="today-card-label">Aujourd'hui</p>
-                <p class="today-card-subtitle">Reste concentré sur ton objectif du jour.</p>
-              </div>
-              <div class="today-card-meta">3 jours restants</div>
-            </div>
-            <div class="today-main-progress">
-              <div class="progress-ring" role="img" aria-label="Progression du jour à 72 pour cent">
-                <span class="progress-value">72%</span>
-              </div>
-              <div class="progress-copy">
-                <p class="progress-title">Progression du jour</p>
-                <p class="progress-text">Tu es sur une bonne lancée.</p>
-              </div>
-            </div>
-          </article>
-
-          <div class="today-grid">
-            <article class="card today-secondary-card">
-              <h2>Daily 3</h2>
-              <p class="card-placeholder">3 micro-tâches prêtes pour aujourd'hui.</p>
-            </article>
-
-            <article class="card today-secondary-card">
-              <h2>Motivation &amp; Humeur</h2>
-              <p class="card-placeholder">Niveau stable, énergie modérée.</p>
-            </article>
-
-            <article class="card today-secondary-card">
-              <h2>4 prochains jours</h2>
-              <p class="card-placeholder">Aperçu des prochaines sessions.</p>
-            </article>
-
-            <article class="card today-secondary-card">
-              <h2>Défi 7 jours</h2>
-              <p class="card-placeholder">Défi actif, reste 4 jours.</p>
-            </article>
+      <section id="view-aujourdhui" class="view active today-page">
+        <article class="today-focus-card">
+          <p class="today-remaining">3 jours restants</p>
+          <div class="today-global-progress" aria-label="Progression globale de l'objectif">
+            <div class="today-global-progress-fill"></div>
           </div>
-        </section>
+          <div class="today-daily-progress">
+            <span class="today-badge">Badge objectif</span>
+            <div class="today-progress-ring" role="img" aria-label="Progression du jour à 72 pour cent">
+              <span>72%</span>
+            </div>
+          </div>
+          <p class="today-encouragement">Tu es sur une bonne lancée.</p>
+        </article>
       </section>
     </main>
+    <nav class="page-dots" aria-label="Navigation par page">
+      <span class="dot active">●</span>
+      <span class="dot">○</span>
+      <span class="dot">○</span>
+    </nav>
   </div>
 </body>
 </html>
