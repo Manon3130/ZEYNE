@@ -6591,3 +6591,134 @@ body.modal-open {
   flex-direction: column;
   height: 100%;
 }
+
+/* Dashboard Aujourd'hui statique */
+.today-header {
+  padding: 8px 8px 16px;
+}
+
+.today-header-title {
+  font-size: 1.6rem;
+  font-weight: 600;
+  color: #7a5f57;
+}
+
+.today-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.today-main-card {
+  width: 100%;
+  min-height: 150px;
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 20px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.today-main-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.today-card-label {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #6f544b;
+}
+
+.today-card-subtitle {
+  font-size: 0.95rem;
+  color: rgba(122, 95, 87, 0.75);
+}
+
+.today-card-meta {
+  font-size: 0.9rem;
+  padding: 6px 12px;
+  background: #f3e3d9;
+  border-radius: 999px;
+  color: #7a5f57;
+  white-space: nowrap;
+}
+
+.today-main-progress {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.progress-ring {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: conic-gradient(#e8b9a8 0deg 260deg, #f0e4df 260deg 360deg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  color: #6f544b;
+}
+
+.progress-ring::before {
+  content: "";
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: #fff;
+  display: block;
+}
+
+.progress-value {
+  margin-left: -52px;
+  font-size: 0.95rem;
+}
+
+.progress-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.progress-title {
+  font-weight: 600;
+  color: #6f544b;
+}
+
+.progress-text {
+  font-size: 0.9rem;
+  color: rgba(122, 95, 87, 0.8);
+}
+
+.today-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.today-secondary-card {
+  min-height: 140px;
+  background: rgba(255, 255, 255, 0.75);
+  border-radius: 18px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.today-secondary-card h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #6f544b;
+}
+
+.card-placeholder {
+  font-size: 0.9rem;
+  color: rgba(122, 95, 87, 0.75);
+}
