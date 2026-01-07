@@ -404,11 +404,10 @@ body.global-menu-open {
 
 .today-overview-card {
   display: flex;
-  gap: 20px;
-  align-items: stretch;
-  min-height: 180px;
-  overflow: hidden;
-  padding: 4px 0;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 220px;
+  padding: 16px 18px;
 }
 
 .today-overview-image {
@@ -423,11 +422,9 @@ body.global-menu-open {
 }
 
 .today-overview-content {
-  flex: 1;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
 }
 
 .today-overview-header {
@@ -444,10 +441,38 @@ body.global-menu-open {
   font-size: 1rem;
 }
 
+.today-overview-description {
+  font-size: 0.95rem;
+  color: rgba(166, 128, 118, 0.85);
+}
+
 .today-overview-progress {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.today-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.today-progress-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.today-progress-value {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.today-progress-label {
+  font-size: 0.9rem;
+  color: rgba(166, 128, 118, 0.8);
 }
 
 .today-mood-card {
@@ -474,7 +499,6 @@ body.global-menu-open {
 }
 
 .today-daily-card {
-  min-height: 560px;
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -482,7 +506,6 @@ body.global-menu-open {
 }
 
 .today-other-card {
-  min-height: 560px;
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -494,7 +517,6 @@ body.global-menu-open {
   flex-direction: column;
   gap: 20px;
   align-self: stretch;
-  min-height: 285px;
 }
 
 .card-shortcuts h2 {
@@ -716,27 +738,35 @@ body,
 }
 
 body:not(.today-editing) .today-grid {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   height: auto !important;
 }
 
 body:not(.today-editing) .today-grid .grid-stack-item {
   position: relative !important;
-  width: 100% !important;
-  height: auto !important;
+  width: auto !important;
+  height: 100% !important;
   top: auto !important;
   left: auto !important;
   transform: none !important;
 }
 
+body:not(.today-editing) .today-grid .grid-stack-item[data-widget-id="today"] {
+  grid-column: 1 / -1;
+}
+
 body:not(.today-editing) .today-grid .grid-stack-item-content {
-  height: auto;
+  height: 100%;
 }
 
 body:not(.today-editing) .grid-stack-item-content > .card {
-  height: auto;
+  height: 100%;
+}
+
+body:not(.today-editing) .today-grid .grid-stack-item:not([data-widget-id="today"]) .card {
+  min-height: 220px;
 }
 
 .grid-stack {
@@ -841,15 +871,6 @@ body.drag-active {
 }
 
 @media (max-width: 768px) {
-  .today-customize-mobile-btn {
-    display: inline-flex;
-  }
-
-  #today-customize-toggle,
-  #today-customize-palette-toggle {
-    display: none;
-  }
-
   body:not(.today-editing) .today-grid {
     gap: 12px;
   }

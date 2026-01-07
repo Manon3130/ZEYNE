@@ -78,44 +78,31 @@
 
         <section class="page--today today-dashboard">
           <div class="today-widgets-zone" id="today-widgets-zone">
-            <div class="today-debug-panel" id="today-debug-panel" aria-live="polite"></div>
-            <div class="today-empty-state" id="today-empty-state" hidden>
-              <p>Ton écran Aujourd'hui est vide.</p>
-              <button type="button" class="btn btn-primary" id="today-empty-customize">+ Personnaliser mon écran</button>
-            </div>
-            <div class="today-simple-list" id="today-simple-list" hidden></div>
-
             <div class="today-grid grid-stack" id="today-grid">
             <div class="grid-stack-item" data-widget-id="today">
               <div class="grid-stack-item-content">
-                <button type="button" class="widget-remove-btn" data-widget-id="today" aria-label="Retirer le widget Aujourd'hui">×</button>
                 <div class="card card-aujourdhui today-overview-card" id="card-today">
-                  <div class="today-overview-image" role="img" aria-label="Illustration Aujourd'hui"></div>
                   <div class="today-overview-content">
                     <div class="today-overview-header">
                       <h2>Aujourd'hui</h2>
                       <div class="days-remaining">
                         <span id="days-count">—</span> jours restants
                       </div>
+                      <p class="today-overview-description">Continue ton rythme pour garder l'objectif en vue.</p>
                     </div>
                     <div class="today-overview-progress">
-                      <div class="progress-bar-container" id="global-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Progression globale des mini-tâches">
-                        <div class="progress-bar" id="progress-bar"></div>
-                      </div>
                       <div class="next-reminder-banner" id="next-reminder-banner" hidden>
                         <span id="next-reminder-text"></span>
                         <button type="button" class="btn btn-secondary" id="next-reminder-snooze-btn">Snooze 10 min</button>
                       </div>
                     </div>
-                    <div class="momentum-row">
+                    <div class="today-progress-row">
                       <div class="momentum-ring" id="momentum-ring" aria-label="Progression des mini-tâches du jour">
                         <span class="momentum-percentage" id="momentum-percentage">0%</span>
                       </div>
-                      <div class="streak-summary" id="streak-summary" tabindex="0" aria-describedby="streak-tooltip">
-                        <span class="streak-icon" aria-hidden="true">🔥</span>
-                        <span class="streak-text" id="streak-text">Streak : 0 jour</span>
-                        <span class="streak-badge" id="streak-badge" aria-hidden="true">—</span>
-                        <span class="streak-tooltip" id="streak-tooltip" role="tooltip">Meilleur streak : 0 jour</span>
+                      <div class="today-progress-details">
+                        <span class="today-progress-value" id="today-progress-value">0% complété</span>
+                        <span class="today-progress-label">Progression du jour</span>
                       </div>
                     </div>
                   </div>
@@ -125,7 +112,6 @@
 
             <div class="grid-stack-item" data-widget-id="motivationMood">
               <div class="grid-stack-item-content">
-                <button type="button" class="widget-remove-btn" data-widget-id="motivationMood" aria-label="Retirer le widget Motivation et humeur">×</button>
                 <div class="card card-mood today-mood-card" id="card-mood">
                   <h2>Motivation &amp; Humeur</h2>
                   <div class="motivation-slider-container">
@@ -150,7 +136,6 @@
 
             <div class="grid-stack-item" data-widget-id="daily3">
               <div class="grid-stack-item-content">
-                <button type="button" class="widget-remove-btn" data-widget-id="daily3" aria-label="Retirer le widget Daily 3">×</button>
                 <div class="card card-daily3 today-daily-card" id="card-daily">
                   <div class="card-daily3-header">
                     <h2>Daily 3 d'aujourd'hui</h2>
@@ -168,7 +153,6 @@
 
             <div class="grid-stack-item" data-widget-id="nextDays">
               <div class="grid-stack-item-content">
-                <button type="button" class="widget-remove-btn" data-widget-id="nextDays" aria-label="Retirer le widget 4 prochains jours">×</button>
                 <div class="card card-other-days today-other-card" id="card-other">
                   <h2>Autres jours (4 prochains)</h2>
                   <div id="other-days-list"></div>
@@ -178,7 +162,6 @@
 
             <div class="grid-stack-item" data-widget-id="challenge7d">
               <div class="grid-stack-item-content">
-                <button type="button" class="widget-remove-btn" data-widget-id="challenge7d" aria-label="Retirer le widget Défi 7 jours">×</button>
                 <div class="card card-challenge today-challenge-card" id="card-challenge">
                   <div class="challenge-header">
                     <div>
@@ -198,51 +181,6 @@
             </div>
           </div>
 
-          <div class="today-customize-bar">
-            <div class="today-customize-actions">
-              <button type="button" class="btn btn-secondary today-customize-mobile-btn" id="today-customize-mobile-toggle">Personnalise ton dashboard</button>
-              <button type="button" class="btn btn-secondary" id="today-customize-toggle">Personnaliser l’écran</button>
-              <button type="button" class="btn btn-secondary" id="today-customize-palette-toggle" aria-expanded="false" aria-controls="today-widget-sheet">Ajouter/Retirer</button>
-            </div>
-            <div class="today-edit-actions" hidden>
-              <button type="button" class="btn btn-secondary" id="today-customize-reset">Réinitialiser la mise en page</button>
-              <button type="button" class="btn btn-primary" id="today-customize-done">Terminer</button>
-            </div>
-          </div>
-
-          <div class="today-widget-sheet" id="today-widget-sheet" hidden aria-hidden="true">
-            <div class="today-widget-sheet-backdrop" id="today-widget-sheet-backdrop" aria-hidden="true"></div>
-            <div class="today-widget-sheet-panel" role="dialog" aria-modal="true" aria-labelledby="today-widget-sheet-title" tabindex="-1">
-              <div class="today-widget-sheet-header">
-                <h3 id="today-widget-sheet-title">Widgets disponibles</h3>
-                <button type="button" class="today-widget-sheet-close" id="today-widget-sheet-close" aria-label="Fermer">✕</button>
-              </div>
-              <div class="today-customize-palette" id="today-customize-palette">
-                <ul class="today-customize-list">
-                  <li>
-                    <span class="today-customize-label">Aujourd'hui</span>
-                    <button type="button" class="today-customize-toggle" data-widget-id="today">Ajouter</button>
-                  </li>
-                  <li>
-                    <span class="today-customize-label">Daily 3</span>
-                    <button type="button" class="today-customize-toggle" data-widget-id="daily3">Ajouter</button>
-                  </li>
-                  <li>
-                    <span class="today-customize-label">4 prochains jours</span>
-                    <button type="button" class="today-customize-toggle" data-widget-id="nextDays">Ajouter</button>
-                  </li>
-                  <li>
-                    <span class="today-customize-label">Motivation &amp; Humeur</span>
-                    <button type="button" class="today-customize-toggle" data-widget-id="motivationMood">Ajouter</button>
-                  </li>
-                  <li>
-                    <span class="today-customize-label">Défi 7 jours</span>
-                    <button type="button" class="today-customize-toggle" data-widget-id="challenge7d">Ajouter</button>
-                  </li>
-                </ul>
-              </div>
-            </div>
-          </div>
         </section>
       </section>
 
