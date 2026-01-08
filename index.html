@@ -98,11 +98,23 @@
           </article>
         </div>
       </section>
+      <section id="view-next" class="view today-page today-page-placeholder" aria-label="Page 3">
+        <div class="today-placeholder-stack">
+          <article class="today-placeholder-card" aria-label="4 prochains jours">
+            <h2>4 prochains jours</h2>
+            <p class="today-placeholder-text">À venir : aperçu des prochains objectifs.</p>
+          </article>
+          <article class="today-placeholder-card" aria-label="Défi 7 jours">
+            <h2>Défi 7 jours</h2>
+            <p class="today-placeholder-text">Section en cours de préparation.</p>
+          </article>
+        </div>
+      </section>
     </main>
     <nav class="page-dots" aria-label="Navigation par page">
-      <span class="dot">○</span>
-      <span class="dot active">●</span>
-      <span class="dot">○</span>
+      <button class="dot active" type="button" aria-label="Aller à la page 1" aria-pressed="true">●</button>
+      <button class="dot" type="button" aria-label="Aller à la page 2" aria-pressed="false">○</button>
+      <button class="dot" type="button" aria-label="Aller à la page 3" aria-pressed="false">○</button>
     </nav>
   </div>
   <script src="today.js"></script>

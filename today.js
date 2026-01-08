@@ -385,11 +385,14 @@ const initSwipePager = () => {
 
   const updateDots = (index) => {
     dots.forEach((dot, dotIndex) => {
-      dot.classList.toggle('active', dotIndex === index);
+      const isActive = dotIndex === index;
+      dot.classList.toggle('active', isActive);
+      dot.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+      dot.textContent = isActive ? '●' : '○';
     });
   };
 
-  const setPage = (index) => {
+  const setPage = (index, behavior = 'auto') => {
     const safeIndex = clampIndex(index);
     const target = pages[safeIndex];
     if (!target) {
@@ -397,7 +400,7 @@ const initSwipePager = () => {
     }
     pager.scrollTo({
       left: target.offsetLeft,
-      behavior: 'auto'
+      behavior
     });
     updateDots(safeIndex);
   };
@@ -415,5 +418,11 @@ const initSwipePager = () => {
     });
   });
 
-  setPage(1);
+  dots.forEach((dot, index) => {
+    dot.addEventListener('click', () => {
+      setPage(index, 'smooth');
+    });
+  });
+
+  setPage(0);
 };
