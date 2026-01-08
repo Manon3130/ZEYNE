@@ -496,11 +496,55 @@ body.view-aujourdhui-active {
 }
 
 .dot {
+  border: none;
+  background: transparent;
+  padding: 0;
   color: rgba(166, 128, 118, 0.4);
+  font: inherit;
+  cursor: pointer;
 }
 
 .dot.active {
   color: rgba(166, 128, 118, 0.9);
+}
+
+.dot:focus-visible {
+  outline: 2px solid rgba(166, 128, 118, 0.5);
+  outline-offset: 4px;
+  border-radius: 999px;
+}
+
+.today-page-placeholder {
+  align-items: flex-start;
+}
+
+.today-placeholder-stack {
+  width: min(92vw, 420px);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-inline: auto;
+}
+
+.today-placeholder-card {
+  background: rgba(255, 255, 255, 0.76);
+  border-radius: 24px;
+  padding: 22px 20px;
+  box-shadow: 0 22px 36px rgba(234, 196, 175, 0.28);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.today-placeholder-card h2 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: var(--text-strong);
+}
+
+.today-placeholder-text {
+  margin: 0;
+  color: rgba(139, 106, 95, 0.8);
 }
 
 .header {
