@@ -2350,6 +2350,7 @@ body.drag-active {
   text-align: left;
   width: 100%;
   overflow: hidden;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
 }
 
 .card-aujourdhui h2 {
