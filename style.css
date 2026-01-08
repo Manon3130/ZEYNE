@@ -10,18 +10,21 @@
   --accent-rose: #F9D8D6;
   --accent-peach: #F7E6D6;
   --accent-blush: #EAC4AF;
-  --accent-lilac: #D8C8F2;
-  --accent-sky: #CDE7F5;
-  --accent-mint: #D9F2E3;
-  --accent-sun: #F5F1C3;
+  --accent-lilac: #E6C2CC;
+  --accent-sky: #F1C9C4;
+  --accent-mint: #EFB5B8;
+  --accent-sun: #DFA0AD;
+  --accent-mauve: #E1B7C4;
+  --accent-rose-deep: #D49AA8;
   --success: #CFE8C2;
   --success-text: #4F6F52;
   --border-soft: rgba(234, 196, 175, 0.65);
   --text-primary: var(--text);
   --shadow-soft: 0 18px 40px rgba(234, 196, 175, 0.28);
   --color-pill: var(--accent-peach);
-  --progress-gradient: linear-gradient(90deg, var(--accent-rose), var(--accent-peach), var(--accent-blush), var(--accent-sun), var(--accent-mint));
-  --progress-conic: conic-gradient(var(--accent-rose), var(--accent-peach), var(--accent-blush), var(--accent-sun), var(--accent-mint));
+  --card-tint: rgba(255, 246, 242, 0.96);
+  --progress-gradient: linear-gradient(90deg, #F5BFC1 0%, #E9A9B4 35%, #D99AAA 70%, #C889A0 100%);
+  --progress-conic: conic-gradient(#F5BFC1, #E9A9B4, #D99AAA, #C889A0);
 }
 
 * {
@@ -107,6 +110,8 @@ body.view-aujourdhui-active {
   flex-direction: column;
   padding-top: 72px;
   padding-bottom: 28px;
+  padding-inline: 0;
+  padding-inline-end: 0;
   gap: 16px;
 }
 
@@ -123,7 +128,7 @@ body.view-aujourdhui-active {
 .today-focus-card {
   width: min(90vw, 420px);
   height: clamp(340px, 68vh, 520px);
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--card-tint);
   border-radius: 28px;
   padding: 26px 24px;
   display: flex;
@@ -143,7 +148,7 @@ body.view-aujourdhui-active {
   width: 100%;
   height: 8px;
   border-radius: 999px;
-  background: rgba(234, 196, 175, 0.3);
+  background: rgba(234, 196, 175, 0.18);
   overflow: hidden;
 }
 
@@ -184,7 +189,7 @@ body.view-aujourdhui-active {
   width: clamp(140px, 38vw, 180px);
   height: clamp(140px, 38vw, 180px);
   border-radius: 50%;
-  background: conic-gradient(var(--accent-rose) 0deg, var(--accent-peach) 72deg, var(--accent-blush) 144deg, var(--accent-sun) 216deg, var(--accent-mint) 259deg, rgba(234, 196, 175, 0.25) 259deg 360deg);
+  background: conic-gradient(#F5BFC1 0deg, #E9A9B4 100deg, #D99AAA 190deg, #C889A0 259deg, rgba(234, 196, 175, 0.2) 259deg 360deg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -202,9 +207,9 @@ body.view-aujourdhui-active {
 
 .today-progress-ring span {
   position: relative;
-  font-size: 1.4rem;
+  font-size: 1.55rem;
   font-weight: 600;
-  color: var(--text-strong);
+  color: var(--text);
 }
 
 .today-encouragement {
