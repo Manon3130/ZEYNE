@@ -8,9 +8,24 @@
 </head>
 <body>
   <div class="app-container">
-    <main class="card" aria-label="Planifier">
+    <main class="card card-form" aria-label="Planifier">
       <h1>Planifier</h1>
-      <p>Page Planifier en cours de construction.</p>
+      <p>Organise tes micro-tâches par moment pour rester aligné sur ton objectif.</p>
+      <div id="planifier-days">
+        <div class="form-group">
+          <label>Matin</label>
+          <input type="text" placeholder="Micro-tâche du matin">
+        </div>
+        <div class="form-group">
+          <label>Après-midi</label>
+          <input type="text" placeholder="Micro-tâche de l’après-midi">
+        </div>
+        <div class="form-group">
+          <label>Soir</label>
+          <input type="text" placeholder="Micro-tâche du soir">
+        </div>
+      </div>
+      <button class="btn btn-primary" id="save-planifier-btn" type="button">Enregistrer</button>
       <a class="today-menu-link" href="index.html">Retour à Aujourd’hui</a>
     </main>
   </div>
