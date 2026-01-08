@@ -2,6 +2,7 @@
   --bg: #F7E6D6;
   --primary: #EAC4AF;
   --text: #A68076;
+  --text-strong: #8B6A5F;
   --muted: #EFC3C2;
   --card-bg: rgba(255, 255, 255, 0.6);
   --surface: rgba(255, 255, 255, 0.65);
@@ -19,6 +20,8 @@
   --text-primary: var(--text);
   --shadow-soft: 0 18px 40px rgba(234, 196, 175, 0.28);
   --color-pill: var(--accent-peach);
+  --progress-gradient: linear-gradient(90deg, var(--accent-rose), var(--accent-peach), var(--accent-blush), var(--accent-sun), var(--accent-mint));
+  --progress-conic: conic-gradient(var(--accent-rose), var(--accent-peach), var(--accent-blush), var(--accent-sun), var(--accent-mint));
 }
 
 * {
@@ -89,6 +92,8 @@ body.view-aujourdhui-active {
   justify-content: center;
   box-shadow: 0 12px 30px rgba(234, 196, 175, 0.35);
   cursor: pointer;
+  touch-action: none;
+  user-select: none;
 }
 
 .floating-menu:focus-visible {
@@ -110,11 +115,13 @@ body.view-aujourdhui-active {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding-inline: 8px;
+  padding-inline: 16px;
+  padding-top: clamp(24px, 4vh, 40px);
+  padding-bottom: 12px;
 }
 
 .today-focus-card {
-  width: min(92%, 420px);
+  width: min(90vw, 420px);
   height: clamp(340px, 68vh, 520px);
   background: rgba(255, 255, 255, 0.82);
   border-radius: 28px;
@@ -122,13 +129,14 @@ body.view-aujourdhui-active {
   display: flex;
   flex-direction: column;
   gap: 22px;
-  box-shadow: 0 20px 40px rgba(234, 196, 175, 0.28);
+  box-shadow: 0 24px 44px rgba(234, 196, 175, 0.36);
+  margin-inline: auto;
 }
 
 .today-remaining {
   font-size: 1.1rem;
   font-weight: 600;
-  color: var(--text);
+  color: var(--text-strong);
 }
 
 .today-global-progress {
@@ -143,7 +151,7 @@ body.view-aujourdhui-active {
   height: 100%;
   width: 62%;
   border-radius: inherit;
-  background: var(--accent-blush);
+  background: var(--progress-gradient);
 }
 
 .today-daily-progress {
@@ -162,16 +170,21 @@ body.view-aujourdhui-active {
   padding: 8px 16px;
   border-radius: 999px;
   background: rgba(234, 196, 175, 0.25);
-  color: var(--text);
+  color: var(--text-strong);
   font-weight: 600;
   font-size: 0.95rem;
+  gap: 8px;
+}
+
+.today-badge-icon {
+  font-size: 1rem;
 }
 
 .today-progress-ring {
   width: clamp(140px, 38vw, 180px);
   height: clamp(140px, 38vw, 180px);
   border-radius: 50%;
-  background: conic-gradient(var(--accent-blush) 0 72%, rgba(234, 196, 175, 0.25) 72% 100%);
+  background: conic-gradient(var(--accent-rose) 0deg, var(--accent-peach) 72deg, var(--accent-blush) 144deg, var(--accent-sun) 216deg, var(--accent-mint) 259deg, rgba(234, 196, 175, 0.25) 259deg 360deg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -191,14 +204,86 @@ body.view-aujourdhui-active {
   position: relative;
   font-size: 1.4rem;
   font-weight: 600;
-  color: var(--text);
+  color: var(--text-strong);
 }
 
 .today-encouragement {
   text-align: center;
   font-size: 1rem;
   font-weight: 400;
-  color: rgba(166, 128, 118, 0.9);
+  color: rgba(139, 106, 95, 0.92);
+}
+
+.today-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(247, 230, 214, 0.45);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  z-index: 1250;
+}
+
+.today-menu-backdrop.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.today-menu-panel {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%) translateY(12px);
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  width: min(92vw, 360px);
+  background: rgba(255, 255, 255, 0.96);
+  border-radius: 20px;
+  padding: 20px;
+  box-shadow: 0 26px 48px rgba(234, 196, 175, 0.38);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 1260;
+}
+
+.today-menu-panel.is-open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0);
+}
+
+.today-menu-panel h2 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-strong);
+  margin-bottom: 12px;
+}
+
+.today-menu-list {
+  list-style: none;
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  margin: 0;
+}
+
+.today-menu-link {
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: none;
+  background: rgba(234, 196, 175, 0.2);
+  color: var(--text-strong);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.today-menu-link:focus-visible {
+  outline: 2px solid rgba(166, 128, 118, 0.6);
+  outline-offset: 2px;
 }
 
 .page-dots {
