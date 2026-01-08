@@ -23,8 +23,9 @@
   --shadow-soft: 0 18px 40px rgba(234, 196, 175, 0.28);
   --color-pill: var(--accent-peach);
   --card-tint: rgba(255, 246, 242, 0.96);
-  --progress-gradient: linear-gradient(90deg, #F5BFC1 0%, #E9A9B4 35%, #D99AAA 70%, #C889A0 100%);
-  --progress-conic: conic-gradient(#F5BFC1, #E9A9B4, #D99AAA, #C889A0);
+  --progress-gradient: linear-gradient(90deg, var(--accent-rose) 0%, var(--accent-blush) 40%, var(--accent-mauve) 70%, var(--accent-rose-deep) 100%);
+  --progress-conic: conic-gradient(var(--accent-rose), var(--accent-blush), var(--accent-mauve), var(--accent-rose-deep));
+  --progress-track: rgba(166, 128, 118, 0.2);
 }
 
 * {
@@ -189,7 +190,13 @@ body.view-aujourdhui-active {
   width: clamp(140px, 38vw, 180px);
   height: clamp(140px, 38vw, 180px);
   border-radius: 50%;
-  background: conic-gradient(#F5BFC1 0deg, #E9A9B4 100deg, #D99AAA 190deg, #C889A0 259deg, rgba(234, 196, 175, 0.2) 259deg 360deg);
+  background: conic-gradient(
+    var(--accent-rose) 0deg,
+    var(--accent-blush) 120deg,
+    var(--accent-mauve) 220deg,
+    var(--accent-rose-deep) 300deg,
+    var(--progress-track) 300deg 360deg
+  );
   display: flex;
   align-items: center;
   justify-content: center;
