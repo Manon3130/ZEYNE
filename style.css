@@ -136,10 +136,25 @@ body.view-aujourdhui-active {
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
   padding-inline: 16px;
   padding-top: clamp(24px, 4vh, 40px);
   padding-bottom: 12px;
   scroll-snap-align: center;
+}
+
+.page-debug-label {
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--text-strong);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  box-shadow: 0 6px 14px rgba(166, 128, 118, 0.18);
 }
 
 .today-focus-card {
@@ -2556,6 +2571,10 @@ body.drag-active {
 
 .view.active {
   display: block;
+}
+
+.today-pages .today-page {
+  display: flex;
 }
 
 #view-aujourdhui {

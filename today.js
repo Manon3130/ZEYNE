@@ -180,7 +180,13 @@ const initFloatingMenu = () => {
   });
 
   panel.querySelectorAll('.today-menu-link').forEach(link => {
-    link.addEventListener('click', closeMenu);
+    link.addEventListener('click', () => {
+      const route = link.dataset.route;
+      closeMenu();
+      if (route && route !== window.location.pathname.split('/').pop()) {
+        window.location.href = route;
+      }
+    });
   });
 };
 
