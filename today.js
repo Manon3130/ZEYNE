@@ -1,12 +1,11 @@
 const STORAGE_KEY = 'ZEYNE_STATE_V1';
 const BADGE_DEFINITIONS = [
-  { id: 'bronze', label: 'Bronze', threshold: 3, icon: '🥉' },
-  { id: 'silver', label: 'Argent', threshold: 7, icon: '🥈' },
-  { id: 'gold', label: 'Or', threshold: 14, icon: '🥇' },
-  { id: 'platinum', label: 'Platine', threshold: 30, icon: '🏆' }
+  { id: 'starter', threshold: 1, icon: '🔥' },
+  { id: 'bronze', threshold: 3, icon: '🔥' },
+  { id: 'silver', threshold: 7, icon: '🏆' },
+  { id: 'gold', threshold: 14, icon: '🏆' },
+  { id: 'platinum', threshold: 30, icon: '👑' }
 ];
-
-const getBadgeDefinitionById = (id) => BADGE_DEFINITIONS.find(def => def.id === id) || null;
 
 const getBadgeForStreak = (streakValue) => {
   const normalized = Number(streakValue) || 0;
@@ -20,24 +19,19 @@ const getBadgeForStreak = (streakValue) => {
 };
 
 const resolveBadgeData = () => {
-  const fallback = { label: 'Bonne lancée', icon: '✨' };
+  const fallback = { streak: 0, icon: '🔥' };
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) {
       return fallback;
     }
     const state = JSON.parse(stored);
-    const unlocked = Array.isArray(state?.badges?.unlocked) ? state.badges.unlocked : [];
-    if (unlocked.length) {
-      const last = unlocked[unlocked.length - 1];
-      const definition = getBadgeDefinitionById(last?.id);
-      if (definition) {
-        return definition;
-      }
-    }
-    const streakValue = state?.streak?.current ?? state?.streak?.best;
-    const streakBadge = getBadgeForStreak(streakValue);
-    return streakBadge || fallback;
+    const streakValue = Number(state?.streak?.current ?? state?.streak?.best) || 0;
+    const streakBadge = getBadgeForStreak(streakValue) || fallback;
+    return {
+      streak: streakValue,
+      icon: streakBadge.icon
+    };
   } catch (error) {
     console.warn('Impossible de lire les badges', error);
     return fallback;
@@ -50,9 +44,10 @@ const renderBadge = () => {
     return;
   }
   const badge = resolveBadgeData();
+  const streakLabel = badge.streak === 1 ? 'jour' : 'jours';
   badgeElement.innerHTML = `
     <span class="today-badge-icon" aria-hidden="true">${badge.icon}</span>
-    <span class="today-badge-label">${badge.label}</span>
+    <span class="today-badge-label">Streak ${badge.streak} ${streakLabel}</span>
   `;
 };
 
