@@ -8,9 +8,25 @@
 </head>
 <body>
   <div class="app-container">
-    <main class="card" aria-label="Programme">
+    <main class="card card-form" aria-label="Programme">
       <h1>Programme</h1>
-      <p>Page Programme en cours de construction.</p>
+      <div class="form-group">
+        <label for="first-name-input">Prénom</label>
+        <input type="text" id="first-name-input" placeholder="Votre prénom">
+      </div>
+      <div class="form-group">
+        <label for="email-input">Email (optionnel)</label>
+        <input type="email" id="email-input" placeholder="votre@email.com">
+      </div>
+      <div class="form-group">
+        <label for="goal-input">Objectif principal</label>
+        <input type="text" id="goal-input" placeholder="Mon objectif">
+      </div>
+      <div class="form-group">
+        <label for="deadline-input">Date butoir</label>
+        <input type="date" id="deadline-input">
+      </div>
+      <button class="btn btn-primary" id="save-programme-btn" type="button">Enregistrer</button>
       <a class="today-menu-link" href="index.html">Retour à Aujourd’hui</a>
     </main>
   </div>

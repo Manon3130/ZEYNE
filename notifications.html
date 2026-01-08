@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZEYNE - Notifications</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <main class="card card-form" aria-label="Notifications">
+      <h1>Notifications</h1>
+      <div class="notification-section adaptive-difficulty-section">
+        <label class="toggle-switch">
+          <input type="checkbox" id="adaptive-difficulty-toggle" checked>
+          <span class="toggle-slider" aria-hidden="true"></span>
+          <span class="toggle-label">Difficulté adaptative</span>
+        </label>
+      </div>
+      <p>Autoriser les rappels pour vos micro-tâches.</p>
+      <button class="btn btn-primary" id="enable-notifications-btn" type="button">Activer notifications</button>
+      <div id="notification-status"></div>
+      <a class="today-menu-link" href="index.html">Retour à Aujourd’hui</a>
+    </main>
+  </div>
+</body>
+</html>
