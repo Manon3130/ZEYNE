@@ -129,7 +129,7 @@ body.view-aujourdhui-active {
 .today-focus-card {
   width: min(90vw, 420px);
   height: clamp(340px, 68vh, 520px);
-  background: var(--card-tint);
+  background: rgba(255, 255, 255, 0.78);
   border-radius: 28px;
   padding: 26px 24px;
   display: flex;
@@ -216,7 +216,7 @@ body.view-aujourdhui-active {
   position: relative;
   font-size: 1.55rem;
   font-weight: 600;
-  color: var(--text);
+  color: var(--text-strong);
 }
 
 .today-encouragement {
