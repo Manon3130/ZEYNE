@@ -17,16 +17,17 @@
   <div class="today-menu-panel" role="dialog" aria-modal="true" aria-label="Menu principal" hidden>
     <h2>Menu</h2>
     <ul class="today-menu-list">
-      <li><button class="today-menu-link" type="button">Aujourd’hui</button></li>
-      <li><button class="today-menu-link" type="button">Programme</button></li>
-      <li><button class="today-menu-link" type="button">Planifier</button></li>
-      <li><button class="today-menu-link" type="button">Bibliothèque</button></li>
-      <li><button class="today-menu-link" type="button">Aide & infos</button></li>
+      <li><button class="today-menu-link" type="button" data-route="index.html">Aujourd’hui</button></li>
+      <li><button class="today-menu-link" type="button" data-route="programme.html">Programme</button></li>
+      <li><button class="today-menu-link" type="button" data-route="planifier.html">Planifier</button></li>
+      <li><button class="today-menu-link" type="button" data-route="bibliotheque.html">Bibliothèque</button></li>
+      <li><button class="today-menu-link" type="button" data-route="aide.html">Aide & infos</button></li>
     </ul>
   </div>
   <div class="app-container today-shell">
     <main id="main-content" class="today-pages" aria-label="Dashboard mobile">
       <section id="view-aujourdhui" class="view active today-page" aria-label="Page 1">
+        <div class="page-debug-label">PAGE 1</div>
         <article class="today-focus-card">
           <p class="today-remaining">3 jours restants</p>
           <div class="today-global-progress" aria-label="Progression globale de l'objectif">
@@ -42,6 +43,7 @@
         </article>
       </section>
       <section id="view-daily" class="view today-page today-page-daily" aria-label="Page 2">
+        <div class="page-debug-label">PAGE 2</div>
         <div class="daily-stack">
           <article class="daily-card daily-card-main" aria-label="Daily 3">
             <header class="daily-card-header">
@@ -99,16 +101,8 @@
         </div>
       </section>
       <section id="view-next" class="view today-page today-page-placeholder" aria-label="Page 3">
-        <div class="today-placeholder-stack">
-          <article class="today-placeholder-card" aria-label="4 prochains jours">
-            <h2>4 prochains jours</h2>
-            <p class="today-placeholder-text">À venir : aperçu des prochains objectifs.</p>
-          </article>
-          <article class="today-placeholder-card" aria-label="Défi 7 jours">
-            <h2>Défi 7 jours</h2>
-            <p class="today-placeholder-text">Section en cours de préparation.</p>
-          </article>
-        </div>
+        <div class="page-debug-label">PAGE 3</div>
+        <p class="today-placeholder-text">Page 3</p>
       </section>
     </main>
     <nav class="page-dots" aria-label="Navigation par page">
