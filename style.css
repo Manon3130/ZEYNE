@@ -216,7 +216,7 @@ body.view-aujourdhui-active {
   position: relative;
   font-size: 1.55rem;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--text-strong);
 }
 
 .today-encouragement {
